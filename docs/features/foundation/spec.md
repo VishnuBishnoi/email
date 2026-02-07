@@ -1,6 +1,6 @@
 ---
 title: "Foundation — Specification"
-version: "1.1.0"
+version: "1.2.0"
 status: draft
 created: 2025-02-07
 updated: 2025-02-07
@@ -64,7 +64,7 @@ This specification defines the shared architectural foundation for the privacy-f
 ### FR-FOUND-03: Data Model Cascade Deletes
 
 - Deleting an Account **MUST** cascade delete all associated Folders, EmailFolder associations, Emails, Threads, Attachments, and SearchIndex entries.
-- Deleting a Folder **MUST** remove all EmailFolder associations for that folder. If removing a folder association leaves an Email with no remaining associations, the Email **MUST** be moved to the archive folder (All Mail for Gmail) rather than deleted.
+- Deleting a Folder **MUST** remove all EmailFolder associations for that folder. If removing a folder association leaves an Email with no remaining associations and the removed folder is not Trash, the Email **MUST** be moved to the archive folder (All Mail for Gmail). If the removed folder is Trash and no other associations remain, the Email **MUST** be permanently deleted.
 - Deleting an Email **MUST** cascade delete all associated EmailFolder associations and Attachments.
 
 ---
@@ -274,6 +274,18 @@ The `folderType` values are provider-agnostic domain concepts. The IMAP mapping 
 - `Folder.uidValidity`: The IMAP UIDVALIDITY value for this folder. If the server's UIDVALIDITY changes, the client **MUST** re-sync the entire folder (see Email Sync spec FR-SYNC-02).
 - `EmailFolder.imapUID`: The IMAP UID for this email within this specific folder. UIDs are folder-scoped in IMAP — the same email (by `messageId`) can have different UIDs in different folders.
 - These fields are critical for incremental sync correctness and **MUST** be populated during sync.
+
+### 5.5 Send State Enum
+
+| Value | Description |
+|-------|------------|
+| `none` | Normal received email, not in send pipeline |
+| `queued` | Composed and queued for sending (includes undo-send delay period) |
+| `sending` | SMTP transmission in progress |
+| `failed` | Send failed after retries; user action required |
+| `sent` | Successfully delivered via SMTP |
+
+> State machine transitions are defined in the Email Composer spec (FR-COMP-02) and Email Sync spec (FR-SYNC-07).
 
 ---
 
@@ -505,3 +517,4 @@ See [Proposal — Section 4](../../proposal.md#4-alternatives-considered) for ar
 |---------|------|--------|---------------|
 | 1.0.0 | 2025-02-07 | Core Team | Extracted from monolithic spec v1.2.0. Contains cross-cutting architecture, data model, security, storage, legal, and performance content. |
 | 1.1.0 | 2025-02-07 | Core Team | Address 8 review findings: Gmail labels many-to-many model (EmailFolder join entity), IMAP UID/UIDVALIDITY fields, macOS encryption nuance, OAuth scope rationale + XOAUTH2, outbox/draft storage, AI degradation note, iPad scope fix, folder enum annotation. |
+| 1.2.0 | 2025-02-07 | Core Team | Review round 2: Fix cascade delete Trash logic (prevent unintended resurrection into Archive); add sendState enum table (SF-06 compliance). |
