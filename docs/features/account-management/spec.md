@@ -1,7 +1,7 @@
 ---
 title: "Account Management — Specification"
 version: "1.3.0"
-status: draft
+status: locked
 created: 2025-02-07
 updated: 2025-02-07
 authors:
@@ -172,4 +172,4 @@ Refer to Foundation spec Section 6. This feature uses:
 | 1.0.0 | 2025-02-07 | Core Team | Extracted from monolithic spec v1.2.0 sections 5.1 and 7.1. |
 | 1.1.0 | 2025-02-07 | Core Team | Review: Add G-XX/NG-XX IDs (SF-03), OAuth scope + XOAUTH2 SASL requirements (LG-02), token refresh retry/error handling, cascade delete alignment with FR-FOUND-03, NFR-ACCT-01 measurable threshold, add proposal dependency. |
 | 1.2.0 | 2025-02-07 | Core Team | Review round 2: Define re-auth UX on token refresh exhaustion (inactive state + warning badge); scale NFR-ACCT-02 removal speed to 50K emails per NFR-STOR-01. |
-| 1.3.0 | 2025-02-07 | Core Team | Review round 3: Add privacy policy URL requirement to FR-ACCT-03 (LG-02); add Section 9 release prerequisites for Google OAuth verification (LG-02). |
+| 1.3.0 | 2025-02-07 | Core Team | Review round 3: Add privacy policy URL requirement to FR-ACCT-03 (LG-02); add Section 9 release prerequisites for Google OAuth verification (LG-02). Status → locked. |
