@@ -1,8 +1,14 @@
 import Foundation
+import Security
 import Testing
 @testable import PrivateMailFeature
 
 /// Verify KeychainManager CRUD operations (AC-F-03).
+///
+/// These tests interact with the real Keychain. On iOS Simulator the
+/// test runner may lack entitlements (OSStatus -34018), so every test
+/// checks Keychain availability first and is skipped when unavailable.
+/// Run via `swift test` on macOS for full Keychain coverage.
 @Suite("Keychain Manager")
 struct KeychainManagerTests {
 
@@ -24,10 +30,35 @@ struct KeychainManagerTests {
         )
     }
 
+    /// Returns `true` when the Keychain is accessible in the current
+    /// test environment. On iOS Simulator test bundles without
+    /// entitlements this returns `false`.
+    private func isKeychainAccessible() -> Bool {
+        let probe: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.privatemail.test.probe",
+            kSecAttrAccount as String: UUID().uuidString,
+            kSecValueData as String: Data("probe".utf8),
+        ]
+
+        let addStatus = SecItemAdd(probe as CFDictionary, nil)
+
+        if addStatus == errSecSuccess || addStatus == errSecDuplicateItem {
+            // Clean up the probe entry
+            SecItemDelete(probe as CFDictionary)
+            return true
+        }
+
+        // -34018 = errSecMissingEntitlement
+        return false
+    }
+
     // MARK: - Store and Retrieve
 
     @Test("Store and retrieve token successfully")
     func storeAndRetrieve() async throws {
+        try #require(isKeychainAccessible(), "Keychain not accessible (missing entitlements) — run via `swift test`")
+
         let manager = makeManager()
         let token = makeToken()
         let accountId = "test-account-\(UUID().uuidString)"
@@ -47,6 +78,8 @@ struct KeychainManagerTests {
 
     @Test("Update token replaces existing value")
     func updateToken() async throws {
+        try #require(isKeychainAccessible(), "Keychain not accessible (missing entitlements) — run via `swift test`")
+
         let manager = makeManager()
         let accountId = "test-account-\(UUID().uuidString)"
 
@@ -67,6 +100,8 @@ struct KeychainManagerTests {
 
     @Test("Delete token makes it unretrievable")
     func deleteToken() async throws {
+        try #require(isKeychainAccessible(), "Keychain not accessible (missing entitlements) — run via `swift test`")
+
         let manager = makeManager()
         let accountId = "test-account-\(UUID().uuidString)"
 
@@ -82,6 +117,8 @@ struct KeychainManagerTests {
 
     @Test("Retrieve non-existent token returns nil")
     func retrieveNonExistent() async throws {
+        try #require(isKeychainAccessible(), "Keychain not accessible (missing entitlements) — run via `swift test`")
+
         let manager = makeManager()
 
         let retrieved = try await manager.retrieve(for: "non-existent-\(UUID().uuidString)")
@@ -90,6 +127,8 @@ struct KeychainManagerTests {
 
     @Test("Delete non-existent token does not throw")
     func deleteNonExistent() async throws {
+        try #require(isKeychainAccessible(), "Keychain not accessible (missing entitlements) — run via `swift test`")
+
         let manager = makeManager()
 
         // Should not throw
@@ -100,6 +139,8 @@ struct KeychainManagerTests {
 
     @Test("Storing token for existing account updates it")
     func storeDuplicate() async throws {
+        try #require(isKeychainAccessible(), "Keychain not accessible (missing entitlements) — run via `swift test`")
+
         let manager = makeManager()
         let accountId = "test-account-\(UUID().uuidString)"
 
@@ -120,6 +161,8 @@ struct KeychainManagerTests {
 
     @Test("Tokens are scoped by account ID")
     func accountIsolation() async throws {
+        try #require(isKeychainAccessible(), "Keychain not accessible (missing entitlements) — run via `swift test`")
+
         let manager = makeManager()
         let accountA = "test-account-a-\(UUID().uuidString)"
         let accountB = "test-account-b-\(UUID().uuidString)"
