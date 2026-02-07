@@ -31,4 +31,22 @@ public enum AppConstants {
     public static let gmailImapPort = 993
     public static let gmailSmtpHost = "smtp.gmail.com"
     public static let gmailSmtpPort = 465
+
+    // MARK: - OAuth Configuration (FR-ACCT-03, FR-ACCT-04)
+
+    /// Maximum token refresh retry attempts before prompting re-auth
+    public static let oauthRetryCount = 3
+    /// Base delay for exponential backoff on refresh retry (seconds)
+    public static let oauthRetryBaseDelay: TimeInterval = 1.0
+    /// Buffer before token expiry to trigger proactive refresh (seconds)
+    public static let tokenRefreshBuffer: TimeInterval = 300
+
+    /// Google OAuth 2.0 authorization endpoint
+    public static let googleAuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth"
+    /// Google OAuth 2.0 token endpoint
+    public static let googleTokenEndpoint = "https://oauth2.googleapis.com/token"
+    /// OAuth scope for Gmail IMAP/SMTP access (FR-ACCT-01)
+    public static let oauthScope = "https://mail.google.com/"
+    /// Custom URL scheme for OAuth redirect
+    public static let oauthRedirectScheme = "com.privatemail"
 }

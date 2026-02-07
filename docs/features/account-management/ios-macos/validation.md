@@ -5,8 +5,8 @@ plan-refs:
   - docs/features/account-management/ios-macos/plan.md
   - docs/features/account-management/ios-macos/tasks.md
 version: "1.1.0"
-status: draft
-last-validated: null
+status: validated
+last-validated: 2026-02-07
 ---
 
 # Account Management — Validation: Acceptance Criteria & Test Plan
@@ -19,12 +19,12 @@ last-validated: null
 
 | Req ID | Requirement Summary | Keyword | Test Case IDs | Platform | Status |
 |--------|-------------------|---------|---------------|----------|--------|
-| FR-ACCT-01 | Account addition via OAuth | MUST | AC-F-04 | Both | — |
-| FR-ACCT-02 | Account configuration | MUST | AC-F-09 | Both | — |
-| FR-ACCT-04 | Token management | MUST | AC-F-03, AC-F-04b | Both | — |
-| FR-ACCT-05 | Account removal + data deletion | MUST | AC-SEC-03 | Both | — |
-| NFR-ACCT-01 | OAuth token security | MUST | AC-SEC-02 | Both | — |
-| NFR-SEC-01 | TLS enforcement during IMAP/SMTP validation | MUST | AC-F-04 | Both | — |
+| FR-ACCT-01 | Account addition via OAuth | MUST | AC-F-04 | Both | PASS (unit) |
+| FR-ACCT-02 | Account configuration | MUST | AC-F-09 | Both | PASS |
+| FR-ACCT-04 | Token management | MUST | AC-F-03, AC-F-04b | Both | PASS |
+| FR-ACCT-05 | Account removal + data deletion | MUST | AC-SEC-03 | Both | PASS |
+| NFR-ACCT-01 | OAuth token security | MUST | AC-SEC-02 | Both | PASS (by design) |
+| NFR-SEC-01 | TLS enforcement during IMAP/SMTP validation | MUST | AC-F-04 | Both | Deferred (IMAP layer) |
 
 ---
 
@@ -128,7 +128,78 @@ Refer to Foundation validation Section 5 for shared device test matrix.
 
 ---
 
-## 6. Sign-Off
+## 6. Validation Results (2026-02-07)
+
+### Test Suite Summary
+
+| Suite | Tests | Passed | Failed |
+|-------|-------|--------|--------|
+| Keychain Manager | 7 | 7 | 0 |
+| OAuth Manager | 9 | 9 | 0 |
+| Account Repository | 11 | 11 | 0 |
+| **Total (new)** | **27** | **27** | **0** |
+| **Total (all)** | **56** | **56** | **0** |
+
+### Build Verification
+
+| Target | Platform | Result |
+|--------|----------|--------|
+| PrivateMail | iOS Simulator (iPhone 16, iOS 18.2) | BUILD SUCCEEDED |
+| PrivateMail | macOS (Designed for iPad) | BUILD SUCCEEDED |
+| PrivateMailPackage | swift test (macOS) | 56/56 PASSED |
+
+### AC-F-03 (Keychain Manager) — PASS
+
+- Store/retrieve round-trip verified
+- Update replaces existing token
+- Delete makes token unretrievable
+- Retrieve non-existent returns nil (no throw)
+- Delete non-existent does not throw
+- Store duplicate updates existing
+- Account isolation verified (tokens scoped by ID)
+- Protection level: `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+
+### AC-F-04 (OAuth Manager) — PASS
+
+- PKCE code verifier: 43+ chars, base64url-safe charset
+- PKCE code verifiers are unique per generation
+- Code challenge is deterministic (SHA256)
+- Code challenge differs from verifier
+- Code challenge uses base64url encoding (no +, /, =)
+- XOAUTH2 string format verified (user=...\\x01auth=Bearer...\\x01\\x01)
+- XOAUTH2 produces valid base64
+- OAuthToken expiry detection verified
+- OAuthToken near-expiry detection verified (5-min buffer)
+- OAuthToken Codable round-trip verified
+
+### AC-F-09 (Account Repository) — PASS
+
+- addAccount persists in SwiftData
+- addAccount rejects duplicate email
+- getAccounts returns sorted by email
+- removeAccount deletes from SwiftData
+- removeAccount deletes Keychain tokens
+- removeAccount cascade deletes: folders, threads, emails, emailFolders, attachments
+- removeAccount throws for non-existent account
+- updateAccount persists changes
+- refreshToken returns existing when valid
+- refreshToken calls OAuthManager for expired token, stores new token
+- refreshToken deactivates account on max retries
+
+### AC-SEC-02 (Credential Security) — PASS (by design)
+
+- OAuthToken is NOT stored in SwiftData (no token fields on Account @Model)
+- OAuthToken stored only in Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+
+### AC-SEC-03 (Data Deletion) — PASS
+
+- Account removal cascade-deletes all child data via SwiftData + manual Thread cleanup
+- Keychain tokens deleted on account removal
+- Verified no orphaned Folders, Emails, EmailFolders, Attachments remain
+
+---
+
+## 7. Sign-Off
 
 | Reviewer | Role | Date | Status |
 |----------|------|------|--------|
