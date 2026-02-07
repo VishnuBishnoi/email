@@ -106,9 +106,106 @@ This constitution defines the immutable constraints, principles, and rules that 
 - Dynamic Type **MUST** be supported across all screens
 - Color **MUST NOT** be the sole means of conveying information
 
+### TC-06: Data Retention & Storage
+
+#### Mailbox Size
+
+- The client **MUST** support mailboxes of up to 50,000 emails per account for V1.
+- The client **SHOULD** remain functional (no crashes, no data loss) with up to 100,000 emails per account, with degraded performance acceptable beyond 50K.
+- The client **MUST** display a warning when local storage for a single account exceeds 2GB.
+
+#### Sync Window & Retention
+
+- Emails outside the configured sync window **MAY** be purged from local storage during maintenance.
+- The client **MUST** retain all emails within the active sync window.
+- When the user reduces the sync window, emails outside the new window **SHOULD** be purged within 24 hours.
+- Purging local data **MUST NOT** delete emails from the server.
+
+#### Cache Limits
+
+| Cache Type | Default Limit | User Configurable | Eviction Policy |
+|-----------|---------------|-------------------|-----------------|
+| Email body cache (HTML/plain) | Retained for sync window | Via sync window setting | Oldest first when outside window |
+| Attachment cache (downloaded files) | 500MB per account | Yes (Settings) | LRU eviction when limit exceeded |
+| AI category/summary cache | No limit (stored on entity) | No (deleted with email) | Tied to email lifecycle |
+| Search embedding index | No limit (stored locally) | No (deleted with email) | Tied to email lifecycle |
+| AI model files | No limit | Yes (manual delete in Settings) | User-managed |
+
+- The client **MUST** display per-account and total storage usage in Settings.
+- The client **MUST** provide a "Clear Cache" action that removes downloaded attachments and regenerable caches without deleting emails or accounts.
+- The client **SHOULD** proactively warn the user when total app storage exceeds 5GB.
+
+#### Storage Budgeting
+
+| Component | Expected Range (per account, 30-day window) |
+|-----------|---------------------------------------------|
+| Email metadata (SwiftData) | 50-200MB for 10K-50K emails |
+| Email bodies | 100MB-1GB depending on email content |
+| Attachments (downloaded) | 0-500MB (user-controlled) |
+| Search index (embeddings) | 50-200MB for 10K-50K emails |
+| AI models (shared across accounts) | 500MB-2GB depending on model |
+| **Total estimate** | **700MB-4GB per account + models** |
+
+- The client **MUST** document expected storage usage during onboarding before initial sync.
+- The client **MUST NOT** allow unbounded storage growth — all caches **MUST** have a limit or lifecycle-based eviction.
+
 ---
 
-## 4. Architectural Invariants
+## 4. Legal & Licensing
+
+### LG-01: AI Model Licensing
+
+- All AI models used by the client **MUST** have licenses that permit local redistribution and on-device inference in a commercial application.
+- The model license **MUST** be reviewed and recorded before any model is added to the supported model list.
+- The client **MUST** display model license information in Settings → About → AI Model Licenses.
+- Models with restrictive licenses (e.g., non-commercial-only, share-alike that would apply to the client itself) **MUST NOT** be included.
+
+| Candidate Model Family | License | Commercial Use | Redistribution | Status |
+|------------------------|---------|---------------|---------------|--------|
+| Llama 3 / 3.2 | Llama 3 Community License | Yes (under 700M MAU) | Yes | Eligible |
+| Phi-3 / Phi-3.5 | MIT | Yes | Yes | Eligible |
+| Mistral 7B | Apache 2.0 | Yes | Yes | Eligible |
+| Gemma | Gemma Terms of Use | Yes | Yes (with terms) | Review required |
+
+- The final model selection **MUST** be made only after license verification.
+- Model files **MUST NOT** be bundled in the app binary submitted to the App Store. They **MUST** be downloaded post-install.
+
+### LG-02: Gmail OAuth Requirements
+
+- The client **MUST** comply with [Google's OAuth 2.0 Policies](https://developers.google.com/identity/protocols/oauth2/policies).
+- The client **MUST** undergo Google's OAuth verification process before public release.
+- The client **MUST** request only the minimum required OAuth scopes:
+  - `https://mail.google.com/` (IMAP/SMTP access)
+- The client **MUST** provide a privacy policy URL accessible from the OAuth consent screen and the app itself.
+- The client **MUST** comply with Google's [API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), specifically the Limited Use requirements.
+- The client **MUST NOT** use obtained tokens for any purpose other than direct IMAP/SMTP communication with Gmail.
+
+### LG-03: App Store Privacy Disclosure
+
+- The client **MUST** accurately complete the App Store Privacy Nutrition Label.
+- Based on the architecture, the expected disclosures are:
+
+| Data Type | Collected | Linked to User | Used for Tracking | Purpose |
+|-----------|-----------|----------------|-------------------|---------|
+| Email messages | Yes (locally) | No (never leaves device) | No | App Functionality |
+| Email address | Yes (locally) | No (never leaves device) | No | App Functionality |
+| Name | Yes (locally, from email headers) | No | No | App Functionality |
+| Usage data | No | N/A | N/A | N/A |
+| Diagnostics | No | N/A | N/A | N/A |
+
+- The privacy disclosure **MUST** be reviewed and updated with each release that changes data handling.
+- The client **MUST** include an in-app privacy policy accessible from Settings.
+
+### LG-04: Open-Source License Compliance
+
+- All third-party dependencies **MUST** have their licenses documented in Settings → About → Open Source Licenses.
+- License compliance **MUST** be validated before each release.
+- The following licenses are pre-approved for use: MIT, Apache 2.0, BSD 2-Clause, BSD 3-Clause, ISC, Zlib.
+- Copyleft licenses (GPL, LGPL, AGPL) **MUST NOT** be used unless reviewed and approved by the Core Team, with a documented compliance strategy.
+
+---
+
+## 5. Architectural Invariants
 
 ### AI-01: Layered Architecture
 
@@ -158,7 +255,7 @@ The AI engine **MUST** be abstracted behind a protocol. Swapping the underlying 
 
 ---
 
-## 5. Process Requirements
+## 6. Process Requirements
 
 ### PR-01: Spec Before Code
 
@@ -185,7 +282,7 @@ The AI engine **MUST** be abstracted behind a protocol. Swapping the underlying 
 
 ---
 
-## 6. Spec Format Standard
+## 7. Spec Format Standard
 
 This section defines the mandatory document format, hierarchy, lifecycle, and template for all project specifications. Every feature or change **MUST** follow this framework.
 
@@ -380,7 +477,7 @@ depends-on: [docs/constitution.md]
 
 ---
 
-## 7. Naming Conventions
+## 8. Naming Conventions
 
 ### Code
 
@@ -409,7 +506,7 @@ depends-on: [docs/constitution.md]
 
 ---
 
-## 8. Glossary
+## 9. Glossary
 
 | Term | Definition |
 |------|-----------|
@@ -424,7 +521,7 @@ depends-on: [docs/constitution.md]
 
 ---
 
-## 9. Amendment Log
+## 10. Amendment Log
 
 | # | Date | Description | Approved By |
 |---|------|-------------|-------------|

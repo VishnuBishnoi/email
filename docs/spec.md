@@ -1,6 +1,6 @@
 ---
 title: "Privacy-First Email Client — Product Specification"
-version: "1.0.0"
+version: "1.1.0"
 status: draft
 created: 2025-02-07
 updated: 2025-02-07
@@ -576,7 +576,68 @@ flowchart TD
 
 ---
 
-## 8. Performance Requirements
+## 8. Storage & Data Retention
+
+Refer to Constitution TC-06 for hard limits. This section specifies the behavioral requirements.
+
+### 8.1 Mailbox Size Limits
+
+- The client **MUST** support up to 50,000 emails per account.
+- The client **SHOULD** remain functional with up to 100,000 emails (degraded performance acceptable).
+- The client **MUST** display a warning when account storage exceeds 2GB.
+
+### 8.2 Cache Management
+
+| Cache | Limit | Eviction | User Control |
+|-------|-------|----------|-------------|
+| Downloaded attachments | 500MB per account | LRU when limit exceeded | Configurable limit in Settings |
+| Email bodies | Sync window | Purged when outside window | Via sync window setting |
+| AI results (category, summary) | Tied to email lifecycle | Deleted with email | None (automatic) |
+| Search embeddings | Tied to email lifecycle | Deleted with email | None (automatic) |
+| AI models | No automatic limit | None | Manual delete in Settings |
+
+### 8.3 Storage Visibility
+
+- The client **MUST** display per-account storage breakdown in Settings (emails, attachments, search index).
+- The client **MUST** display total app storage usage.
+- The client **MUST** provide a "Clear Cache" action (removes attachments and regenerable caches, preserves emails and accounts).
+- The client **SHOULD** warn the user when total app storage exceeds 5GB.
+
+### 8.4 Sync Window Retention
+
+- When the sync window is reduced, emails outside the new window **SHOULD** be purged from local storage within 24 hours.
+- Purging local data **MUST NOT** delete emails from the IMAP server.
+- The client **MUST** inform the user that reducing the sync window will remove local copies of older emails.
+
+---
+
+## 9. Legal & Compliance
+
+### 9.1 AI Model Licensing
+
+- All AI models **MUST** have licenses permitting commercial use and local redistribution.
+- Model license details **MUST** be displayed in Settings → About → AI Model Licenses.
+- Models **MUST NOT** be bundled in the App Store binary; they **MUST** be downloaded post-install.
+- Refer to Constitution LG-01 for the pre-approved model list and license review requirements.
+
+### 9.2 Gmail OAuth Compliance
+
+- The client **MUST** complete Google's OAuth verification process before public release.
+- The client **MUST** request only the minimum scope: `https://mail.google.com/`.
+- The client **MUST** comply with Google's API Services User Data Policy (Limited Use requirements).
+- The client **MUST** provide a privacy policy URL on the OAuth consent screen.
+- Refer to Constitution LG-02 for full requirements.
+
+### 9.3 App Store Privacy Disclosure
+
+- The client **MUST** accurately complete the App Store Privacy Nutrition Label for each release.
+- The client **MUST** include an in-app privacy policy accessible from Settings.
+- Expected disclosure: data collected locally for app functionality only; no data collected for tracking; no data shared with third parties.
+- Refer to Constitution LG-03 for the detailed disclosure matrix.
+
+---
+
+## 10. Performance Requirements
 
 Refer to Constitution TC-04 for hard limits. Additional requirements:
 
@@ -591,7 +652,7 @@ Refer to Constitution TC-04 for hard limits. Additional requirements:
 
 ---
 
-## 9. Alternatives Considered
+## 11. Alternatives Considered
 
 See [Proposal — Section 4](proposal.md#4-alternatives-considered) for architectural alternatives. Feature-level alternatives:
 
@@ -604,7 +665,7 @@ See [Proposal — Section 4](proposal.md#4-alternatives-considered) for architec
 
 ---
 
-## 10. Open Questions
+## 12. Open Questions
 
 | # | Question | Owner | Target Date |
 |---|----------|-------|-------------|
@@ -612,12 +673,13 @@ See [Proposal — Section 4](proposal.md#4-alternatives-considered) for architec
 | OQ-02 | Which embedding model for semantic search? Candidates: all-MiniLM-L6-v2, nomic-embed-text | AI Lead | Pre-plan |
 | OQ-03 | Should notification strategy be background-fetch-only or should we explore Apple Push Notification with a minimal relay? | Core Team | Plan phase |
 | OQ-04 | Gmail IMAP access requires "Allow less secure apps" to be deprecated — confirm OAuth-based XOAUTH2 IMAP auth works reliably | Backend Lead | Pre-plan |
-| OQ-05 | Maximum supported mailbox size for V1? (10K, 50K, 100K emails?) | Core Team | Pre-plan |
+| ~~OQ-05~~ | ~~Maximum supported mailbox size for V1?~~ **RESOLVED**: 50K supported, 100K functional with degraded perf. See Constitution TC-06 and Spec Section 8.1. | Core Team | Resolved |
 
 ---
 
-## 11. Revision History
+## 13. Revision History
 
 | Version | Date | Author | Change Summary |
 |---------|------|--------|---------------|
 | 1.0.0 | 2025-02-07 | Core Team | Initial draft |
+| 1.1.0 | 2025-02-07 | Core Team | Added Sections 8 (Storage & Data Retention), 9 (Legal & Compliance). Resolved OQ-05. |
