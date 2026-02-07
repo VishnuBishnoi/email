@@ -4,7 +4,7 @@ spec-ref: docs/features/account-management/spec.md
 plan-refs:
   - docs/features/account-management/ios-macos/plan.md
   - docs/features/account-management/ios-macos/tasks.md
-version: "1.0.0"
+version: "1.1.0"
 status: draft
 last-validated: null
 ---
@@ -24,6 +24,7 @@ last-validated: null
 | FR-ACCT-04 | Token management | MUST | AC-F-03, AC-F-04b | Both | — |
 | FR-ACCT-05 | Account removal + data deletion | MUST | AC-SEC-03 | Both | — |
 | NFR-ACCT-01 | OAuth token security | MUST | AC-SEC-02 | Both | — |
+| NFR-SEC-01 | TLS enforcement during IMAP/SMTP validation | MUST | AC-F-04 | Both | — |
 
 ---
 
@@ -52,6 +53,7 @@ last-validated: null
   AND the app **MUST** exchange the code for access + refresh tokens
   AND tokens **MUST** be stored in the Keychain
   AND IMAP authentication with XOAUTH2 **MUST** succeed using the access token
+  AND IMAP/SMTP connections during validation **MUST** use TLS with server certificate verification (per Foundation NFR-SEC-01)
 - **Priority**: Critical
 
 **AC-F-04b**: Token Refresh
@@ -71,7 +73,7 @@ last-validated: null
 - **Given**: An `AccountRepositoryImpl`
 - **When**: Account operations are performed
 - **Then**: `addAccount` **MUST** store account config in SwiftData and tokens in Keychain
-  AND `removeAccount` **MUST** delete all associated data (emails, folders, threads, attachments, search index, sync state, Keychain tokens)
+  AND `removeAccount` **MUST** cascade delete all associated data per FR-FOUND-03: Folders, EmailFolder associations, Emails, Threads, Attachments, SearchIndex entries, and Keychain tokens
   AND `getAccounts` **MUST** return all configured accounts
   AND `updateAccount` **MUST** persist configuration changes
 - **Priority**: Critical
@@ -91,12 +93,12 @@ last-validated: null
 
 **AC-SEC-03**: Data Deletion on Account Removal
 
-- **Given**: An account with 500 synced emails and AI-generated data
+- **Given**: An account with 50,000 synced emails and AI-generated data
 - **When**: The account is removed
 - **Then**: All emails, folders, threads, attachments, search index entries, and AI cache for the account **MUST** be deleted from SwiftData
   AND Keychain tokens for the account **MUST** be deleted
   AND no orphaned data **MUST** remain
-  AND the operation **MUST** complete within 10 seconds
+  AND the operation **MUST** complete within 15 seconds (per NFR-ACCT-02)
 - **Priority**: Critical
 
 ---
@@ -105,7 +107,10 @@ last-validated: null
 
 | # | Scenario | Expected Behavior |
 |---|---------|-------------------|
-| E-02 | OAuth token refresh fails (revoked) | User sees "Re-authenticate" prompt; no crash; other accounts unaffected |
+| E-02 | OAuth token refresh fails (revoked) | User sees "Re-authenticate" modal prompt; if dismissed, account enters inactive state (isActive=false) with warning badge; sync suspended; local data preserved; no crash; other accounts unaffected |
+| E-03 | Network disconnect during OAuth flow | ASWebAuthenticationSession shows system error; user returned to account list; no partial account created |
+| E-04 | User cancels OAuth consent | ASWebAuthenticationSession dismissed; user returned to account list; no data stored |
+| E-05 | Authorization code expires before exchange | Token exchange fails; user sees error with "Try Again" action; no partial account created |
 
 ---
 
@@ -113,7 +118,7 @@ last-validated: null
 
 | Metric | Target | Hard Limit | Measurement Method | Failure Threshold |
 |--------|--------|------------|--------------------|-------------------|
-| Account removal | < 5s | 10s | Time to delete all data for account with 500 emails | Fails if > 10s |
+| Account removal | < 5s | 15s | Time to delete all data for account with 50,000 emails (per NFR-STOR-01) | Fails if > 15s |
 
 ---
 

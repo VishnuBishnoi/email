@@ -1,7 +1,7 @@
 ---
 title: "Account Management — Specification"
-version: "1.0.0"
-status: draft
+version: "1.3.0"
+status: locked
 created: 2025-02-07
 updated: 2025-02-07
 authors:
@@ -10,6 +10,7 @@ reviewers: []
 tags: [account, oauth, keychain, multi-account]
 depends-on:
   - docs/constitution.md
+  - docs/proposal.md
   - docs/features/foundation/spec.md
 ---
 
@@ -27,15 +28,15 @@ This specification defines account addition, configuration, and removal for Gmai
 
 ### Goals
 
-- Support adding and removing multiple Gmail accounts via OAuth 2.0
-- Store credentials securely in the platform Keychain
-- Validate IMAP/SMTP connectivity before completing setup
-- Allow per-account configuration (sync window, display name)
+- **G-01**: The client **MUST** support adding and removing multiple Gmail accounts via OAuth 2.0.
+- **G-02**: The client **MUST** store credentials securely in the platform Keychain.
+- **G-03**: The client **MUST** validate IMAP/SMTP connectivity before completing setup.
+- **G-04**: The client **MUST** allow per-account configuration (sync window, display name).
 
 ### Non-Goals
 
-- Non-Gmail providers (V2)
-- Shared mailboxes or delegation
+- **NG-01**: Non-Gmail providers (V2).
+- **NG-02**: Shared mailboxes or delegation.
 
 ---
 
@@ -47,6 +48,7 @@ This specification defines account addition, configuration, and removal for Gmai
 - The client **MUST** store OAuth tokens in the platform Keychain.
 - The client **MUST** support adding multiple accounts.
 - The client **MUST** validate IMAP/SMTP connectivity before completing account setup.
+- The client **MUST** request only the OAuth scope `https://mail.google.com/` (the only scope Google provides for IMAP/SMTP access; see Constitution LG-02).
 - The client **MUST** display connection errors with actionable messages.
 
 ### FR-ACCT-02: Account Configuration
@@ -57,6 +59,8 @@ This specification defines account addition, configuration, and removal for Gmai
 - The client **SHOULD** allow users to set a default sending account.
 
 ### FR-ACCT-03: Gmail OAuth Flow
+
+- The OAuth authorization request **MUST** include a privacy policy URL accessible from the consent screen (per Constitution LG-02).
 
 ```mermaid
 sequenceDiagram
@@ -84,11 +88,16 @@ sequenceDiagram
 
 - OAuth 2.0 tokens **MUST** be stored in the Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` protection level.
 - Token refresh **MUST** happen transparently before token expiry.
-- Refresh failure **MUST** prompt re-authentication; the client **MUST NOT** store user passwords.
+- On refresh failure, the client **MUST** retry up to 3 times with exponential backoff before prompting re-authentication.
+- After retry exhaustion, the client **MUST** present a modal prompt explaining the session has expired and offering a "Re-authenticate" action that re-initiates the OAuth flow (FR-ACCT-03). If the user dismisses the prompt, the account **MUST** enter an `inactive` state (Account.isActive = false) where sync is suspended but local data is preserved. The account row **MUST** display a warning badge until re-authenticated.
+- In-flight sync or send operations **MUST** be paused (not discarded) during re-authentication; queued sends **MUST** remain in `queued` state (see Foundation spec Section 5.5).
+- The client **MUST NOT** store user passwords.
+- The client **MUST** authenticate to Gmail IMAP and SMTP using the XOAUTH2 SASL mechanism (see Foundation spec Section 10.2).
+- The client **MUST NOT** fall back to plaintext password authentication.
 
 ### FR-ACCT-05: Account Removal and Data Deletion
 
-- When an account is removed, the client **MUST** delete all associated local data (emails, folders, threads, attachments, search index, sync state, cached AI results).
+- When an account is removed, the client **MUST** delete all associated local data per Foundation FR-FOUND-03: Folders, EmailFolder associations, Emails, Threads, Attachments, and SearchIndex entries.
 - Keychain items for the account **MUST** be deleted.
 
 ---
@@ -97,15 +106,15 @@ sequenceDiagram
 
 ### NFR-ACCT-01: OAuth Token Security
 
-- **Metric**: Keychain protection level
-- **Target**: `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` on all token entries
-- **Hard Limit**: Tokens MUST NOT appear in any file outside the Keychain
+- **Metric**: Token storage location audit
+- **Target**: 100% of OAuth tokens stored in Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+- **Hard Limit**: 0 token occurrences in files, logs, or UserDefaults outside Keychain
 
 ### NFR-ACCT-02: Account Removal Speed
 
 - **Metric**: Time to delete all account data
-- **Target**: < 5 seconds
-- **Hard Limit**: 10 seconds for 500 emails
+- **Target**: < 5 seconds for 50,000 emails (per Foundation NFR-STOR-01)
+- **Hard Limit**: 15 seconds for 50,000 emails
 
 ---
 
@@ -142,7 +151,13 @@ Refer to Foundation spec Section 6. This feature uses:
 
 ---
 
-## 9. Open Questions
+## 9. Release Prerequisites
+
+- The client **MUST** complete Google's OAuth verification process before public release (per Constitution LG-02).
+
+---
+
+## 10. Open Questions
 
 | # | Question | Owner | Target Date |
 |---|----------|-------|-------------|
@@ -150,8 +165,11 @@ Refer to Foundation spec Section 6. This feature uses:
 
 ---
 
-## 10. Revision History
+## 11. Revision History
 
 | Version | Date | Author | Change Summary |
 |---------|------|--------|---------------|
 | 1.0.0 | 2025-02-07 | Core Team | Extracted from monolithic spec v1.2.0 sections 5.1 and 7.1. |
+| 1.1.0 | 2025-02-07 | Core Team | Review: Add G-XX/NG-XX IDs (SF-03), OAuth scope + XOAUTH2 SASL requirements (LG-02), token refresh retry/error handling, cascade delete alignment with FR-FOUND-03, NFR-ACCT-01 measurable threshold, add proposal dependency. |
+| 1.2.0 | 2025-02-07 | Core Team | Review round 2: Define re-auth UX on token refresh exhaustion (inactive state + warning badge); scale NFR-ACCT-02 removal speed to 50K emails per NFR-STOR-01. |
+| 1.3.0 | 2025-02-07 | Core Team | Review round 3: Add privacy policy URL requirement to FR-ACCT-03 (LG-02); add Section 9 release prerequisites for Google OAuth verification (LG-02). Status → locked. |

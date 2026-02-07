@@ -2,11 +2,11 @@
 title: "Privacy-First Email Client"
 proposal-id: PROP-001
 version: "1.1.0"
-status: draft
+status: locked
 author: Core Team
 created: 2025-02-07
 updated: 2025-02-07
-decision-date: null
+decision-date: 2025-02-07
 relates-to:
   - docs/constitution.md
 ---

@@ -1,8 +1,8 @@
 ---
 title: "Project Constitution"
 version: "1.0.0"
-status: draft
-ratified: null
+status: locked
+ratified: 2025-02-07
 amendment-process: "Requires unanimous core team approval and a documented amendment proposal."
 ---
 
@@ -528,3 +528,4 @@ depends-on: [docs/constitution.md]
 | # | Date | Description | Approved By |
 |---|------|-------------|-------------|
 | — | 2025-02-07 | Initial ratification | Core Team |
+| 1 | 2025-02-07 | P-02 OAuth/model-download exceptions clarified; P-03 bundle contradiction fixed; LG-03 privacy table corrected. Status → locked. | Core Team |
