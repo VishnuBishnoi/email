@@ -1,6 +1,6 @@
 ---
 title: "Account Management — Specification"
-version: "1.1.0"
+version: "1.2.0"
 status: draft
 created: 2025-02-07
 updated: 2025-02-07
@@ -87,6 +87,7 @@ sequenceDiagram
 - OAuth 2.0 tokens **MUST** be stored in the Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` protection level.
 - Token refresh **MUST** happen transparently before token expiry.
 - On refresh failure, the client **MUST** retry up to 3 times with exponential backoff before prompting re-authentication.
+- After retry exhaustion, the client **MUST** present a modal prompt explaining the session has expired and offering a "Re-authenticate" action that re-initiates the OAuth flow (FR-ACCT-03). If the user dismisses the prompt, the account **MUST** enter an `inactive` state (Account.isActive = false) where sync is suspended but local data is preserved. The account row **MUST** display a warning badge until re-authenticated.
 - In-flight sync or send operations **MUST** be paused (not discarded) during re-authentication; queued sends **MUST** remain in `queued` state (see Foundation spec Section 5.5).
 - The client **MUST NOT** store user passwords.
 - The client **MUST** authenticate to Gmail IMAP and SMTP using the XOAUTH2 SASL mechanism (see Foundation spec Section 10.2).
@@ -110,8 +111,8 @@ sequenceDiagram
 ### NFR-ACCT-02: Account Removal Speed
 
 - **Metric**: Time to delete all account data
-- **Target**: < 5 seconds
-- **Hard Limit**: 10 seconds for 500 emails
+- **Target**: < 5 seconds for 50,000 emails (per Foundation NFR-STOR-01)
+- **Hard Limit**: 15 seconds for 50,000 emails
 
 ---
 
@@ -162,3 +163,4 @@ Refer to Foundation spec Section 6. This feature uses:
 |---------|------|--------|---------------|
 | 1.0.0 | 2025-02-07 | Core Team | Extracted from monolithic spec v1.2.0 sections 5.1 and 7.1. |
 | 1.1.0 | 2025-02-07 | Core Team | Review: Add G-XX/NG-XX IDs (SF-03), OAuth scope + XOAUTH2 SASL requirements (LG-02), token refresh retry/error handling, cascade delete alignment with FR-FOUND-03, NFR-ACCT-01 measurable threshold, add proposal dependency. |
+| 1.2.0 | 2025-02-07 | Core Team | Review round 2: Define re-auth UX on token refresh exhaustion (inactive state + warning badge); scale NFR-ACCT-02 removal speed to 50K emails per NFR-STOR-01. |
