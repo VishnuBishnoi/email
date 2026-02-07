@@ -2,7 +2,7 @@
 title: "Email Sync — iOS/macOS Implementation Plan"
 platform: iOS, macOS
 spec-ref: docs/features/email-sync/spec.md
-version: "1.0.0"
+version: "1.1.0"
 status: draft
 assignees:
   - Core Team
@@ -69,13 +69,13 @@ classDiagram
 
 ## 4. Implementation Phases
 
-| Task ID | Description | Dependencies |
-|---------|-------------|-------------|
-| IOS-F-05 | IMAP client (connect, authenticate, list folders) | IOS-F-04 (Account Management) |
-| IOS-F-06 | IMAP sync engine (headers, bodies, IDLE) | IOS-F-05 |
-| IOS-F-07 | SMTP client (send, queue) | IOS-F-04 (Account Management) |
-| IOS-F-08 | Email repository implementation | IOS-F-02 (Foundation), IOS-F-06, IOS-F-07 |
-| IOS-F-10 | Domain use cases (Sync, Fetch, Send, ManageAccounts) | IOS-F-08, IOS-F-09 (Account Management) |
+| Task ID | Description | Spec FRs | Dependencies |
+|---------|-------------|----------|-------------|
+| IOS-F-05 | IMAP client (connect, authenticate, list folders, connection management) | FR-SYNC-01, FR-SYNC-03, FR-SYNC-09 | IOS-F-04 (Account Management) |
+| IOS-F-06 | Sync engine (full sync, incremental, IDLE, threading, flag sync, attachments) | FR-SYNC-01, FR-SYNC-02, FR-SYNC-04, FR-SYNC-05, FR-SYNC-06, FR-SYNC-08, FR-SYNC-10 | IOS-F-05 |
+| IOS-F-07 | SMTP client (send, queue) | FR-SYNC-07 | IOS-F-04 (Account Management) |
+| IOS-F-08 | Email repository implementation | All FRs | IOS-F-02 (Foundation), IOS-F-06, IOS-F-07 |
+| IOS-F-10 | Domain use cases (Sync, Fetch, Send, ManageAccounts) | Foundation Section 6 | IOS-F-08, IOS-F-09 (Account Management) |
 
 ---
 

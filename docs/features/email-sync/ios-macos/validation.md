@@ -4,7 +4,7 @@ spec-ref: docs/features/email-sync/spec.md
 plan-refs:
   - docs/features/email-sync/ios-macos/plan.md
   - docs/features/email-sync/ios-macos/tasks.md
-version: "1.0.0"
+version: "1.1.0"
 status: draft
 last-validated: null
 ---
@@ -25,6 +25,9 @@ last-validated: null
 | FR-SYNC-05 | Conflict resolution | MUST | AC-F-06 | Both | — |
 | FR-SYNC-06 | Threading algorithm | MUST | AC-F-06 | Both | — |
 | FR-SYNC-07 | Email sending (SMTP) | MUST | AC-F-07 | Both | — |
+| FR-SYNC-08 | Attachment handling | MUST | AC-F-06 | Both | — |
+| FR-SYNC-09 | Connection management | MUST | AC-F-05 | Both | — |
+| FR-SYNC-10 | Flag synchronization | MUST | AC-F-06b, AC-F-08 | Both | — |
 | G-01 | Full email CRUD | MUST | AC-F-05, AC-F-07, AC-F-08 | Both | — |
 
 ---
@@ -113,6 +116,7 @@ last-validated: null
 | E-01 | Network drops during initial sync | Sync pauses; resumes from last checkpoint on reconnect; partial data is usable |
 | E-03 | IMAP UIDVALIDITY changes | Full re-sync of affected folder; user notified of delay |
 | E-08 | Concurrent sync on multiple accounts | Syncs run independently; no deadlocks; UI responsive |
+| E-09 | Download 30MB attachment on cellular | Warning dialog shown; user can cancel or proceed (FR-SYNC-08) |
 
 ---
 
