@@ -20,8 +20,8 @@ public enum AppConstants {
     /// Per-account storage warning threshold in GB (NFR-STOR-01)
     public static let accountStorageWarningGB: Double = 2.0
 
-    /// Offline send queue max age in hours (Section 8.1)
-    public static let sendQueueMaxAgeHours = 72
+    /// Offline send queue max age in hours (FR-SYNC-07 step 5: 24 hours)
+    public static let sendQueueMaxAgeHours = 24
 
     /// Maximum send retry attempts before marking as failed
     public static let maxSendRetryCount = 3
@@ -51,4 +51,19 @@ public enum AppConstants {
     public static let oauthScope = "https://mail.google.com/ email profile"
     /// Custom URL scheme for OAuth redirect (reversed client ID per Google's iOS requirements)
     public static let oauthRedirectScheme = "com.googleusercontent.apps.694609716333-3c3jmr5khlp6gei3b1nbl76k1tn3vf03"
+
+    // MARK: - IMAP Connection Management (FR-SYNC-09)
+
+    /// Connection timeout in seconds (FR-SYNC-09)
+    public static let imapConnectionTimeout: TimeInterval = 30.0
+    /// Maximum concurrent IMAP connections per account (FR-SYNC-09, Gmail limit)
+    public static let imapMaxConnectionsPerAccount = 5
+    /// Retry base delay in seconds for exponential backoff (FR-SYNC-09: 5s, 15s, 45s)
+    public static let imapRetryBaseDelay: TimeInterval = 5.0
+    /// Maximum retry attempts (FR-SYNC-09)
+    public static let imapMaxRetries = 3
+    /// IMAP IDLE re-issue interval in seconds (FR-SYNC-03: 25 min, Gmail drops at ~29 min)
+    public static let imapIdleRefreshInterval: TimeInterval = 25 * 60
+    /// Maximum email body size in bytes (FR-SYNC-01: 10 MB)
+    public static let maxEmailBodySizeBytes = 10 * 1024 * 1024
 }
