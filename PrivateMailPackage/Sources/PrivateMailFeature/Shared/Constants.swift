@@ -49,4 +49,19 @@ public enum AppConstants {
     public static let oauthScope = "https://mail.google.com/"
     /// Custom URL scheme for OAuth redirect
     public static let oauthRedirectScheme = "com.privatemail"
+
+    // MARK: - IMAP Connection Management (FR-SYNC-09)
+
+    /// Connection timeout in seconds (FR-SYNC-09)
+    public static let imapConnectionTimeout: TimeInterval = 30.0
+    /// Maximum concurrent IMAP connections per account (FR-SYNC-09, Gmail limit)
+    public static let imapMaxConnectionsPerAccount = 5
+    /// Retry base delay in seconds for exponential backoff (FR-SYNC-09: 5s, 15s, 45s)
+    public static let imapRetryBaseDelay: TimeInterval = 5.0
+    /// Maximum retry attempts (FR-SYNC-09)
+    public static let imapMaxRetries = 3
+    /// IMAP IDLE re-issue interval in seconds (FR-SYNC-03: 25 min, Gmail drops at ~29 min)
+    public static let imapIdleRefreshInterval: TimeInterval = 25 * 60
+    /// Maximum email body size in bytes (FR-SYNC-01: 10 MB)
+    public static let maxEmailBodySizeBytes = 10 * 1024 * 1024
 }
