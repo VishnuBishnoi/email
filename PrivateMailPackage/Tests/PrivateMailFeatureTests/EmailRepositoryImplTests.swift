@@ -1068,4 +1068,34 @@ struct EmailRepositoryImplTests {
         #expect(outboxIds.contains("outbox-cross-e1"))
         #expect(outboxIds.contains("outbox-cross-e2"))
     }
+
+    @Test("upsertContactCache links entries to account for cascade deletes")
+    @MainActor
+    func contactCacheUpsertLinksAccount() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let account = Account(id: "acc-cache", email: "cache@test.com", displayName: "Cache")
+        context.insert(account)
+        try context.save()
+
+        let repo = makeRepo(container: container)
+        try await repo.upsertContactCache(entries: [
+            ContactCacheUpsert(
+                accountId: account.id,
+                emailAddress: "alice@example.com",
+                displayName: "Alice",
+                seenAt: .now
+            )
+        ])
+
+        var descriptor = FetchDescriptor<ContactCacheEntry>(
+            predicate: #Predicate { $0.accountId == "acc-cache" }
+        )
+        descriptor.fetchLimit = 1
+        let cached = try context.fetch(descriptor).first
+
+        #expect(cached != nil)
+        #expect(cached?.account?.id == account.id)
+    }
 }

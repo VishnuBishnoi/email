@@ -642,6 +642,9 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         }
 
         var touchedAccounts = Set<String>()
+        let accountDescriptor = FetchDescriptor<Account>()
+        let accounts = try context.fetch(accountDescriptor)
+        let accountById = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
 
         for entry in entries {
             let normalizedEmail = entry.emailAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -652,6 +655,9 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             if let existing = indexById[key] {
                 existing.frequency += 1
                 existing.lastSeenDate = max(existing.lastSeenDate, entry.seenAt)
+                if existing.account == nil {
+                    existing.account = accountById[entry.accountId]
+                }
                 if let displayName = entry.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !displayName.isEmpty {
                     existing.displayName = displayName
@@ -664,6 +670,7 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
                     lastSeenDate: entry.seenAt,
                     frequency: 1
                 )
+                created.account = accountById[entry.accountId]
                 context.insert(created)
                 indexById[key] = created
             }
