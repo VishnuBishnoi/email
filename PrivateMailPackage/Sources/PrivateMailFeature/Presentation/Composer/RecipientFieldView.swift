@@ -4,8 +4,10 @@ struct RecipientFieldView: View {
     let title: String
     @Binding var addresses: [String]
     let invalidAddresses: Set<String>
+    let querySuggestions: @Sendable (String) async -> [ContactSuggestion]
 
     @State private var input = ""
+    @State private var suggestions: [ContactSuggestion] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -28,9 +30,15 @@ struct RecipientFieldView: View {
                     .onChange(of: input) {
                         if input.contains(",") || input.contains(";") {
                             commitInput()
+                        } else {
+                            Task { await loadSuggestions(for: input) }
                         }
                     }
                     .accessibilityLabel("\(title) recipient input")
+
+                if !suggestions.isEmpty {
+                    suggestionsList
+                }
             }
             .padding(8)
             .overlay(
@@ -38,6 +46,38 @@ struct RecipientFieldView: View {
                     .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
             )
         }
+    }
+
+    private var suggestionsList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(suggestions, id: \.emailAddress) { suggestion in
+                Button {
+                    addAddress(suggestion.emailAddress)
+                    input = ""
+                    suggestions = []
+                } label: {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let name = suggestion.displayName, !name.isEmpty {
+                                Text(name)
+                                    .font(.subheadline)
+                            }
+                            Text(suggestion.emailAddress)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 6)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(.rect(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Recipient suggestions")
     }
 
     private func recipientChip(_ address: String) -> some View {
@@ -71,14 +111,34 @@ struct RecipientFieldView: View {
     private func commitInput() {
         let raw = input
         input = ""
+        suggestions = []
 
         let candidates = raw
             .split(whereSeparator: { $0 == "," || $0 == ";" || $0 == "\n" })
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        for value in candidates where !addresses.contains(value) {
-            addresses.append(value)
+        for value in candidates {
+            addAddress(value)
+        }
+    }
+
+    private func addAddress(_ value: String) {
+        guard !addresses.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) else { return }
+        addresses.append(value)
+    }
+
+    @MainActor
+    private func loadSuggestions(for query: String) async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            suggestions = []
+            return
+        }
+
+        let fetched = await querySuggestions(trimmed)
+        suggestions = fetched.filter { suggestion in
+            !addresses.contains(where: { $0.caseInsensitiveCompare(suggestion.emailAddress) == .orderedSame })
         }
     }
 }
@@ -88,7 +148,13 @@ struct RecipientFieldView: View {
     return RecipientFieldView(
         title: "To",
         addresses: $addresses,
-        invalidAddresses: ["bob@example.com"]
+        invalidAddresses: ["bob@example.com"],
+        querySuggestions: { _ in
+            [
+                ContactSuggestion(emailAddress: "carol@example.com", displayName: "Carol", frequency: 12, lastSeenDate: .now),
+                ContactSuggestion(emailAddress: "dave@example.com", displayName: "Dave", frequency: 8, lastSeenDate: .now)
+            ]
+        }
     )
     .padding()
 }

@@ -72,13 +72,13 @@ struct ComposerView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     fromSection
-                    RecipientFieldView(title: "To", addresses: $toAddresses, invalidAddresses: invalidAddressSet)
+                    RecipientFieldView(title: "To", addresses: $toAddresses, invalidAddresses: invalidAddressSet, querySuggestions: queryContacts)
 
                     if showCC {
-                        RecipientFieldView(title: "CC", addresses: $ccAddresses, invalidAddresses: invalidAddressSet)
+                        RecipientFieldView(title: "CC", addresses: $ccAddresses, invalidAddresses: invalidAddressSet, querySuggestions: queryContacts)
                     }
                     if showBCC {
-                        RecipientFieldView(title: "BCC", addresses: $bccAddresses, invalidAddresses: invalidAddressSet)
+                        RecipientFieldView(title: "BCC", addresses: $bccAddresses, invalidAddresses: invalidAddressSet, querySuggestions: queryContacts)
                     }
 
                     HStack(spacing: 12) {
@@ -227,7 +227,7 @@ struct ComposerView: View {
     }
 
     private func applyPrefill() {
-        let prefill = ComposerPrefillBuilder.build(mode: mode, selfAddresses: Set())
+        let prefill = ComposerPrefillBuilder.build(mode: mode, selfAddresses: fromAccount.map { Set([$0]) } ?? Set())
         toAddresses = prefill.to
         ccAddresses = prefill.cc
         bccAddresses = prefill.bcc
@@ -314,6 +314,16 @@ struct ComposerView: View {
             dismiss()
         } catch {
             sendErrorMessage = error.localizedDescription.isEmpty ? "Tap retry." : error.localizedDescription
+        }
+    }
+
+    private func queryContacts(_ query: String) async -> [ContactSuggestion] {
+        let repository = EmailRepositoryImpl(modelContainer: modelContext.container)
+        let useCase = QueryContactsUseCase(repository: repository)
+        do {
+            return try await useCase.execute(query: query, limit: 8)
+        } catch {
+            return []
         }
     }
 
