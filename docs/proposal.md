@@ -1,11 +1,11 @@
 ---
 title: "Privacy-First Email Client"
 proposal-id: PROP-001
-version: "1.1.0"
+version: "1.2.0"
 status: locked
 author: Core Team
 created: 2025-02-07
-updated: 2025-02-07
+updated: 2026-02-08
 decision-date: 2025-02-07
 relates-to:
   - docs/constitution.md
@@ -183,15 +183,15 @@ stateDiagram-v2
 
 | Parameter | Value |
 |-----------|-------|
-| Max retries | 5 |
-| Backoff strategy | Exponential: 30s, 2m, 8m, 30m, 2h |
-| Max queue age | 72 hours (then auto-transition to Failed) |
+| Max retries | 3 |
+| Backoff strategy | Exponential: 30s, 2m, 8m |
+| Max queue age | 24 hours (then auto-transition to Failed) |
 | Retry trigger | Network connectivity change OR retry timer expiry |
 
 #### User Visibility
 
 - Queued messages **MUST** appear in a "Outbox" section visible from the thread list.
-- Each queued message **MUST** display its status: `Queued`, `Sending`, `Retry (attempt N/5)`, or `Failed`.
+- Each queued message **MUST** display its status: `Queued`, `Sending`, `Retry (attempt N/3)`, or `Failed`.
 - The user **MUST** be able to edit a queued message before it is sent.
 - The user **MUST** be able to cancel/discard a queued message at any point before `Sent`.
 - When a message transitions to `Failed`, the client **MUST** display a notification with the failure reason and options to retry or discard.
