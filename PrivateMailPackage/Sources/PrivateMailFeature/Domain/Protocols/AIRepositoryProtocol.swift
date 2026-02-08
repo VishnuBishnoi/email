@@ -5,6 +5,7 @@ import Foundation
 /// All AI inference runs on-device. No user data leaves the device (P-02).
 ///
 /// Spec ref: Foundation spec Section 6
+@MainActor
 public protocol AIRepositoryProtocol: Sendable {
     /// Categorize an email into an AICategory.
     func categorize(email: Email) async throws -> AICategory
