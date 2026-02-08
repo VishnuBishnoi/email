@@ -45,8 +45,10 @@ public enum AppConstants {
     public static let googleAuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth"
     /// Google OAuth 2.0 token endpoint
     public static let googleTokenEndpoint = "https://oauth2.googleapis.com/token"
-    /// OAuth scope for Gmail IMAP/SMTP access (FR-ACCT-01)
-    public static let oauthScope = "https://mail.google.com/"
-    /// Custom URL scheme for OAuth redirect
-    public static let oauthRedirectScheme = "com.privatemail"
+    /// Google OAuth 2.0 client ID (iOS app type, from Google Cloud Console)
+    public static let oauthClientId = "694609716333-3c3jmr5khlp6gei3b1nbl76k1tn3vf03.apps.googleusercontent.com"
+    /// OAuth scope for Gmail IMAP/SMTP access + user profile (FR-ACCT-01)
+    public static let oauthScope = "https://mail.google.com/ email profile"
+    /// Custom URL scheme for OAuth redirect (reversed client ID per Google's iOS requirements)
+    public static let oauthRedirectScheme = "com.googleusercontent.apps.694609716333-3c3jmr5khlp6gei3b1nbl76k1tn3vf03"
 }
