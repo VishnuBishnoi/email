@@ -65,8 +65,12 @@ public final class StorageCalculator {
 
     /// Calculate storage breakdown for all accounts.
     /// - Returns: AppStorageInfo with per-account breakdown and AI model size.
+    /// Single shared context for all operations. Safe because this class is @MainActor.
+    private var context: ModelContext {
+        modelContainer.mainContext
+    }
+
     public func calculateStorage() async throws -> AppStorageInfo {
-        let context = ModelContext(modelContainer)
 
         // Fetch all accounts
         let accountDescriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.email)])

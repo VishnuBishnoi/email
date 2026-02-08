@@ -1,9 +1,9 @@
 ---
 title: "Thread List — Specification"
-version: "1.2.0"
+version: "1.3.0"
 status: locked
 created: 2025-02-07
-updated: 2026-02-07
+updated: 2026-02-08
 authors:
   - Core Team
 reviewers:
@@ -59,8 +59,8 @@ Each thread row **MUST** display the following elements:
 
 | Element | Source Field | Display Rules |
 |---------|-------------|---------------|
-| Sender avatar(s) | `Thread.participants` | Show avatar for most recent sender; for multi-participant threads, stack up to 2 avatars. Use initials + generated color if no profile image available. |
-| Sender name(s) | `Thread.participants` | Show most recent sender name. If `messageCount > 1`, append count (e.g., "John, Sarah (3)"). Truncate with ellipsis if exceeding available width. |
+| Sender avatar(s) | `Thread.participants` | Show avatar for most recent sender; for multi-participant threads, stack up to 2 avatars. Use initials + generated color (deterministic from email address hash) if no profile image available. The `participants` field is a JSON-encoded array of `{name: String?, email: String}` objects — see Data Model section. |
+| Sender name(s) | `Thread.participants` | Show most recent sender name. If `messageCount > 1`, append count (e.g., "John, Sarah (3)"). Truncate with ellipsis if exceeding available width. Most recent sender is derived from the first element of the decoded participants array. |
 | Subject line | `Thread.subject` | Single line, truncated with ellipsis. |
 | Snippet | `Thread.snippet` | First ~100 characters of the latest message body (see Email Sync FR-SYNC-06 Step 5). Single line, truncated. |
 | Timestamp | `Thread.latestDate` | Relative format: "2:30 PM" (today), "Yesterday", "Mon" (this week), "Feb 5" (this year), "Feb 5, 2025" (older). |
@@ -119,7 +119,7 @@ The client **MUST** display a horizontal tab bar with the following tabs in orde
 
 - Each tab **MUST** display an unread badge count when the count is > 0.
 - Switching tabs **MUST** apply the filter immediately without a network request (local query).
-- The selected tab **MUST** persist per folder (e.g., switching to Sent and back should restore the previous tab selection).
+- The selected tab **MUST** persist per folder within a session (e.g., switching to Sent and back should restore the previous tab selection). This persistence is in-memory only and **MUST NOT** be persisted across app launches.
 
 **AI Unavailability Fallback**
 
@@ -190,7 +190,7 @@ The client **MUST** display the following system folders in a sidebar or navigat
 | Drafts | `FolderType.drafts` | Draft count |
 | Spam | `FolderType.spam` | Unread count |
 | Trash | `FolderType.trash` | — |
-| Outbox | Virtual (Email Sync FR-SYNC-07) | Queued + failed count |
+| Outbox | Virtual — computed filter on `sendState ∈ {queued, sending, failed}`, not a `FolderType` enum value (Email Sync FR-SYNC-07) | Queued + failed count |
 
 - Custom Gmail labels **MUST** be displayed below system folders, sorted alphabetically.
 - Selecting a folder **MUST** update the thread list to show only threads in that folder.
@@ -231,7 +231,7 @@ flowchart LR
 
 - Tapping a thread **MUST** push the Email Detail view onto the navigation stack.
 - Tapping compose **MUST** present the Email Composer as a modal sheet.
-- The compose button **MUST** be a floating action button (FAB) or toolbar button, always visible.
+- The compose button **MUST** be always visible. On iOS, this **MUST** be a toolbar trailing button (standard iOS pattern). On macOS, this **MUST** be a toolbar button.
 - Navigation transitions **MUST** follow platform conventions (push on iOS, inline on macOS).
 
 **Error Handling**
@@ -288,9 +288,26 @@ Refer to Foundation spec Section 5 for the Thread entity. This feature reads Thr
 | `isStarred` | Star icon |
 | `aiCategory` | Category badge + tab filtering |
 | `snippet` | Preview text |
-| `participants` | Sender name(s) + avatar(s) |
+| `participants` | Sender name(s) + avatar(s) — JSON-encoded array of `{name: String?, email: String}` objects, ordered by most recent first |
 
 The thread list also queries `Folder` entities for folder navigation and `Email` entities for attachment indicator derivation (checking if any email in the thread has associated `Attachment` entities).
+
+**Participant JSON Format**
+
+The `Thread.participants` field is a JSON string encoding an array of participant objects. Each object has:
+- `name` (String?, optional): Display name of the participant
+- `email` (String, required): Email address of the participant
+
+Example: `[{"name":"John Doe","email":"john@example.com"},{"name":null,"email":"sarah@example.com"}]`
+
+The array **MUST** be ordered with the most recent sender first. Implementations **MUST** parse this JSON to extract sender names and email addresses for avatar generation. A `Participant` model type (`Codable`, `Sendable`) **MUST** be used for type-safe parsing.
+
+**Thread↔Folder Resolution**
+
+There is no direct relationship between Thread and Folder. The resolution path is: `Folder` → `EmailFolder` (join table) → `Email` → `Thread`. Implementations **MUST** resolve this join to filter threads by folder. The recommended strategy for SwiftData is a 3-step query:
+1. Fetch `EmailFolder` entries for the target folder
+2. Collect unique thread IDs via the Email relationship
+3. Fetch `Thread` objects by those IDs with any additional filters (category, cursor, limit)
 
 ---
 
@@ -298,22 +315,21 @@ The thread list also queries `Folder` entities for folder navigation and `Email`
 
 Refer to Foundation spec Section 6. This feature uses:
 
-- `FetchThreadsUseCase` — fetches paginated, filtered, sorted threads from the repository
-- `SyncEmailsUseCase` — triggered by pull-to-refresh
-- `ArchiveThreadUseCase` — archives a thread (swipe right action)
-- `DeleteThreadUseCase` — deletes/trashes a thread (swipe left action)
+- `FetchThreadsUseCase` — fetches paginated, filtered, sorted threads from the repository; also handles unread counts, folder listing, and outbox queries
+- `ManageThreadActionsUseCase` — performs thread actions: archive, delete, toggle read/star, move (single and batch)
+- `SyncEmailsUseCase` — triggered by pull-to-refresh (Email Sync dependency)
 - `CategorizeEmailUseCase` — provides AI category badges (see AI Features spec); graceful fallback if unavailable
+
+**Note**: Individual action use cases (ArchiveThreadUseCase, DeleteThreadUseCase) from earlier versions have been consolidated into `ManageThreadActionsUseCase` for simplicity, as they all delegate to the same repository methods.
 
 ```mermaid
 flowchart TD
     TLV["ThreadListView"] -->|fetch| FTU["FetchThreadsUseCase"]
+    TLV -->|actions| MTA["ManageThreadActionsUseCase"]
     TLV -->|pull-to-refresh| SEU["SyncEmailsUseCase"]
-    TLV -->|swipe archive| ATU["ArchiveThreadUseCase"]
-    TLV -->|swipe delete| DTU["DeleteThreadUseCase"]
     FTU --> REPO["EmailRepositoryProtocol"]
+    MTA --> REPO
     SEU --> REPO
-    ATU --> REPO
-    DTU --> REPO
     REPO --> SD["SwiftData Store"]
 ```
 
@@ -325,12 +341,14 @@ flowchart TD
 
 ### iOS
 
-- **Navigation**: `NavigationStack` with thread list as root view. Programmatic navigation via path-based routing.
-- **Category tabs**: Horizontal `ScrollView` with pill-shaped buttons, or iOS segmented control. Sticky below navigation bar.
+- **Navigation**: `NavigationStack` with thread list as root view. Navigation via `navigationDestination(for:)` — no separate NavigationRouter needed, SwiftUI's built-in path-based routing is sufficient.
+- **Category tabs**: Horizontal `ScrollView` with pill-shaped buttons. Sticky below navigation bar.
 - **Swipe gestures**: Standard `.swipeActions` modifier with leading (archive) and trailing (delete, more) actions.
-- **Compose button**: Floating action button (bottom-right) or toolbar trailing button.
+- **Compose button**: Toolbar trailing button (standard iOS pattern).
+- **Folder access**: Toolbar leading button navigates to a `FolderListView` (no persistent sidebar on iPhone). The folder list is a full navigation destination, not a sidebar.
 - **Adaptive layout**: **MUST** support iPhone SE (375pt width) through iPhone Pro Max (430pt width). Thread rows **MUST** adapt sender name and snippet truncation to available width. Both portrait and landscape orientations **MUST** be supported (per Foundation Section 7.1).
 - **Account switcher**: Presented as a `.sheet` from the account avatar in the navigation bar.
+- **Unified inbox account indicator**: Colored dot derived from deterministic hash of the account ID (not small avatar).
 
 ### macOS
 
@@ -376,3 +394,4 @@ flowchart TD
 | 1.0.0 | 2025-02-07 | Core Team | Extracted from monolithic spec v1.2.0 section 5.3. |
 | 1.1.0 | 2026-02-07 | Core Team | Review round 1: Added G-XX/NG-XX IDs (SF-03). Expanded FR-TL-01 with thread row content table, timestamp format, pagination (25/page cursor-based), view states (loading/empty/error/offline), error handling. Expanded FR-TL-02 with category tab table, unread badges per tab, AI unavailability fallback, forums handling. Expanded FR-TL-03 with swipe action table, undo toast (5s), multi-select toolbar, batch action details, optimistic updates with revert, error handling. Renamed FR-TL-04 to include folder navigation: system folders table with Outbox (FR-SYNC-07), custom labels, account indicator in unified view. Expanded FR-TL-05 with compose FAB, folder navigation link. Added NFR-TL-03 (Accessibility: WCAG 2.1 AA, VoiceOver, Dynamic Type, color independence, Reduce Motion). Added NFR-TL-04 (Memory: ≤50MB target for 500+ threads). Expanded Data Model section with field usage table. Added architecture diagram with MV pattern note (no ViewModels). Expanded iOS platform section with adaptive layout, compose button, account switcher. Expanded macOS section with keyboard shortcuts, context menu, multi-select. Added alternatives (UIKit, category-as-screens). Status → locked. |
 | 1.2.0 | 2026-02-07 | Core Team | Post-lock compliance fixes: PL-01 — fixed architecture diagram to route swipe actions through ArchiveThreadUseCase/DeleteThreadUseCase instead of directly to EmailRepository (FR-FOUND-01 compliance); MV note now explicitly states "views call use cases only, never repositories directly". PL-02 — clarified that Unified Inbox mode hides folder sidebar (system folders are per-account; user must select an account to see its folders). MC-01 — added clause that Outbox disables category tabs (filtered by sendState, not aiCategory). |
+| 1.3.0 | 2026-02-08 | Core Team | Plan review clarifications: Resolved 10 ambiguities from spec review. Clarified participants JSON format with schema and Participant model requirement. Added Thread↔Folder resolution path and 3-step query strategy. Consolidated individual action use cases into ManageThreadActionsUseCase. Specified iOS compose button as toolbar trailing button (not FAB). Specified iOS folder access as toolbar button to FolderListView (not persistent sidebar). Specified unified inbox account indicator as colored dot (not small avatar). Clarified category tab persistence is in-memory only (not across launches). Clarified Outbox is virtual (computed filter, not FolderType enum). Added iOS navigation note that built-in NavigationStack is sufficient (no separate router). |

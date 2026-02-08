@@ -180,6 +180,7 @@ public final class OAuthManager: NSObject, OAuthManagerProtocol, ASWebAuthentica
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15 // Prevent hanging on network issues
 
         let bodyString = body.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
             .joined(separator: "&")

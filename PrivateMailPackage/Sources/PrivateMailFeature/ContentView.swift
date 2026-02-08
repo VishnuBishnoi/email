@@ -26,13 +26,25 @@ public struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     let manageAccounts: ManageAccountsUseCaseProtocol
+    let fetchThreads: FetchThreadsUseCaseProtocol
+    let manageThreadActions: ManageThreadActionsUseCaseProtocol
+    let syncEmails: SyncEmailsUseCaseProtocol
     let appLockManager: AppLockManager
 
     @State private var accounts: [Account] = []
     @State private var hasLoaded = false
 
-    public init(manageAccounts: ManageAccountsUseCaseProtocol, appLockManager: AppLockManager) {
+    public init(
+        manageAccounts: ManageAccountsUseCaseProtocol,
+        fetchThreads: FetchThreadsUseCaseProtocol,
+        manageThreadActions: ManageThreadActionsUseCaseProtocol,
+        syncEmails: SyncEmailsUseCaseProtocol,
+        appLockManager: AppLockManager
+    ) {
         self.manageAccounts = manageAccounts
+        self.fetchThreads = fetchThreads
+        self.manageThreadActions = manageThreadActions
+        self.syncEmails = syncEmails
         self.appLockManager = appLockManager
     }
 
@@ -77,23 +89,12 @@ public struct ContentView: View {
 
     @ViewBuilder
     private var mainAppView: some View {
-        NavigationStack {
-            // TODO: Replace with ThreadListView when thread list is implemented.
-            Text("Inbox")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-                .navigationTitle("PrivateMail")
-                .toolbar {
-                    ToolbarItem(placement: .automatic) {
-                        NavigationLink {
-                            SettingsView(manageAccounts: manageAccounts)
-                        } label: {
-                            Label("Settings", systemImage: "gear")
-                        }
-                        .accessibilityLabel("Settings")
-                    }
-                }
-        }
+        ThreadListView(
+            fetchThreads: fetchThreads,
+            manageThreadActions: manageThreadActions,
+            manageAccounts: manageAccounts,
+            syncEmails: syncEmails
+        )
         .preferredColorScheme(settings.colorScheme)
     }
 

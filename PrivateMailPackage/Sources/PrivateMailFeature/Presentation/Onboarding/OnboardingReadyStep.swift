@@ -57,6 +57,7 @@ struct OnboardingReadyStep: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .accessibilityIdentifier("goToInboxButton")
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 40)

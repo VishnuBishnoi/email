@@ -155,16 +155,17 @@ enum IMAPResponseParser {
             let size = extractSize(from: response)
             let headerFields = extractHeaderFields(from: response)
 
+            // Decode RFC 2047 encoded-words in headers (subjects, names, etc.)
             let header = IMAPEmailHeader(
                 uid: uid,
                 messageId: headerFields["message-id"],
                 inReplyTo: headerFields["in-reply-to"],
                 references: headerFields["references"],
-                from: headerFields["from"],
-                to: parseAddressList(headerFields["to"]),
-                cc: parseAddressList(headerFields["cc"]),
-                bcc: parseAddressList(headerFields["bcc"]),
-                subject: headerFields["subject"],
+                from: headerFields["from"].map { MIMEDecoder.decodeHeaderValue($0) },
+                to: parseAddressList(headerFields["to"]).map { MIMEDecoder.decodeHeaderValue($0) },
+                cc: parseAddressList(headerFields["cc"]).map { MIMEDecoder.decodeHeaderValue($0) },
+                bcc: parseAddressList(headerFields["bcc"]).map { MIMEDecoder.decodeHeaderValue($0) },
+                subject: headerFields["subject"].map { MIMEDecoder.decodeHeaderValue($0) },
                 date: parseIMAPDate(headerFields["date"]),
                 flags: flags,
                 size: size
@@ -233,6 +234,10 @@ enum IMAPResponseParser {
         let size: UInt32
         let contentId: String?
         let isAttachment: Bool
+        /// Content-Transfer-Encoding (e.g. "BASE64", "QUOTED-PRINTABLE", "7BIT")
+        let encoding: String
+        /// Charset from Content-Type parameters (e.g. "UTF-8", "ISO-8859-1")
+        let charset: String
     }
 
     /// Parses BODYSTRUCTURE from a FETCH response.
@@ -566,6 +571,10 @@ enum IMAPResponseParser {
     }
 
     /// Parses a simple (non-multipart) body part from BODYSTRUCTURE tokens.
+    ///
+    /// Token order per RFC 3501:
+    /// `"TYPE" "SUBTYPE" (params) content-id description encoding size [lines]`
+    ///  idx:  0      1       2        3          4        5      6     7
     private static func parseSimpleBodyPart(_ content: String, partId: String) -> BodyPart? {
         let tokens = tokenizeBodyPart(content)
         guard tokens.count >= 7 else { return nil }
@@ -573,6 +582,12 @@ enum IMAPResponseParser {
         let type = tokens[0].replacingOccurrences(of: "\"", with: "").uppercased()
         let subtype = tokens[1].replacingOccurrences(of: "\"", with: "").uppercased()
         let mimeType = "\(type)/\(subtype)".lowercased()
+
+        // Token 5 is Content-Transfer-Encoding
+        let encoding = tokens[5].replacingOccurrences(of: "\"", with: "").uppercased()
+
+        // Token 2 is the parameter list, e.g. ("CHARSET" "UTF-8")
+        let charset = extractCharset(from: tokens[2])
 
         // Size is at index 6 for text parts
         let size = UInt32(tokens[6].replacingOccurrences(of: "\"", with: "")) ?? 0
@@ -618,8 +633,33 @@ enum IMAPResponseParser {
             filename: filename,
             size: size,
             contentId: contentId,
-            isAttachment: isAttachment
+            isAttachment: isAttachment,
+            encoding: encoding,
+            charset: charset
         )
+    }
+
+    /// Extracts charset from a BODYSTRUCTURE parameter token.
+    ///
+    /// Input: `("CHARSET" "UTF-8" "FORMAT" "flowed")`
+    /// Output: `"UTF-8"`
+    private static func extractCharset(from paramToken: String) -> String {
+        let upper = paramToken.uppercased()
+        guard let range = upper.range(of: "\"CHARSET\"") else {
+            return "UTF-8" // Default per RFC 2045
+        }
+
+        // Find the quoted value after "CHARSET"
+        let afterCharset = paramToken[range.upperBound...]
+        // Skip whitespace
+        let trimmed = afterCharset.drop(while: { $0 == " " || $0 == "\t" })
+        guard trimmed.first == "\"" else { return "UTF-8" }
+
+        let afterQuote = trimmed.dropFirst() // skip opening "
+        if let endQuote = afterQuote.firstIndex(of: "\"") {
+            return String(afterQuote[..<endQuote])
+        }
+        return "UTF-8"
     }
 
     // MARK: - Private: Tokenization Helpers

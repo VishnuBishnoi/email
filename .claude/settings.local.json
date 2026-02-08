@@ -37,7 +37,10 @@
       "Bash(tree:*)",
       "Bash(xargs:*)",
       "Bash(git pull:*)",
-      "Bash(use cases only, never repositories directly.\"\n- PL-02: Clarify unified inbox + folder interaction — in Unified Inbox\n  mode, folder sidebar shows only unified Inbox. System folders and\n  labels are per-account; user must select an account to see its folders.\n- MC-01: Add Outbox + category tabs clause — when Outbox is selected,\n  category tabs are hidden \\(filtered by sendState, not aiCategory\\).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(use cases only, never repositories directly.\"\n- PL-02: Clarify unified inbox + folder interaction — in Unified Inbox\n  mode, folder sidebar shows only unified Inbox. System folders and\n  labels are per-account; user must select an account to see its folders.\n- MC-01: Add Outbox + category tabs clause — when Outbox is selected,\n  category tabs are hidden \\(filtered by sendState, not aiCategory\\).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(plutil:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh api:*)"
     ]
   },
   "enabledPlugins": {

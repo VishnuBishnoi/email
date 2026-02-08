@@ -66,4 +66,9 @@ public enum AppConstants {
     public static let imapIdleRefreshInterval: TimeInterval = 25 * 60
     /// Maximum email body size in bytes (FR-SYNC-01: 10 MB)
     public static let maxEmailBodySizeBytes = 10 * 1024 * 1024
+
+    // MARK: - Thread List (FR-TL-01)
+
+    /// Number of threads per page for cursor-based pagination (FR-TL-01)
+    public static let threadListPageSize = 25
 }

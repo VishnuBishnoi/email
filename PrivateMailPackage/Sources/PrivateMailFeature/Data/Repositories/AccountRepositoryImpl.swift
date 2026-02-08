@@ -14,6 +14,11 @@ public final class AccountRepositoryImpl: AccountRepositoryProtocol {
     private let keychainManager: KeychainManagerProtocol
     private let oauthManager: OAuthManagerProtocol
 
+    /// Single shared context for all operations. Safe because this class is @MainActor.
+    private var context: ModelContext {
+        modelContainer.mainContext
+    }
+
     public init(
         modelContainer: ModelContainer,
         keychainManager: KeychainManagerProtocol,
@@ -27,7 +32,7 @@ public final class AccountRepositoryImpl: AccountRepositoryProtocol {
     // MARK: - AccountRepositoryProtocol
 
     public func addAccount(_ account: Account) async throws {
-        let context = ModelContext(modelContainer)
+
 
         // Check for duplicate email
         let email = account.email
@@ -46,7 +51,7 @@ public final class AccountRepositoryImpl: AccountRepositoryProtocol {
     }
 
     public func removeAccount(id: String) async throws {
-        let context = ModelContext(modelContainer)
+
 
         var descriptor = FetchDescriptor<Account>(
             predicate: #Predicate { $0.id == id }
@@ -77,7 +82,7 @@ public final class AccountRepositoryImpl: AccountRepositoryProtocol {
     }
 
     public func getAccounts() async throws -> [Account] {
-        let context = ModelContext(modelContainer)
+
 
         let descriptor = FetchDescriptor<Account>(
             sortBy: [SortDescriptor(\.email)]
@@ -87,7 +92,7 @@ public final class AccountRepositoryImpl: AccountRepositoryProtocol {
     }
 
     public func updateAccount(_ account: Account) async throws {
-        let context = ModelContext(modelContainer)
+
 
         let id = account.id
         var descriptor = FetchDescriptor<Account>(
@@ -136,7 +141,7 @@ public final class AccountRepositoryImpl: AccountRepositoryProtocol {
     // MARK: - Private
 
     private func deactivateAccount(id: String) async throws {
-        let context = ModelContext(modelContainer)
+
 
         var descriptor = FetchDescriptor<Account>(
             predicate: #Predicate { $0.id == id }

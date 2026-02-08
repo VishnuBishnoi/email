@@ -189,7 +189,7 @@ public actor IMAPClient: IMAPClientProtocol {
         let structuresByUID = IMAPResponseParser.parseMultiBodyStructures(from: bsResponses)
 
         // Categorize each UID's text parts and collect attachment info
-        var textInfoByUID: [UInt32: [(partId: String, mimeType: String)]] = [:]
+        var textInfoByUID: [UInt32: [(partId: String, mimeType: String, encoding: String, charset: String)]] = [:]
         var attachmentsByUID: [UInt32: [IMAPAttachmentInfo]] = [:]
 
         for uid in uids {
@@ -210,9 +210,9 @@ public actor IMAPClient: IMAPClientProtocol {
             let textParts = allParts.filter { !$0.isAttachment }
             if textParts.isEmpty {
                 // Simple message — will fetch BODY[TEXT]
-                textInfoByUID[uid] = [("TEXT", "text/plain")]
+                textInfoByUID[uid] = [("TEXT", "text/plain", "7BIT", "UTF-8")]
             } else {
-                textInfoByUID[uid] = textParts.map { ($0.partId, $0.mimeType) }
+                textInfoByUID[uid] = textParts.map { ($0.partId, $0.mimeType, $0.encoding, $0.charset) }
             }
         }
 
@@ -251,13 +251,15 @@ public actor IMAPClient: IMAPClientProtocol {
                 var plain: String?
                 var html: String?
 
-                // Map section content to plain/html using BODYSTRUCTURE metadata
-                for (partId, mimeType) in textInfoByUID[uid] ?? [] {
-                    guard let content = sectionContent[partId] else { continue }
+                // Map section content to plain/html using BODYSTRUCTURE metadata,
+                // applying Content-Transfer-Encoding decoding (base64, QP, etc.)
+                for (partId, mimeType, encoding, charset) in textInfoByUID[uid] ?? [] {
+                    guard let rawContent = sectionContent[partId] else { continue }
+                    let decoded = MIMEDecoder.decodeBody(rawContent, encoding: encoding, charset: charset)
                     if mimeType.contains("html") {
-                        html = content
+                        html = decoded
                     } else {
-                        plain = content
+                        plain = decoded
                     }
                 }
 
