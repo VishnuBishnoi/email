@@ -25,6 +25,9 @@ struct ThreadListView: View {
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let manageAccounts: ManageAccountsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
+    let fetchEmailDetail: FetchEmailDetailUseCaseProtocol
+    let markRead: MarkReadUseCaseProtocol
+    let downloadAttachment: DownloadAttachmentUseCaseProtocol
 
     // MARK: - View State
 
@@ -258,9 +261,15 @@ struct ThreadListView: View {
             await reloadThreads()
         }
         .navigationDestination(for: String.self) { threadId in
-            if let thread = threads.first(where: { $0.id == threadId }) {
-                EmailDetailPlaceholder(threadSubject: thread.subject)
-            }
+            EmailDetailView(
+                threadId: threadId,
+                fetchEmailDetail: fetchEmailDetail,
+                markRead: markRead,
+                manageThreadActions: manageThreadActions,
+                downloadAttachment: downloadAttachment,
+                summarizeThread: nil,
+                smartReply: nil
+            )
         }
         .accessibilityLabel("Email threads")
     }

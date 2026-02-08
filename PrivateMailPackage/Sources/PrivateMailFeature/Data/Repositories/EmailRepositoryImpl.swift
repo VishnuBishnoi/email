@@ -606,4 +606,35 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         }
         try context.save()
     }
+
+    // MARK: - Trusted Senders (FR-ED-04)
+
+    public func getTrustedSender(email: String) async throws -> TrustedSender? {
+        let descriptor = FetchDescriptor<TrustedSender>(
+            predicate: #Predicate { $0.senderEmail == email }
+        )
+        return try context.fetch(descriptor).first
+    }
+
+    public func saveTrustedSender(_ sender: TrustedSender) async throws {
+        context.insert(sender)
+        try context.save()
+    }
+
+    public func deleteTrustedSender(email: String) async throws {
+        let descriptor = FetchDescriptor<TrustedSender>(
+            predicate: #Predicate { $0.senderEmail == email }
+        )
+        for sender in try context.fetch(descriptor) {
+            context.delete(sender)
+        }
+        try context.save()
+    }
+
+    public func getAllTrustedSenders() async throws -> [TrustedSender] {
+        let descriptor = FetchDescriptor<TrustedSender>(
+            sortBy: [SortDescriptor(\.createdDate, order: .reverse)]
+        )
+        return try context.fetch(descriptor)
+    }
 }

@@ -119,4 +119,15 @@ public protocol EmailRepositoryProtocol {
     func starThreads(ids: [String]) async throws
     /// Move multiple threads to a folder.
     func moveThreads(ids: [String], toFolderId: String) async throws
+
+    // MARK: - Trusted Senders (FR-ED-04)
+
+    /// Check if a sender is trusted (always load remote images).
+    func getTrustedSender(email: String) async throws -> TrustedSender?
+    /// Save a trusted sender preference.
+    func saveTrustedSender(_ sender: TrustedSender) async throws
+    /// Delete a trusted sender preference.
+    func deleteTrustedSender(email: String) async throws
+    /// Get all trusted senders (for Settings management).
+    func getAllTrustedSenders() async throws -> [TrustedSender]
 }

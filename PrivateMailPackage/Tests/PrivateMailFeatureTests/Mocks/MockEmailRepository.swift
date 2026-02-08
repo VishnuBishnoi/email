@@ -13,6 +13,7 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     var emails: [Email] = []
     var threads: [PrivateMailFeature.Thread] = []
     var emailFolders: [EmailFolder] = []
+    var trustedSenders: [TrustedSender] = []
 
     // MARK: - Call Counters
 
@@ -41,6 +42,10 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     var markThreadsUnreadCallCount = 0
     var starThreadsCallCount = 0
     var moveThreadsCallCount = 0
+    var getTrustedSenderCallCount = 0
+    var saveTrustedSenderCallCount = 0
+    var deleteTrustedSenderCallCount = 0
+    var getAllTrustedSendersCallCount = 0
 
     // MARK: - Error Injection
 
@@ -300,5 +305,31 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     func moveThreads(ids: [String], toFolderId: String) async throws {
         moveThreadsCallCount += 1
         if let error = errorToThrow { throw error }
+    }
+
+    // MARK: - Trusted Senders
+
+    func getTrustedSender(email: String) async throws -> TrustedSender? {
+        getTrustedSenderCallCount += 1
+        if let error = errorToThrow { throw error }
+        return trustedSenders.first { $0.senderEmail == email }
+    }
+
+    func saveTrustedSender(_ sender: TrustedSender) async throws {
+        saveTrustedSenderCallCount += 1
+        if let error = errorToThrow { throw error }
+        trustedSenders.append(sender)
+    }
+
+    func deleteTrustedSender(email: String) async throws {
+        deleteTrustedSenderCallCount += 1
+        if let error = errorToThrow { throw error }
+        trustedSenders.removeAll { $0.senderEmail == email }
+    }
+
+    func getAllTrustedSenders() async throws -> [TrustedSender] {
+        getAllTrustedSendersCallCount += 1
+        if let error = errorToThrow { throw error }
+        return trustedSenders
     }
 }

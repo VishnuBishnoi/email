@@ -11,6 +11,9 @@ struct PrivateMailApp: App {
     let fetchThreads: FetchThreadsUseCaseProtocol
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
+    let fetchEmailDetail: FetchEmailDetailUseCaseProtocol
+    let markRead: MarkReadUseCaseProtocol
+    let downloadAttachment: DownloadAttachmentUseCaseProtocol
 
     init() {
         do {
@@ -38,6 +41,9 @@ struct PrivateMailApp: App {
         let emailRepo = EmailRepositoryImpl(modelContainer: modelContainer)
         fetchThreads = FetchThreadsUseCase(repository: emailRepo)
         manageThreadActions = ManageThreadActionsUseCase(repository: emailRepo)
+        fetchEmailDetail = FetchEmailDetailUseCase(repository: emailRepo)
+        markRead = MarkReadUseCase(repository: emailRepo)
+        downloadAttachment = DownloadAttachmentUseCase(repository: emailRepo)
 
         let connectionPool = ConnectionPool()
         syncEmails = SyncEmailsUseCase(
@@ -55,6 +61,9 @@ struct PrivateMailApp: App {
                 fetchThreads: fetchThreads,
                 manageThreadActions: manageThreadActions,
                 syncEmails: syncEmails,
+                fetchEmailDetail: fetchEmailDetail,
+                markRead: markRead,
+                downloadAttachment: downloadAttachment,
                 appLockManager: appLockManager
             )
             .environment(settingsStore)
