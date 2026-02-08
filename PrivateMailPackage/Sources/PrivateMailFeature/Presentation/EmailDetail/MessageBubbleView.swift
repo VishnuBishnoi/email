@@ -160,6 +160,9 @@ struct MessageBubbleView: View {
                 htmlContent: html,
                 contentHeight: $htmlContentHeight,
                 onLinkTapped: { url in
+                    // PR #8 Comment 4: Only allow http/https links.
+                    guard let scheme = url.scheme?.lowercased(),
+                          scheme == "http" || scheme == "https" else { return }
                     UIApplication.shared.open(url)
                 }
             )
@@ -177,8 +180,10 @@ struct MessageBubbleView: View {
                 .font(.body)
                 .textSelection(.enabled)
         } else if let html = processedHTML, !html.isEmpty {
-            // macOS fallback: strip HTML tags to show as plain text (M5 fix).
-            // A native macOS WKWebView renderer can be added in a future iteration.
+            // TODO: [P2] macOS HTML rendering gap — spec requires WKWebView on macOS too.
+            // Current fallback strips HTML to plain text. When macOS is a supported
+            // platform, implement NSViewRepresentable wrapping WKWebView similar to
+            // HTMLEmailView (iOS). Tracked by PR #8 Comment 6.
             Text(Self.stripHTMLTags(from: html))
                 .font(.body)
                 .textSelection(.enabled)

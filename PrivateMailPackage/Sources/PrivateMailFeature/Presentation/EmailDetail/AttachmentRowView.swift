@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(iOS)
-import Network
-#endif
 
 /// A single attachment row in the email detail view.
 /// Shows file type icon, filename, size, and download/action controls.
@@ -17,6 +14,12 @@ struct AttachmentRowView: View {
     let downloadUseCase: DownloadAttachmentUseCaseProtocol
     var onPreview: (Attachment) -> Void
     var onShare: (URL) -> Void
+
+    // MARK: - Environment
+
+    #if os(iOS)
+    @Environment(NetworkMonitor.self) private var networkMonitor
+    #endif
 
     // MARK: - State
 
@@ -229,13 +232,12 @@ struct AttachmentRowView: View {
         }
     }
 
-    /// Best-effort cellular network detection.
+    /// Whether the device is currently on a cellular connection.
+    /// PR #8 Comment 7: Uses the long-lived NetworkMonitor service instead
+    /// of creating an ad-hoc NWPathMonitor (which returns stale data).
     private var isCellular: Bool {
         #if os(iOS)
-        let monitor = NWPathMonitor()
-        let path = monitor.currentPath
-        monitor.cancel()
-        return path.usesInterfaceType(.cellular)
+        return networkMonitor.isCellular
         #else
         return false
         #endif
@@ -319,6 +321,7 @@ struct AttachmentRowView: View {
             onShare: { _ in }
         )
     }
+    .environment(NetworkMonitor())
 }
 
 #Preview("Downloaded") {
@@ -338,6 +341,7 @@ struct AttachmentRowView: View {
             onShare: { _ in }
         )
     }
+    .environment(NetworkMonitor())
 }
 
 #Preview("Multiple Attachments") {
@@ -358,6 +362,7 @@ struct AttachmentRowView: View {
             )
         }
     }
+    .environment(NetworkMonitor())
 }
 
 // MARK: - Preview Helper

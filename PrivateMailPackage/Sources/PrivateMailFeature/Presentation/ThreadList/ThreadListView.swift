@@ -363,10 +363,16 @@ struct ThreadListView: View {
                     Label("Delete", systemImage: "trash")
                 }
             }
-            // Comment 7: Long-press to enter multi-select mode
-            .onLongPressGesture {
-                isMultiSelectMode = true
-                selectedThreadIds.insert(thread.id)
+            // Comment 7: Context menu to enter multi-select mode.
+            // Note: .onLongPressGesture blocks NavigationLink tap gesture in
+            // SwiftUI Lists, so we use .contextMenu instead.
+            .contextMenu {
+                Button {
+                    isMultiSelectMode = true
+                    selectedThreadIds.insert(thread.id)
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
+                }
             }
         }
     }

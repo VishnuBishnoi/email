@@ -82,6 +82,12 @@ public struct EmailDetailView: View {
     private let pageSize = 25
     private let paginationThreshold = 50
 
+    // MARK: - Network (PR #8 Comment 7)
+
+    #if os(iOS)
+    @State private var networkMonitor = NetworkMonitor()
+    #endif
+
     // MARK: - Navigation
 
     @Environment(\.dismiss) private var dismiss
@@ -104,6 +110,9 @@ public struct EmailDetailView: View {
                 emptyView
             }
         }
+        #if os(iOS)
+        .environment(networkMonitor)
+        #endif
         .navigationTitle(thread?.subject ?? "Conversation")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -461,9 +470,20 @@ public struct EmailDetailView: View {
                 expandedEmailIds.insert(latest.id)
             }
 
-            // Pagination: show all if under threshold, otherwise latest 25
+            // Pagination: show all if under threshold, otherwise latest 25.
+            // PR #8 Comment 2: Ensure the latest unread is within the initial window.
             if emails.count > paginationThreshold {
                 displayedEmailCount = pageSize
+
+                // Expand window to include the latest unread email if it's
+                // outside the default tail window.
+                if let latestUnread = unreadEmails.last,
+                   let unreadIndex = emails.firstIndex(where: { $0.id == latestUnread.id }) {
+                    let startIndex = emails.count - displayedEmailCount
+                    if unreadIndex < startIndex {
+                        displayedEmailCount = emails.count - unreadIndex
+                    }
+                }
             } else {
                 displayedEmailCount = emails.count
             }
@@ -544,7 +564,9 @@ public struct EmailDetailView: View {
 
     private func toggleStar(_ email: Email) async {
         do {
-            try await manageThreadActions.toggleStarStatus(threadId: email.threadId)
+            // PR #8 Comment 1: Toggle at email-level, not thread-level.
+            // Repository recalculates Thread.isStarred automatically.
+            try await manageThreadActions.toggleEmailStarStatus(emailId: email.id)
         } catch {
             withAnimation {
                 errorToast = "Couldn't update star."

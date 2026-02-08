@@ -351,4 +351,90 @@ struct HTMLSanitizerTests {
         #expect(!result.hasBlockedRemoteContent)
         #expect(result.remoteImageCount == 0)
     }
+
+    // MARK: - URI Scheme Allow-list (PR #8 Comment 5)
+
+    @Test("Allow-list blocks ftp: scheme in href")
+    func allowListBlocksFtpInHref() {
+        let html = "<a href=\"ftp://evil.com/file\">Link</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("ftp://"))
+        #expect(result.html.contains("href=\"#\""))
+    }
+
+    @Test("Allow-list blocks tel: scheme in href")
+    func allowListBlocksTelInHref() {
+        let html = "<a href=\"tel:+1234567890\">Call</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("tel:"))
+        #expect(result.html.contains("href=\"#\""))
+    }
+
+    @Test("Allow-list blocks sms: scheme in href")
+    func allowListBlocksSmsInHref() {
+        let html = "<a href=\"sms:+1234567890\">Text</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("sms:"))
+        #expect(result.html.contains("href=\"#\""))
+    }
+
+    @Test("Allow-list blocks file: scheme in href")
+    func allowListBlocksFileInHref() {
+        let html = "<a href=\"file:///etc/passwd\">Open</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("file:"))
+        #expect(result.html.contains("href=\"#\""))
+    }
+
+    @Test("Allow-list permits http and https in href")
+    func allowListPermitsHttpInHref() {
+        let html = "<a href=\"http://example.com\">HTTP</a><a href=\"https://safe.com\">HTTPS</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("href=\"http://example.com\""))
+        #expect(result.html.contains("href=\"https://safe.com\""))
+    }
+
+    @Test("Allow-list permits mailto: in href")
+    func allowListPermitsMailtoInHref() {
+        let html = "<a href=\"mailto:user@example.com\">Email</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("mailto:user@example.com"))
+    }
+
+    @Test("Allow-list permits fragment (#) links in href")
+    func allowListPermitsFragmentInHref() {
+        let html = "<a href=\"#section-2\">Jump</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("href=\"#section-2\""))
+    }
+
+    @Test("Allow-list preserves data:image/ in src")
+    func allowListPreservesDataImageInSrc() {
+        let html = "<img src=\"data:image/gif;base64,R0lGO\">"
+        let result = HTMLSanitizer.sanitize(html, loadRemoteImages: true)
+        #expect(result.html.contains("data:image/gif;base64,R0lGO"))
+    }
+
+    @Test("Allow-list blocks ftp: scheme in src")
+    func allowListBlocksFtpInSrc() {
+        let html = "<img src=\"ftp://evil.com/img.png\">"
+        let result = HTMLSanitizer.sanitize(html, loadRemoteImages: true)
+        #expect(!result.html.contains("ftp://"))
+    }
+
+    @Test("Allow-list blocks custom scheme in action")
+    func allowListBlocksCustomSchemeInAction() {
+        let html = "<div action=\"custom://launch\">Form</div>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("custom://"))
+        #expect(result.html.contains("action=\"#\""))
+    }
+
+    @Test("Allow-list handles single-quoted attributes")
+    func allowListSingleQuotedAttributes() {
+        let html = "<a href='tel:123'>Call</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("tel:"))
+        #expect(result.html.contains("href='#'"))
+    }
 }

@@ -13,6 +13,7 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     var emails: [Email] = []
     var threads: [PrivateMailFeature.Thread] = []
     var emailFolders: [EmailFolder] = []
+    var attachments: [Attachment] = []
     var trustedSenders: [TrustedSender] = []
 
     // MARK: - Call Counters
@@ -158,6 +159,11 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     func saveAttachment(_ attachment: Attachment) async throws {
         saveAttachmentCallCount += 1
         if let error = errorToThrow { throw error }
+        if let index = attachments.firstIndex(where: { $0.id == attachment.id }) {
+            attachments[index] = attachment
+        } else {
+            attachments.append(attachment)
+        }
     }
 
     // MARK: - Thread List Queries
@@ -256,6 +262,13 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         if let thread = threads.first(where: { $0.id == threadId }) {
             thread.isStarred = !thread.isStarred
         }
+    }
+
+    var toggleEmailStarCallCount = 0
+
+    func toggleEmailStarStatus(emailId: String) async throws {
+        toggleEmailStarCallCount += 1
+        if let error = errorToThrow { throw error }
     }
 
     // MARK: - Batch Actions

@@ -120,6 +120,11 @@ public protocol EmailRepositoryProtocol {
     /// Move multiple threads to a folder.
     func moveThreads(ids: [String], toFolderId: String) async throws
 
+    // MARK: - Email-Level Actions (PR #8 Comment 1)
+
+    /// Toggle star status for a single email and recalculate thread-level star.
+    func toggleEmailStarStatus(emailId: String) async throws
+
     // MARK: - Trusted Senders (FR-ED-04)
 
     /// Check if a sender is trusted (always load remote images).

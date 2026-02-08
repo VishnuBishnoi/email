@@ -554,6 +554,46 @@ struct EmailRepositoryImplTests {
         #expect(archiveThreads.contains { $0.id == "thread-1" })
     }
 
+    @Test("archiveThread preserves non-inbox folder labels (multi-label)")
+    @MainActor
+    func archiveThreadPreservesCustomLabels() async throws {
+        let container = try makeContainer()
+        let data = try insertTestData(container: container)
+        let context = container.mainContext
+
+        // Add a custom label folder and associate email1 with it
+        let customLabel = Folder(
+            id: "folder-custom",
+            name: "Important",
+            imapPath: "Important",
+            folderType: "custom"
+        )
+        customLabel.account = data.account
+        context.insert(customLabel)
+
+        let efCustom = EmailFolder(id: "ef-custom", imapUID: 300)
+        efCustom.email = data.email1
+        efCustom.folder = customLabel
+        context.insert(efCustom)
+        try context.save()
+
+        // email1 is now in [Inbox, Important]
+        let repo = makeRepo(container: container)
+        try await repo.archiveThread(id: data.thread1.id)
+
+        // Email should be in Archive and Important, NOT in Inbox
+        let email = data.email1
+        let folderTypes = email.emailFolders.compactMap { $0.folder?.folderType }
+        let folderNames = email.emailFolders.compactMap { $0.folder?.name }
+
+        #expect(!folderTypes.contains(FolderType.inbox.rawValue),
+                "Inbox association should be removed")
+        #expect(folderTypes.contains(FolderType.archive.rawValue),
+                "Archive association should be added")
+        #expect(folderNames.contains("Important"),
+                "Custom label should be preserved")
+    }
+
     @Test("archiveThread throws for non-existent thread")
     @MainActor
     func archiveThreadNotFound() async throws {

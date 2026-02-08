@@ -69,6 +69,9 @@ public enum HTMLSanitizer {
         // --- Phase 6b: Replace cid: inline images with placeholder (E-07) ---
         result = replaceCIDImages(result)
 
+        // --- Phase 6c: Enforce URI scheme allow-list (PR #8 Comment 5) ---
+        result = enforceURISchemeAllowList(result)
+
         // --- Phase 7: Handle remote images ---
         var blockedCount = 0
         if !loadRemoteImages {
@@ -285,6 +288,106 @@ public enum HTMLSanitizer {
             with: "<span style=\"display:inline-block;padding:4px 8px;background:#f0f0f0;border:1px solid #ccc;border-radius:4px;font-size:12px;color:#888;\">[Inline image not available]</span>",
             options: [.regularExpression, .caseInsensitive]
         )
+    }
+
+    /// Enforce an allow-list of URI schemes for href, src, and action attributes.
+    ///
+    /// - **href**: allow `http://`, `https://`, `mailto:`, `#` (fragment/anchor)
+    /// - **src**: allow `http://`, `https://`, `data:image/` (preserved from Phase 6)
+    /// - **action**: allow `http://`, `https://` only
+    ///
+    /// Any other scheme is replaced with `#`.
+    /// Runs after the blocklist phases (6, 6b) as defense-in-depth.
+    ///
+    /// PR #8 Comment 5: Spec requires non-http/https schemes to be neutralized.
+    private static func enforceURISchemeAllowList(_ html: String) -> String {
+        var result = html
+
+        // href: allow http, https, mailto, # (anchors/fragments)
+        result = replaceDisallowedURIs(
+            in: result,
+            attribute: "href",
+            isAllowed: { value in
+                let lower = value.lowercased().trimmingCharacters(in: .whitespaces)
+                return lower.hasPrefix("http://")
+                    || lower.hasPrefix("https://")
+                    || lower.hasPrefix("mailto:")
+                    || lower.hasPrefix("#")
+                    || lower == "#"
+            }
+        )
+
+        // src: allow http, https, data:image/
+        result = replaceDisallowedURIs(
+            in: result,
+            attribute: "src",
+            isAllowed: { value in
+                let lower = value.lowercased().trimmingCharacters(in: .whitespaces)
+                return lower.hasPrefix("http://")
+                    || lower.hasPrefix("https://")
+                    || lower.hasPrefix("data:image/")
+            }
+        )
+
+        // action: allow http, https only
+        result = replaceDisallowedURIs(
+            in: result,
+            attribute: "action",
+            isAllowed: { value in
+                let lower = value.lowercased().trimmingCharacters(in: .whitespaces)
+                return lower.hasPrefix("http://")
+                    || lower.hasPrefix("https://")
+            }
+        )
+
+        return result
+    }
+
+    /// Replace attribute values that don't pass the allow-list with `#`.
+    ///
+    /// Matches both single- and double-quoted attribute values for the given
+    /// attribute name (e.g. `href`, `src`, `action`).
+    private static func replaceDisallowedURIs(
+        in html: String,
+        attribute: String,
+        isAllowed: (String) -> Bool
+    ) -> String {
+        // Pattern: attr = "value" or attr = 'value'
+        let pattern = "(\(attribute)\\s*=\\s*)([\"'])([^\"']*?)\\2"
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: .caseInsensitive
+        ) else {
+            return html
+        }
+
+        let nsHTML = html as NSString
+        let matches = regex.matches(
+            in: html,
+            range: NSRange(location: 0, length: nsHTML.length)
+        )
+
+        guard !matches.isEmpty else { return html }
+
+        var result = html
+        // Replace in reverse order so ranges stay valid.
+        for match in matches.reversed() {
+            guard match.numberOfRanges >= 4,
+                  let fullRange = Range(match.range, in: result),
+                  let prefixRange = Range(match.range(at: 1), in: result),
+                  let quoteRange = Range(match.range(at: 2), in: result),
+                  let valueRange = Range(match.range(at: 3), in: result) else {
+                continue
+            }
+            let prefix = String(result[prefixRange])
+            let quote = String(result[quoteRange])
+            let value = String(result[valueRange])
+
+            if !isAllowed(value) {
+                result.replaceSubrange(fullRange, with: "\(prefix)\(quote)#\(quote)")
+            }
+        }
+        return result
     }
 
     /// Replace remote `<img>` sources (http/https) with a placeholder comment.

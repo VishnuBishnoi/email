@@ -124,6 +124,13 @@ struct HTMLEmailView: UIViewRepresentable {
             case .linkActivated:
                 decisionHandler(.cancel)
                 guard let url = navigationAction.request.url else { return }
+
+                // PR #8 Comment 4: Only allow http/https links to open externally.
+                guard let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else {
+                    return
+                }
+
                 if let handler = onLinkTapped {
                     handler(url)
                 } else {
