@@ -447,9 +447,10 @@ enum IMAPResponseParser {
             let children = extractTopLevelParenGroups(trimmed)
 
             if children.count > 1 {
-                // Multipart — last element is the subtype (e.g., "ALTERNATIVE")
-                // Process each child part
-                for (index, child) in children.dropLast().enumerated() {
+                // Multipart — extractTopLevelParenGroups only captures
+                // parenthesized groups, so the subtype ("ALTERNATIVE" etc.)
+                // is NOT included. Process ALL children as body parts.
+                for (index, child) in children.enumerated() {
                     let childPrefix: String
                     if partPrefix.isEmpty {
                         childPrefix = "\(index + 1)"
