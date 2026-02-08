@@ -24,6 +24,7 @@ struct ThreadListView: View {
     let fetchThreads: FetchThreadsUseCaseProtocol
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let manageAccounts: ManageAccountsUseCaseProtocol
+    let syncEmails: SyncEmailsUseCaseProtocol
 
     // MARK: - View State
 
@@ -245,8 +246,15 @@ struct ThreadListView: View {
         }
         .listStyle(.plain)
         .refreshable {
-            // TODO: Trigger incremental sync via SyncUseCase (FR-SYNC-02) when sync layer is built
             errorBannerMessage = nil
+            // Sync current folder from IMAP, then reload from SwiftData
+            if let accountId = selectedAccount?.id, let folderId = selectedFolder?.id {
+                do {
+                    try await syncEmails.syncFolder(accountId: accountId, folderId: folderId)
+                } catch {
+                    errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+                }
+            }
             await reloadThreads()
         }
         .navigationDestination(for: String.self) { threadId in
@@ -568,7 +576,7 @@ struct ThreadListView: View {
 
     // MARK: - Data Loading
 
-    /// Initial load on view appear: load accounts, select first, load folders + threads.
+    /// Initial load on view appear: sync from IMAP, then load from SwiftData.
     private func initialLoad() async {
         viewState = .loading
 
@@ -583,6 +591,14 @@ struct ThreadListView: View {
 
             // Default to first account
             selectedAccount = firstAccount
+
+            // Sync from IMAP before loading from SwiftData.
+            // Non-fatal: on sync error, show banner and fall through to cached data.
+            do {
+                try await syncEmails.syncAccount(accountId: firstAccount.id)
+            } catch {
+                errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+            }
 
             // Load folders for the selected account
             folders = try await fetchThreads.fetchFolders(accountId: firstAccount.id)

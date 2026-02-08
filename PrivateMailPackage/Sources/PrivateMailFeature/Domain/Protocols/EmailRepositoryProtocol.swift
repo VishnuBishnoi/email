@@ -38,6 +38,25 @@ public protocol EmailRepositoryProtocol {
     /// Save or update a thread.
     func saveThread(_ thread: Thread) async throws
 
+    // MARK: - Sync Support (FR-SYNC-01)
+
+    /// Find an email by its RFC 2822 Message-ID within an account.
+    /// Used by the sync engine for thread resolution and deduplication.
+    func getEmailByMessageId(_ messageId: String, accountId: String) async throws -> Email?
+
+    /// Find a folder by its IMAP path within an account.
+    /// Used by the sync engine for folder deduplication.
+    func getFolderByImapPath(_ imapPath: String, accountId: String) async throws -> Folder?
+
+    /// Get all emails for an account (for bulk thread resolution during sync).
+    func getEmailsByAccount(accountId: String) async throws -> [Email]
+
+    /// Save an EmailFolder join entry (email ↔ folder with IMAP UID).
+    func saveEmailFolder(_ emailFolder: EmailFolder) async throws
+
+    /// Save an Attachment.
+    func saveAttachment(_ attachment: Attachment) async throws
+
     // MARK: - Thread List Queries (FR-TL-01, FR-TL-02)
 
     /// Fetch paginated threads for a specific folder, optionally filtered by AI category.

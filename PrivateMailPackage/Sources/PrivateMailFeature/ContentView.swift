@@ -28,6 +28,7 @@ public struct ContentView: View {
     let manageAccounts: ManageAccountsUseCaseProtocol
     let fetchThreads: FetchThreadsUseCaseProtocol
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
+    let syncEmails: SyncEmailsUseCaseProtocol
     let appLockManager: AppLockManager
 
     @State private var accounts: [Account] = []
@@ -37,11 +38,13 @@ public struct ContentView: View {
         manageAccounts: ManageAccountsUseCaseProtocol,
         fetchThreads: FetchThreadsUseCaseProtocol,
         manageThreadActions: ManageThreadActionsUseCaseProtocol,
+        syncEmails: SyncEmailsUseCaseProtocol,
         appLockManager: AppLockManager
     ) {
         self.manageAccounts = manageAccounts
         self.fetchThreads = fetchThreads
         self.manageThreadActions = manageThreadActions
+        self.syncEmails = syncEmails
         self.appLockManager = appLockManager
     }
 
@@ -89,7 +92,8 @@ public struct ContentView: View {
         ThreadListView(
             fetchThreads: fetchThreads,
             manageThreadActions: manageThreadActions,
-            manageAccounts: manageAccounts
+            manageAccounts: manageAccounts,
+            syncEmails: syncEmails
         )
         .preferredColorScheme(settings.colorScheme)
     }

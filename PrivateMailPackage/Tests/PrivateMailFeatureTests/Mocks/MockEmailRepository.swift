@@ -118,6 +118,43 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         }
     }
 
+    // MARK: - Sync Support
+
+    var getEmailByMessageIdCallCount = 0
+    var getFolderByImapPathCallCount = 0
+    var getEmailsByAccountCallCount = 0
+    var saveEmailFolderCallCount = 0
+    var saveAttachmentCallCount = 0
+
+    func getEmailByMessageId(_ messageId: String, accountId: String) async throws -> Email? {
+        getEmailByMessageIdCallCount += 1
+        if let error = errorToThrow { throw error }
+        return emails.first { $0.messageId == messageId && $0.accountId == accountId }
+    }
+
+    func getFolderByImapPath(_ imapPath: String, accountId: String) async throws -> Folder? {
+        getFolderByImapPathCallCount += 1
+        if let error = errorToThrow { throw error }
+        return folders.first { $0.imapPath == imapPath }
+    }
+
+    func getEmailsByAccount(accountId: String) async throws -> [Email] {
+        getEmailsByAccountCallCount += 1
+        if let error = errorToThrow { throw error }
+        return emails.filter { $0.accountId == accountId }
+    }
+
+    func saveEmailFolder(_ emailFolder: EmailFolder) async throws {
+        saveEmailFolderCallCount += 1
+        if let error = errorToThrow { throw error }
+        emailFolders.append(emailFolder)
+    }
+
+    func saveAttachment(_ attachment: Attachment) async throws {
+        saveAttachmentCallCount += 1
+        if let error = errorToThrow { throw error }
+    }
+
     // MARK: - Thread List Queries
 
     func getThreads(folderId: String, category: String?, cursor: Date?, limit: Int) async throws -> [PrivateMailFeature.Thread] {

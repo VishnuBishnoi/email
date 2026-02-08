@@ -535,4 +535,70 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             try await moveThread(id: id, toFolderId: toFolderId)
         }
     }
+
+    // MARK: - Sync Support (FR-SYNC-01)
+
+    public func getEmailByMessageId(_ messageId: String, accountId: String) async throws -> Email? {
+        let context = ModelContext(modelContainer)
+        var descriptor = FetchDescriptor<Email>(
+            predicate: #Predicate { $0.messageId == messageId && $0.accountId == accountId }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    public func getFolderByImapPath(_ imapPath: String, accountId: String) async throws -> Folder? {
+        let context = ModelContext(modelContainer)
+        var descriptor = FetchDescriptor<Folder>(
+            predicate: #Predicate { $0.imapPath == imapPath && $0.account?.id == accountId }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    public func getEmailsByAccount(accountId: String) async throws -> [Email] {
+        let context = ModelContext(modelContainer)
+        let descriptor = FetchDescriptor<Email>(
+            predicate: #Predicate { $0.accountId == accountId }
+        )
+        return try context.fetch(descriptor)
+    }
+
+    public func saveEmailFolder(_ emailFolder: EmailFolder) async throws {
+        let context = ModelContext(modelContainer)
+        let efId = emailFolder.id
+        var descriptor = FetchDescriptor<EmailFolder>(
+            predicate: #Predicate { $0.id == efId }
+        )
+        descriptor.fetchLimit = 1
+
+        if let existing = try context.fetch(descriptor).first {
+            existing.imapUID = emailFolder.imapUID
+            existing.email = emailFolder.email
+            existing.folder = emailFolder.folder
+        } else {
+            context.insert(emailFolder)
+        }
+        try context.save()
+    }
+
+    public func saveAttachment(_ attachment: Attachment) async throws {
+        let context = ModelContext(modelContainer)
+        let attId = attachment.id
+        var descriptor = FetchDescriptor<Attachment>(
+            predicate: #Predicate { $0.id == attId }
+        )
+        descriptor.fetchLimit = 1
+
+        if let existing = try context.fetch(descriptor).first {
+            existing.filename = attachment.filename
+            existing.mimeType = attachment.mimeType
+            existing.sizeBytes = attachment.sizeBytes
+            existing.localPath = attachment.localPath
+            existing.isDownloaded = attachment.isDownloaded
+        } else {
+            context.insert(attachment)
+        }
+        try context.save()
+    }
 }
