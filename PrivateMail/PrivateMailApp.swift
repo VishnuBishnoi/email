@@ -8,6 +8,8 @@ struct PrivateMailApp: App {
     let settingsStore: SettingsStore
     let appLockManager: AppLockManager
     let manageAccounts: ManageAccountsUseCaseProtocol
+    let fetchThreads: FetchThreadsUseCaseProtocol
+    let manageThreadActions: ManageThreadActionsUseCaseProtocol
 
     init() {
         do {
@@ -31,12 +33,21 @@ struct PrivateMailApp: App {
             oauthManager: oauthManager,
             keychainManager: keychainManager
         )
+
+        let emailRepo = EmailRepositoryImpl(modelContainer: modelContainer)
+        fetchThreads = FetchThreadsUseCase(repository: emailRepo)
+        manageThreadActions = ManageThreadActionsUseCase(repository: emailRepo)
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView(manageAccounts: manageAccounts, appLockManager: appLockManager)
-                .environment(settingsStore)
+            ContentView(
+                manageAccounts: manageAccounts,
+                fetchThreads: fetchThreads,
+                manageThreadActions: manageThreadActions,
+                appLockManager: appLockManager
+            )
+            .environment(settingsStore)
         }
         .modelContainer(modelContainer)
 
