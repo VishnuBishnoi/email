@@ -48,6 +48,11 @@ struct PrivateMailApp: App {
                 appLockManager: appLockManager
             )
             .environment(settingsStore)
+            .task {
+                #if DEBUG
+                DebugDataSeeder.seedIfNeeded(modelContext: modelContainer.mainContext)
+                #endif
+            }
         }
         .modelContainer(modelContainer)
 
