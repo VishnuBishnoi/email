@@ -1,0 +1,109 @@
+import Foundation
+
+/// Auto-selects the best available AI engine based on device capabilities.
+///
+/// Resolution order for generative engine (spec Section 8):
+/// 1. **Foundation Models** (iOS/macOS 26+, Apple Intelligence) — zero download
+/// 2. **llama.cpp** (iOS 18+, downloaded GGUF) — RAM-based model selection
+/// 3. **StubAIEngine** — graceful degradation (no generative features)
+///
+/// RAM-based model selection for llama.cpp (spec FR-AI-01):
+/// - ≥ 6 GB RAM → Qwen3-1.7B (1 GB GGUF)
+/// - < 6 GB RAM → Qwen3-0.6B (400 MB GGUF)
+///
+/// Spec ref: FR-AI-01, Spec Section 8, AC-A-02
+public actor AIEngineResolver {
+
+    // MARK: - Dependencies
+
+    private let modelManager: ModelManager
+    private let llamaEngine: LlamaEngine
+    private let stubEngine: StubAIEngine
+
+    // Cache the resolved engine to avoid re-resolution on every call
+    private var cachedEngine: (any AIEngineProtocol)?
+    private var lastResolveTime: Date?
+
+    // MARK: - Init
+
+    public init(
+        modelManager: ModelManager,
+        llamaEngine: LlamaEngine = LlamaEngine(),
+        stubEngine: StubAIEngine = StubAIEngine()
+    ) {
+        self.modelManager = modelManager
+        self.llamaEngine = llamaEngine
+        self.stubEngine = stubEngine
+    }
+
+    // MARK: - Resolution
+
+    /// Resolve the best available generative AI engine.
+    ///
+    /// Follows the tiered fallback chain: FM → llama.cpp → stub.
+    ///
+    /// Spec ref: AC-A-02 — `resolveGenerativeEngine()` return logic:
+    /// - iOS 26+ with Apple Intelligence → `FoundationModelEngine`
+    /// - iOS 18-25 with downloaded GGUF → `LlamaEngine`
+    /// - No generative engine → `StubAIEngine` (graceful degradation)
+    public func resolveGenerativeEngine() async -> any AIEngineProtocol {
+        // Tier 1: Foundation Models (iOS/macOS 26+)
+        // TODO: Implement FoundationModelEngine in IOS-A-02 when targeting iOS 26+
+        // if #available(iOS 26.0, macOS 26.0, *) {
+        //     let fmEngine = FoundationModelEngine()
+        //     if fmEngine.isAvailable() { return fmEngine }
+        // }
+
+        // Tier 2: llama.cpp with downloaded GGUF
+        if await llamaEngine.isAvailable() {
+            return llamaEngine
+        }
+
+        // Try to load a model if one is downloaded
+        let bestModelID = recommendedModelID()
+        if await modelManager.isModelDownloaded(id: bestModelID),
+           let modelPath = await modelManager.modelPath(forID: bestModelID) {
+            do {
+                try await llamaEngine.loadModel(at: modelPath.path)
+                return llamaEngine
+            } catch {
+                // Model load failed — fall through to stub
+            }
+        }
+
+        // Tier 3: Graceful degradation
+        return stubEngine
+    }
+
+    /// Determine the recommended model ID based on device RAM.
+    ///
+    /// - ≥ 6 GB → Qwen3-1.7B
+    /// - < 6 GB → Qwen3-0.6B
+    ///
+    /// Spec ref: AC-A-02
+    public nonisolated func recommendedModelID() -> String {
+        let ramGB = deviceRAMInGB()
+        if ramGB >= 6 {
+            return "qwen3-1.7b-q4km"
+        } else {
+            return "qwen3-0.6b-q4km"
+        }
+    }
+
+    /// Invalidate the cached engine resolution.
+    ///
+    /// Call this after a model is downloaded or deleted to force re-resolution.
+    public func invalidateCache() {
+        cachedEngine = nil
+        lastResolveTime = nil
+    }
+
+    // MARK: - Device Info
+
+    /// Get device RAM in gigabytes.
+    nonisolated func deviceRAMInGB() -> Int {
+        let bytesPerGB: UInt64 = 1_073_741_824
+        let totalRAM = ProcessInfo.processInfo.physicalMemory
+        return Int(totalRAM / bytesPerGB)
+    }
+}

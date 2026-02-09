@@ -1,0 +1,340 @@
+import Foundation
+import CryptoKit
+
+/// Manages GGUF model downloads, verification, storage, and lifecycle.
+///
+/// Responsible for:
+/// - Listing available models with metadata (name, size, license, download status)
+/// - Downloading GGUF files via HTTPS with progress reporting
+/// - Resumable downloads (HTTP Range requests)
+/// - SHA-256 integrity verification post-download
+/// - Deleting models and reporting storage usage
+///
+/// All models are stored in the app's Application Support directory
+/// under `Models/`.
+///
+/// Spec ref: FR-AI-01 (Spec Section 9), AC-A-03
+public actor ModelManager {
+
+    // MARK: - Model Definitions
+
+    /// Metadata for a downloadable AI model.
+    public struct ModelInfo: Sendable, Identifiable {
+        public let id: String
+        public let name: String
+        public let fileName: String
+        public let downloadURL: URL
+        public let size: UInt64          // Expected file size in bytes
+        public let sha256: String        // Expected SHA-256 hex digest
+        public let license: String
+        public let minRAMGB: Int         // Minimum device RAM in GB
+
+        /// Human-readable file size (e.g., "1.0 GB").
+        public var formattedSize: String {
+            ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+        }
+    }
+
+    /// Download status for a model.
+    public enum DownloadStatus: Sendable, Equatable {
+        case notDownloaded
+        case downloading(progress: Double)
+        case downloaded
+        case verifying
+        case failed(String)
+    }
+
+    /// Combined model info with its current status.
+    public struct ModelState: Sendable, Identifiable {
+        public let info: ModelInfo
+        public var status: DownloadStatus
+
+        public var id: String { info.id }
+    }
+
+    // MARK: - Available Models
+
+    /// Registry of supported models.
+    ///
+    /// Spec ref: AI spec Section 3 (Model Selection)
+    /// - Qwen3-1.7B-Instruct (Q4_K_M): Primary model for devices with ≥ 6 GB RAM
+    /// - Qwen3-0.6B (Q4_K_M): Fallback for devices with < 6 GB RAM
+    public static let availableModelInfos: [ModelInfo] = [
+        ModelInfo(
+            id: "qwen3-1.7b-q4km",
+            name: "Qwen3 1.7B Instruct",
+            fileName: "Qwen3-1.7B-Instruct-Q4_K_M.gguf",
+            downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/qwen3-1.7b-q4_k_m.gguf")!,
+            size: 1_200_000_000,   // ~1.0 GB
+            sha256: "",            // TODO: Fill with actual checksum after first download verification
+            license: "Apache 2.0",
+            minRAMGB: 6
+        ),
+        ModelInfo(
+            id: "qwen3-0.6b-q4km",
+            name: "Qwen3 0.6B",
+            fileName: "Qwen3-0.6B-Q4_K_M.gguf",
+            downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b-q4_k_m.gguf")!,
+            size: 490_000_000,     // ~400 MB
+            sha256: "",            // TODO: Fill with actual checksum after first download verification
+            license: "Apache 2.0",
+            minRAMGB: 4
+        ),
+    ]
+
+    // MARK: - State
+
+    private var downloadStatuses: [String: DownloadStatus] = [:]
+    private var activeDownloads: [String: URLSessionDownloadTask] = [:]
+    private let modelsDirectory: URL
+    private let fileManager = FileManager.default
+    private let urlSession: URLSession
+
+    // MARK: - Init
+
+    public init(urlSession: URLSession = .shared) {
+        self.urlSession = urlSession
+
+        // Store models in Application Support/Models/
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        self.modelsDirectory = appSupport.appendingPathComponent("Models", isDirectory: true)
+
+        // Create directory if needed
+        try? fileManager.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+    }
+
+    /// Initialize with a custom directory (for testing).
+    public init(modelsDirectory: URL, urlSession: URLSession = .shared) {
+        self.modelsDirectory = modelsDirectory
+        self.urlSession = urlSession
+        try? fileManager.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+    }
+
+    // MARK: - Public API
+
+    /// List all available models with their current download status.
+    ///
+    /// Spec ref: AC-A-03 — `availableModels()` MUST list models with name, size, license, and download status.
+    public func availableModels() -> [ModelState] {
+        Self.availableModelInfos.map { info in
+            let status = currentStatus(for: info)
+            return ModelState(info: info, status: status)
+        }
+    }
+
+    /// Download a model by ID with progress reporting.
+    ///
+    /// - Parameters:
+    ///   - id: The model identifier.
+    ///   - progress: Async stream callback reporting progress 0.0–1.0.
+    /// - Throws: `AIEngineError.downloadFailed` or `AIEngineError.downloadCancelled`.
+    ///
+    /// Spec ref: AC-A-03 — `downloadModel(id:)` MUST download via HTTPS with progress (0-100%).
+    public func downloadModel(
+        id: String,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws {
+        guard let info = Self.availableModelInfos.first(where: { $0.id == id }) else {
+            throw AIEngineError.modelNotFound(path: id)
+        }
+
+        let destination = modelPath(for: info)
+
+        // If already downloaded and valid, skip
+        if fileManager.fileExists(atPath: destination.path) {
+            if info.sha256.isEmpty || (try? verifyIntegrity(path: destination, sha256: info.sha256)) != nil {
+                downloadStatuses[id] = .downloaded
+                progress(1.0)
+                return
+            }
+            // Corrupt file — delete and re-download
+            try? fileManager.removeItem(at: destination)
+        }
+
+        downloadStatuses[id] = .downloading(progress: 0.0)
+
+        // Check for partial download to resume
+        let partialPath = destination.appendingPathExtension("partial")
+        var request = URLRequest(url: info.downloadURL)
+
+        var existingBytes: Int64 = 0
+        if let attrs = try? fileManager.attributesOfItem(atPath: partialPath.path),
+           let fileSize = attrs[.size] as? Int64, fileSize > 0 {
+            existingBytes = fileSize
+            request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range")
+        }
+
+        do {
+            let (asyncBytes, response) = try await urlSession.bytes(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) || httpResponse.statusCode == 206 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                throw AIEngineError.downloadFailed(
+                    NSError(domain: "ModelManager", code: statusCode,
+                            userInfo: [NSLocalizedDescriptionKey: "HTTP \(statusCode)"])
+                )
+            }
+
+            let totalBytes = (httpResponse.expectedContentLength > 0)
+                ? httpResponse.expectedContentLength + existingBytes
+                : Int64(info.size)
+
+            // Open file for writing (append if resuming)
+            if !fileManager.fileExists(atPath: partialPath.path) {
+                fileManager.createFile(atPath: partialPath.path, contents: nil)
+            }
+            let fileHandle = try FileHandle(forWritingTo: partialPath)
+            if existingBytes > 0 {
+                fileHandle.seekToEndOfFile()
+            }
+
+            var downloadedBytes = existingBytes
+            let reportInterval: Int64 = max(totalBytes / 200, 65_536) // Report ~200 times or every 64KB
+            var lastReportedBytes: Int64 = 0
+
+            for try await byte in asyncBytes {
+                guard !Task.isCancelled else {
+                    fileHandle.closeFile()
+                    downloadStatuses[id] = .notDownloaded
+                    throw AIEngineError.downloadCancelled
+                }
+
+                fileHandle.write(Data([byte]))
+                downloadedBytes += 1
+
+                if downloadedBytes - lastReportedBytes >= reportInterval {
+                    let pct = Double(downloadedBytes) / Double(totalBytes)
+                    downloadStatuses[id] = .downloading(progress: pct)
+                    progress(pct)
+                    lastReportedBytes = downloadedBytes
+                }
+            }
+
+            fileHandle.closeFile()
+
+            // Move partial to final
+            try fileManager.moveItem(at: partialPath, to: destination)
+
+            // Verify integrity
+            downloadStatuses[id] = .verifying
+            if !info.sha256.isEmpty {
+                try verifyIntegrity(path: destination, sha256: info.sha256)
+            }
+
+            downloadStatuses[id] = .downloaded
+            progress(1.0)
+
+        } catch let error as AIEngineError {
+            downloadStatuses[id] = .failed(error.localizedDescription)
+            throw error
+        } catch {
+            downloadStatuses[id] = .failed(error.localizedDescription)
+            throw AIEngineError.downloadFailed(error)
+        }
+    }
+
+    /// Cancel an active download.
+    public func cancelDownload(id: String) {
+        activeDownloads[id]?.cancel()
+        activeDownloads[id] = nil
+        downloadStatuses[id] = .notDownloaded
+
+        // Clean up partial file
+        if let info = Self.availableModelInfos.first(where: { $0.id == id }) {
+            let partial = modelPath(for: info).appendingPathExtension("partial")
+            try? fileManager.removeItem(at: partial)
+        }
+    }
+
+    /// Verify the SHA-256 integrity of a downloaded model file.
+    ///
+    /// Spec ref: AC-A-03 — `verifyIntegrity(path:sha256:)` MUST validate SHA-256 checksum post-download.
+    @discardableResult
+    public func verifyIntegrity(path: URL, sha256 expectedHash: String) throws -> Bool {
+        guard fileManager.fileExists(atPath: path.path) else {
+            throw AIEngineError.modelNotFound(path: path.path)
+        }
+
+        let data = try Data(contentsOf: path, options: .mappedIfSafe)
+        let digest = SHA256.hash(data: data)
+        let actualHash = digest.map { String(format: "%02x", $0) }.joined()
+
+        guard actualHash == expectedHash.lowercased() else {
+            // Delete corrupt file per AC-A-03
+            try? fileManager.removeItem(at: path)
+            throw AIEngineError.integrityCheckFailed(expected: expectedHash, actual: actualHash)
+        }
+
+        return true
+    }
+
+    /// Delete a downloaded model and free storage.
+    ///
+    /// Spec ref: AC-A-03 — `deleteModel(id:)` MUST remove the file and free storage.
+    public func deleteModel(id: String) throws {
+        guard let info = Self.availableModelInfos.first(where: { $0.id == id }) else {
+            throw AIEngineError.modelNotFound(path: id)
+        }
+
+        let path = modelPath(for: info)
+        if fileManager.fileExists(atPath: path.path) {
+            try fileManager.removeItem(at: path)
+        }
+
+        // Also clean up partial downloads
+        let partial = path.appendingPathExtension("partial")
+        try? fileManager.removeItem(at: partial)
+
+        downloadStatuses[id] = .notDownloaded
+    }
+
+    /// Total storage used by downloaded models (in bytes).
+    ///
+    /// Spec ref: AC-A-03 — `storageUsage()` MUST report total model storage accurately.
+    public func storageUsage() -> UInt64 {
+        guard let enumerator = fileManager.enumerator(at: modelsDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return 0
+        }
+
+        var total: UInt64 = 0
+        for case let fileURL as URL in enumerator {
+            if let attrs = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
+               let size = attrs.fileSize {
+                total += UInt64(size)
+            }
+        }
+        return total
+    }
+
+    /// Get the file path for a model. Used by `AIEngineResolver` to load into `LlamaEngine`.
+    public func modelPath(for info: ModelInfo) -> URL {
+        modelsDirectory.appendingPathComponent(info.fileName)
+    }
+
+    /// Get the file path for a model by ID.
+    public func modelPath(forID id: String) -> URL? {
+        guard let info = Self.availableModelInfos.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return modelPath(for: info)
+    }
+
+    /// Check if a model is downloaded and available on disk.
+    public func isModelDownloaded(id: String) -> Bool {
+        guard let info = Self.availableModelInfos.first(where: { $0.id == id }) else {
+            return false
+        }
+        return fileManager.fileExists(atPath: modelPath(for: info).path)
+    }
+
+    // MARK: - Private
+
+    private func currentStatus(for info: ModelInfo) -> DownloadStatus {
+        if let status = downloadStatuses[info.id] {
+            return status
+        }
+        let path = modelPath(for: info)
+        return fileManager.fileExists(atPath: path.path) ? .downloaded : .notDownloaded
+    }
+}
