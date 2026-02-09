@@ -357,15 +357,24 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             throw ThreadListError.folderNotFound(id: "archive(\(threadAccountId))")
         }
 
-        // Move all emails in the thread to the Archive folder
+        // Archive: remove Inbox association, add Archive, preserve other labels.
+        // PR #8 Comment 3: Multi-label semantics — only remove Inbox, keep custom labels.
+        let inboxType = FolderType.inbox.rawValue
         for email in thread.emails {
-            for ef in email.emailFolders {
+            // Remove ONLY Inbox folder associations
+            let inboxEFs = email.emailFolders.filter { $0.folder?.folderType == inboxType }
+            for ef in inboxEFs {
                 context.delete(ef)
             }
-            let newEF = EmailFolder(imapUID: 0)
-            newEF.email = email
-            newEF.folder = archiveFolder
-            context.insert(newEF)
+
+            // Add Archive association if not already present
+            let alreadyInArchive = email.emailFolders.contains { $0.folder?.id == archiveFolder.id }
+            if !alreadyInArchive {
+                let newEF = EmailFolder(imapUID: 0)
+                newEF.email = email
+                newEF.folder = archiveFolder
+                context.insert(newEF)
+            }
         }
 
         try context.save()
@@ -473,6 +482,29 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         }
 
         thread.isStarred = !thread.isStarred
+        try context.save()
+    }
+
+    // MARK: - Email-Level Star (PR #8 Comment 1)
+
+    public func toggleEmailStarStatus(emailId: String) async throws {
+        let eid = emailId
+        var descriptor = FetchDescriptor<Email>(
+            predicate: #Predicate { $0.id == eid }
+        )
+        descriptor.fetchLimit = 1
+
+        guard let email = try context.fetch(descriptor).first else {
+            throw ThreadListError.threadNotFound(id: emailId)
+        }
+
+        email.isStarred = !email.isStarred
+
+        // Recalculate thread-level star: true if ANY email in thread is starred
+        if let thread = email.thread {
+            thread.isStarred = thread.emails.contains { $0.isStarred }
+        }
+
         try context.save()
     }
 
@@ -605,6 +637,37 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             context.insert(attachment)
         }
         try context.save()
+    }
+
+    // MARK: - Trusted Senders (FR-ED-04)
+
+    public func getTrustedSender(email: String) async throws -> TrustedSender? {
+        let descriptor = FetchDescriptor<TrustedSender>(
+            predicate: #Predicate { $0.senderEmail == email }
+        )
+        return try context.fetch(descriptor).first
+    }
+
+    public func saveTrustedSender(_ sender: TrustedSender) async throws {
+        context.insert(sender)
+        try context.save()
+    }
+
+    public func deleteTrustedSender(email: String) async throws {
+        let descriptor = FetchDescriptor<TrustedSender>(
+            predicate: #Predicate { $0.senderEmail == email }
+        )
+        for sender in try context.fetch(descriptor) {
+            context.delete(sender)
+        }
+        try context.save()
+    }
+
+    public func getAllTrustedSenders() async throws -> [TrustedSender] {
+        let descriptor = FetchDescriptor<TrustedSender>(
+            sortBy: [SortDescriptor(\.createdDate, order: .reverse)]
+        )
+        return try context.fetch(descriptor)
     }
 
     // MARK: - Email Lookup (FR-COMP-01)

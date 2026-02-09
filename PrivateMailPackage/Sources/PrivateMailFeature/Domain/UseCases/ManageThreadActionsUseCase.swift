@@ -23,6 +23,8 @@ public protocol ManageThreadActionsUseCaseProtocol {
     func toggleStarStatus(threadId: String) async throws
     /// Move a thread to a different folder.
     func moveThread(id: String, toFolderId: String) async throws
+    /// Toggle star status for a single email (message-level).
+    func toggleEmailStarStatus(emailId: String) async throws
 
     // MARK: - Batch Actions
 
@@ -190,6 +192,14 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
                 operations: imapOps,
                 destinationImapPath: destImapPath
             )
+        }
+    }
+
+    public func toggleEmailStarStatus(emailId: String) async throws {
+        do {
+            try await repository.toggleEmailStarStatus(emailId: emailId)
+        } catch {
+            throw ThreadListError.actionFailed(error.localizedDescription)
         }
     }
 

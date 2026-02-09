@@ -25,6 +25,9 @@ struct ThreadListView: View {
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let manageAccounts: ManageAccountsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
+    let fetchEmailDetail: FetchEmailDetailUseCaseProtocol
+    let markRead: MarkReadUseCaseProtocol
+    let downloadAttachment: DownloadAttachmentUseCaseProtocol
     let composeEmail: ComposeEmailUseCaseProtocol
     let queryContacts: QueryContactsUseCaseProtocol
 
@@ -177,7 +180,7 @@ struct ThreadListView: View {
                 ComposerView(
                     composeEmail: composeEmail,
                     queryContacts: queryContacts,
-                    smartReply: SmartReplyUseCase(),
+                    smartReply: SmartReplyUseCase(aiRepository: StubAIRepository()),
                     mode: mode,
                     accounts: accounts,
                     onDismiss: { result in
@@ -291,9 +294,15 @@ struct ThreadListView: View {
             await reloadThreads()
         }
         .navigationDestination(for: String.self) { threadId in
-            if let thread = threads.first(where: { $0.id == threadId }) {
-                EmailDetailPlaceholder(threadSubject: thread.subject)
-            }
+            EmailDetailView(
+                threadId: threadId,
+                fetchEmailDetail: fetchEmailDetail,
+                markRead: markRead,
+                manageThreadActions: manageThreadActions,
+                downloadAttachment: downloadAttachment,
+                summarizeThread: nil,
+                smartReply: nil
+            )
         }
         .accessibilityLabel("Email threads")
     }
@@ -387,10 +396,16 @@ struct ThreadListView: View {
                     Label("Delete", systemImage: "trash")
                 }
             }
-            // Comment 7: Long-press to enter multi-select mode
-            .onLongPressGesture {
-                isMultiSelectMode = true
-                selectedThreadIds.insert(thread.id)
+            // Comment 7: Context menu to enter multi-select mode.
+            // Note: .onLongPressGesture blocks NavigationLink tap gesture in
+            // SwiftUI Lists, so we use .contextMenu instead.
+            .contextMenu {
+                Button {
+                    isMultiSelectMode = true
+                    selectedThreadIds.insert(thread.id)
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
+                }
             }
         }
     }

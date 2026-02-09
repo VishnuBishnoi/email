@@ -29,6 +29,9 @@ public struct ContentView: View {
     let fetchThreads: FetchThreadsUseCaseProtocol
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
+    let fetchEmailDetail: FetchEmailDetailUseCaseProtocol
+    let markRead: MarkReadUseCaseProtocol
+    let downloadAttachment: DownloadAttachmentUseCaseProtocol
     let composeEmail: ComposeEmailUseCaseProtocol
     let queryContacts: QueryContactsUseCaseProtocol
     let appLockManager: AppLockManager
@@ -42,6 +45,9 @@ public struct ContentView: View {
         fetchThreads: FetchThreadsUseCaseProtocol,
         manageThreadActions: ManageThreadActionsUseCaseProtocol,
         syncEmails: SyncEmailsUseCaseProtocol,
+        fetchEmailDetail: FetchEmailDetailUseCaseProtocol,
+        markRead: MarkReadUseCaseProtocol,
+        downloadAttachment: DownloadAttachmentUseCaseProtocol,
         composeEmail: ComposeEmailUseCaseProtocol,
         queryContacts: QueryContactsUseCaseProtocol,
         appLockManager: AppLockManager
@@ -50,6 +56,9 @@ public struct ContentView: View {
         self.fetchThreads = fetchThreads
         self.manageThreadActions = manageThreadActions
         self.syncEmails = syncEmails
+        self.fetchEmailDetail = fetchEmailDetail
+        self.markRead = markRead
+        self.downloadAttachment = downloadAttachment
         self.composeEmail = composeEmail
         self.queryContacts = queryContacts
         self.appLockManager = appLockManager
@@ -107,6 +116,9 @@ public struct ContentView: View {
             manageThreadActions: manageThreadActions,
             manageAccounts: manageAccounts,
             syncEmails: syncEmails,
+            fetchEmailDetail: fetchEmailDetail,
+            markRead: markRead,
+            downloadAttachment: downloadAttachment,
             composeEmail: composeEmail,
             queryContacts: queryContacts
         )

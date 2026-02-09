@@ -607,5 +607,6 @@ private final class PreviewQueryContactsUseCaseForComposer: QueryContactsUseCase
 
 @MainActor
 private final class PreviewSmartReplyUseCase: SmartReplyUseCaseProtocol {
+    func generateReplies(for email: Email) async -> [String] { [] }
     func generateReplies(for emailContext: ComposerEmailContext) async -> [String] { [] }
 }
