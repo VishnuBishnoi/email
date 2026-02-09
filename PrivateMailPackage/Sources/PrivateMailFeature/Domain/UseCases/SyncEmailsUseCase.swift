@@ -373,6 +373,12 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                     }
                 }
 
+                // Populate contact cache from email headers (From, To, CC)
+                let contacts = extractContacts(from: header, accountId: account.id)
+                for contact in contacts {
+                    try await emailRepository.upsertContact(contact)
+                }
+
                 mutableLookup[email.messageId] = email
                 allNewEmails.append(email)
             }
@@ -590,6 +596,49 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             sizeBytes: Int(info.sizeBytes ?? 0),
             isDownloaded: false
         )
+    }
+
+    // MARK: - Contact Extraction
+
+    /// Extract contacts from email header fields (From, To, CC) for the contact cache.
+    ///
+    /// Reuses `parseFromField()` to handle both "Name <email>" and bare email formats.
+    /// Deduplicates by lowercased email address within a single header.
+    private func extractContacts(from header: IMAPEmailHeader, accountId: String) -> [ContactCacheEntry] {
+        var contacts: [ContactCacheEntry] = []
+        var seen = Set<String>()
+
+        // From
+        let (fromEmail, fromName) = parseFromField(header.from)
+        if !fromEmail.isEmpty {
+            let lower = fromEmail.lowercased()
+            if !seen.contains(lower) {
+                seen.insert(lower)
+                contacts.append(ContactCacheEntry(
+                    accountId: accountId,
+                    emailAddress: fromEmail,
+                    displayName: fromName,
+                    lastSeenDate: header.date ?? Date()
+                ))
+            }
+        }
+
+        // To + CC
+        for addr in header.to + header.cc {
+            let (email, name) = parseFromField(addr)
+            guard !email.isEmpty else { continue }
+            let lower = email.lowercased()
+            guard !seen.contains(lower) else { continue }
+            seen.insert(lower)
+            contacts.append(ContactCacheEntry(
+                accountId: accountId,
+                emailAddress: email,
+                displayName: name,
+                lastSeenDate: header.date ?? Date()
+            ))
+        }
+
+        return contacts
     }
 
     // MARK: - Helpers

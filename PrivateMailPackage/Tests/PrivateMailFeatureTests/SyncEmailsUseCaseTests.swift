@@ -498,6 +498,103 @@ struct SyncEmailsUseCaseTests {
         }
     }
 
+    // MARK: - Contact Cache Population
+
+    @Test("syncAccount populates contact cache from email headers")
+    func syncAccountPopulatesContacts() async throws {
+        let account = createAccount()
+        try await addAccountToRepo(account)
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 1
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 1))
+        mockIMAPClient.searchUIDsResult = .success([601])
+
+        let now = Date()
+        mockIMAPClient.fetchHeadersResult = .success([
+            IMAPEmailHeader(
+                uid: 601,
+                messageId: "<contact-test@gmail.com>",
+                inReplyTo: nil,
+                references: nil,
+                from: "Alice Smith <alice@example.com>",
+                to: ["test@gmail.com", "bob@example.com"],
+                subject: "Contact test",
+                date: now,
+                flags: []
+            )
+        ])
+        mockIMAPClient.fetchBodiesResult = .success([
+            IMAPEmailBody(uid: 601, plainText: "Body", htmlText: nil)
+        ])
+
+        let useCase = sut
+        try await useCase.syncAccount(accountId: account.id)
+
+        // Should have upserted contacts for: alice@example.com, test@gmail.com, bob@example.com
+        #expect(emailRepo.upsertContactCallCount >= 3)
+
+        // Verify contact entries were stored
+        let emails = emailRepo.contactEntries.map(\.emailAddress).sorted()
+        #expect(emails.contains("alice@example.com"))
+        #expect(emails.contains("bob@example.com"))
+        #expect(emails.contains("test@gmail.com"))
+
+        // Verify display name was extracted from From header
+        let alice = emailRepo.contactEntries.first(where: { $0.emailAddress == "alice@example.com" })
+        #expect(alice?.displayName == "Alice Smith")
+    }
+
+    @Test("syncAccount deduplicates contacts within a single email")
+    func syncAccountDeduplicatesContacts() async throws {
+        let account = createAccount()
+        try await addAccountToRepo(account)
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 1
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 1))
+        mockIMAPClient.searchUIDsResult = .success([701])
+
+        mockIMAPClient.fetchHeadersResult = .success([
+            IMAPEmailHeader(
+                uid: 701,
+                messageId: "<dedup-test@gmail.com>",
+                inReplyTo: nil,
+                references: nil,
+                from: "Alice <alice@example.com>",
+                to: ["alice@example.com"], // Same as From — should not duplicate
+                subject: "Self-send",
+                date: Date(),
+                flags: []
+            )
+        ])
+        mockIMAPClient.fetchBodiesResult = .success([
+            IMAPEmailBody(uid: 701, plainText: "Body", htmlText: nil)
+        ])
+
+        let useCase = sut
+        try await useCase.syncAccount(accountId: account.id)
+
+        // Only 1 upsert because alice@example.com appears in both From and To
+        #expect(emailRepo.upsertContactCallCount == 1)
+    }
+
+    // MARK: - syncFolder
+
     @Test("syncFolder syncs emails for a single folder")
     func syncFolderSyncsEmails() async throws {
         let account = createAccount()

@@ -135,4 +135,18 @@ public protocol EmailRepositoryProtocol {
     func deleteTrustedSender(email: String) async throws
     /// Get all trusted senders (for Settings management).
     func getAllTrustedSenders() async throws -> [TrustedSender]
+
+    // MARK: - Email Lookup (FR-COMP-01)
+
+    /// Fetch a single email by ID.
+    func getEmail(id: String) async throws -> Email?
+
+    // MARK: - Contact Cache (FR-COMP-04)
+
+    /// Query cached contacts matching a prefix, sorted by frequency.
+    func queryContacts(accountId: String, prefix: String, limit: Int) async throws -> [ContactCacheEntry]
+    /// Upsert a contact cache entry (increment frequency if exists).
+    func upsertContact(_ entry: ContactCacheEntry) async throws
+    /// Delete all contact cache entries for an account (cascade on account removal).
+    func deleteContactsForAccount(accountId: String) async throws
 }

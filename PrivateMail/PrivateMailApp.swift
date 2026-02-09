@@ -14,6 +14,8 @@ struct PrivateMailApp: App {
     let fetchEmailDetail: FetchEmailDetailUseCaseProtocol
     let markRead: MarkReadUseCaseProtocol
     let downloadAttachment: DownloadAttachmentUseCaseProtocol
+    let composeEmail: ComposeEmailUseCaseProtocol
+    let queryContacts: QueryContactsUseCaseProtocol
 
     init() {
         do {
@@ -39,13 +41,27 @@ struct PrivateMailApp: App {
         )
 
         let emailRepo = EmailRepositoryImpl(modelContainer: modelContainer)
-        fetchThreads = FetchThreadsUseCase(repository: emailRepo)
-        manageThreadActions = ManageThreadActionsUseCase(repository: emailRepo)
+        let connectionPool = ConnectionPool()
+
         fetchEmailDetail = FetchEmailDetailUseCase(repository: emailRepo)
         markRead = MarkReadUseCase(repository: emailRepo)
         downloadAttachment = DownloadAttachmentUseCase(repository: emailRepo)
 
-        let connectionPool = ConnectionPool()
+        fetchThreads = FetchThreadsUseCase(repository: emailRepo)
+        manageThreadActions = ManageThreadActionsUseCase(
+            repository: emailRepo,
+            connectionProvider: connectionPool,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
+        composeEmail = ComposeEmailUseCase(
+            repository: emailRepo,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager,
+            smtpClient: SMTPClient()
+        )
+        queryContacts = QueryContactsUseCase(repository: emailRepo)
+
         syncEmails = SyncEmailsUseCase(
             accountRepository: accountRepo,
             emailRepository: emailRepo,
@@ -64,6 +80,8 @@ struct PrivateMailApp: App {
                 fetchEmailDetail: fetchEmailDetail,
                 markRead: markRead,
                 downloadAttachment: downloadAttachment,
+                composeEmail: composeEmail,
+                queryContacts: queryContacts,
                 appLockManager: appLockManager
             )
             .environment(settingsStore)

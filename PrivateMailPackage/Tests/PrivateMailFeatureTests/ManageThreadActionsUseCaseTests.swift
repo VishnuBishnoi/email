@@ -8,9 +8,33 @@ struct ManageThreadActionsUseCaseTests {
 
     // MARK: - Helpers
 
+    /// No-op connection provider for tests that only verify local delegation.
+    /// IMAP sync is best-effort and won't affect test assertions.
+    private final class StubConnectionProvider: ConnectionProviding, @unchecked Sendable {
+        func checkoutConnection(
+            accountId: String,
+            host: String,
+            port: Int,
+            email: String,
+            accessToken: String
+        ) async throws -> any IMAPClientProtocol {
+            MockIMAPClient()
+        }
+
+        func checkinConnection(_ client: any IMAPClientProtocol, accountId: String) async {}
+    }
+
     private static func makeSUT() -> (ManageThreadActionsUseCase, MockEmailRepository) {
         let repo = MockEmailRepository()
-        let useCase = ManageThreadActionsUseCase(repository: repo)
+        let accountRepo = MockAccountRepository()
+        let keychainManager = MockKeychainManager()
+        let connectionProvider = StubConnectionProvider()
+        let useCase = ManageThreadActionsUseCase(
+            repository: repo,
+            connectionProvider: connectionProvider,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
         return (useCase, repo)
     }
 

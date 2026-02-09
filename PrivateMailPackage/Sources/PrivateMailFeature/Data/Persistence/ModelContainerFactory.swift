@@ -19,7 +19,8 @@ public enum ModelContainerFactory {
         EmailFolder.self,
         Attachment.self,
         SearchIndex.self,
-        TrustedSender.self
+        TrustedSender.self,
+        ContactCacheEntry.self
     ]
 
     /// Creates a production ModelContainer with persistent storage.

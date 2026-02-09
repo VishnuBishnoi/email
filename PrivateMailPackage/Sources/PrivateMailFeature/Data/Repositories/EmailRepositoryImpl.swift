@@ -669,4 +669,66 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         )
         return try context.fetch(descriptor)
     }
+
+    // MARK: - Email Lookup (FR-COMP-01)
+
+    public func getEmail(id: String) async throws -> Email? {
+        let emailId = id
+        var descriptor = FetchDescriptor<Email>(
+            predicate: #Predicate { $0.id == emailId }
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    // MARK: - Contact Cache (FR-COMP-04)
+
+    public func queryContacts(accountId: String, prefix: String, limit: Int) async throws -> [ContactCacheEntry] {
+        let acctId = accountId
+        let descriptor = FetchDescriptor<ContactCacheEntry>(
+            predicate: #Predicate { $0.accountId == acctId },
+            sortBy: [SortDescriptor(\.frequency, order: .reverse)]
+        )
+        let all = try context.fetch(descriptor)
+        let lowercased = prefix.lowercased()
+        let filtered = all.filter {
+            $0.emailAddress.lowercased().hasPrefix(lowercased) ||
+            ($0.displayName?.lowercased().hasPrefix(lowercased) ?? false)
+        }
+        return Array(filtered.prefix(limit))
+    }
+
+    public func upsertContact(_ entry: ContactCacheEntry) async throws {
+        let email = entry.emailAddress.lowercased()
+        let acctId = entry.accountId
+        let descriptor = FetchDescriptor<ContactCacheEntry>(
+            predicate: #Predicate {
+                $0.emailAddress == email && $0.accountId == acctId
+            }
+        )
+        if let existing = try context.fetch(descriptor).first {
+            existing.frequency += 1
+            existing.lastSeenDate = entry.lastSeenDate
+            if let newName = entry.displayName, !newName.isEmpty {
+                existing.displayName = newName
+            }
+        } else {
+            // Normalize email to lowercase for consistent matching
+            entry.emailAddress = entry.emailAddress.lowercased()
+            context.insert(entry)
+        }
+        try context.save()
+    }
+
+    public func deleteContactsForAccount(accountId: String) async throws {
+        let acctId = accountId
+        let descriptor = FetchDescriptor<ContactCacheEntry>(
+            predicate: #Predicate { $0.accountId == acctId }
+        )
+        let contacts = try context.fetch(descriptor)
+        for contact in contacts {
+            context.delete(contact)
+        }
+        try context.save()
+    }
 }

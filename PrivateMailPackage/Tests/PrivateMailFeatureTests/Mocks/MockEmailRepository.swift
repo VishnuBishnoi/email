@@ -345,4 +345,58 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         if let error = errorToThrow { throw error }
         return trustedSenders
     }
+
+    // MARK: - Email Lookup (FR-COMP-01)
+
+    var getEmailCallCount = 0
+
+    func getEmail(id: String) async throws -> Email? {
+        getEmailCallCount += 1
+        if let error = errorToThrow { throw error }
+        return emails.first { $0.id == id }
+    }
+
+    // MARK: - Contact Cache (FR-COMP-04)
+
+    var contactEntries: [ContactCacheEntry] = []
+    var queryContactsCallCount = 0
+    var upsertContactCallCount = 0
+    var deleteContactsForAccountCallCount = 0
+
+    func queryContacts(accountId: String, prefix: String, limit: Int) async throws -> [ContactCacheEntry] {
+        queryContactsCallCount += 1
+        if let error = errorToThrow { throw error }
+        let lowercased = prefix.lowercased()
+        let filtered = contactEntries
+            .filter { $0.accountId == accountId }
+            .filter {
+                $0.emailAddress.lowercased().hasPrefix(lowercased) ||
+                ($0.displayName?.lowercased().hasPrefix(lowercased) ?? false)
+            }
+            .sorted { $0.frequency > $1.frequency }
+        return Array(filtered.prefix(limit))
+    }
+
+    func upsertContact(_ entry: ContactCacheEntry) async throws {
+        upsertContactCallCount += 1
+        if let error = errorToThrow { throw error }
+        if let index = contactEntries.firstIndex(where: {
+            $0.emailAddress.lowercased() == entry.emailAddress.lowercased() &&
+            $0.accountId == entry.accountId
+        }) {
+            contactEntries[index].frequency += 1
+            contactEntries[index].lastSeenDate = entry.lastSeenDate
+            if let name = entry.displayName, !name.isEmpty {
+                contactEntries[index].displayName = name
+            }
+        } else {
+            contactEntries.append(entry)
+        }
+    }
+
+    func deleteContactsForAccount(accountId: String) async throws {
+        deleteContactsForAccountCallCount += 1
+        if let error = errorToThrow { throw error }
+        contactEntries.removeAll { $0.accountId == accountId }
+    }
 }
