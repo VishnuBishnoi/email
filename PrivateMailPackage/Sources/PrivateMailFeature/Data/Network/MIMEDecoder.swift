@@ -182,6 +182,22 @@ enum MIMEDecoder {
         return bytes
     }
 
+    // MARK: - Public: Binary Decoding (for attachment downloads)
+
+    /// Decodes a quoted-printable encoded string to raw binary `Data`.
+    ///
+    /// Unlike `decodeQuotedPrintableBody` (which returns a String), this preserves
+    /// raw bytes for binary attachments (images, PDFs, etc.).
+    ///
+    /// Spec ref: FR-SYNC-08 (Attachment download)
+    static func decodeQuotedPrintableToData(_ text: String) -> Data {
+        let noSoftBreaks = text
+            .replacingOccurrences(of: "=\r\n", with: "")
+            .replacingOccurrences(of: "=\n", with: "")
+        let bytes = decodeQuotedPrintableBytes(noSoftBreaks)
+        return Data(bytes)
+    }
+
     // MARK: - Private: Base64 Decoding
 
     /// Decodes Base64-encoded text with charset conversion.

@@ -348,6 +348,35 @@ public actor IMAPClient: IMAPClientProtocol {
         try await session.executeAPPEND(folder: imapPath, flags: flags, data: messageData)
     }
 
+    // MARK: - IMAPClientProtocol: Body Part Fetch
+
+    /// Fetches a single body part (attachment) by UID and MIME section.
+    ///
+    /// Maps to IMAP `UID FETCH <uid> (BODY.PEEK[<section>])`.
+    /// Returns the raw body part data (still transfer-encoded).
+    ///
+    /// Per FR-SYNC-08: Attachments are downloaded lazily, on demand.
+    public func fetchBodyPart(uid: UInt32, section: String) async throws -> Data {
+        let command = "UID FETCH \(uid) (BODY.PEEK[\(section)])"
+        let responses = try await session.execute(command)
+
+        // Extract the body content from the FETCH response
+        let sectionContent = IMAPResponseParser.extractBodyPartsBySection(
+            from: responses.joined(separator: "\r\n")
+        )
+
+        guard let content = sectionContent[section] else {
+            throw IMAPError.messageNotFound(String(uid))
+        }
+
+        // Return the raw bytes (caller handles transfer-encoding decoding)
+        guard let data = content.data(using: .utf8) else {
+            throw IMAPError.parsingFailed("Failed to decode body part data for UID \(uid) section \(section)")
+        }
+
+        return data
+    }
+
     // MARK: - IMAPClientProtocol: IDLE
 
     /// Starts IMAP IDLE on the currently selected folder.

@@ -9,6 +9,7 @@ public enum AccountError: Error, LocalizedError, Sendable {
     case keychainFailure(KeychainError)
     case oauthFailure(OAuthError)
     case persistenceFailed(String)
+    case imapValidationFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ public enum AccountError: Error, LocalizedError, Sendable {
             "OAuth error: \(error.localizedDescription)"
         case .persistenceFailed(let reason):
             "Persistence error: \(reason)"
+        case .imapValidationFailed(let reason):
+            "Couldn't connect to Gmail. \(reason)"
         }
     }
 }

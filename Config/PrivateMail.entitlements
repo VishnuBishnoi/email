@@ -2,9 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Background fetch for periodic email sync (FR-SYNC-03) -->
+	<key>com.apple.developer.background-modes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+
 	<!-- Base entitlements - add your app's entitlements here -->
 	<!-- AI agents can safely modify this file to add capabilities -->
-	
+
 	<!-- Example entitlements (commented out by default):
 	
 	<key>com.apple.developer.healthkit</key>

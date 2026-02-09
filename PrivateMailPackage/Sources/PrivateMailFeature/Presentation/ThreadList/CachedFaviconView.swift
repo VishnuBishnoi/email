@@ -13,6 +13,9 @@ import SwiftUI
 /// participant changes. Images are cached to the filesystem by
 /// ``FaviconCache`` so each domain is downloaded at most once.
 ///
+/// On macOS, favicon fetching is not available (UIImage dependency).
+/// The view always shows the colored-circle + initials fallback.
+///
 /// Spec ref: Thread List visual enhancement — brand icons
 struct CachedFaviconView: View {
 
@@ -22,11 +25,14 @@ struct CachedFaviconView: View {
     let initials: String
     let initialsFontSize: CGFloat?
 
+    #if canImport(UIKit)
     @State private var faviconImage: PlatformImage?
+    #endif
     @State private var didFail = false
 
     var body: some View {
         ZStack {
+            #if canImport(UIKit)
             if let faviconImage {
                 Image(platformImage: faviconImage)
                     .resizable()
@@ -35,26 +41,36 @@ struct CachedFaviconView: View {
                     .clipShape(Circle())
                     .transition(.opacity)
             } else {
-                Circle()
-                    .fill(fallbackColor)
-                    .frame(width: diameter, height: diameter)
-                    .overlay {
-                        Text(initials)
-                            .font(
-                                initialsFontSize.map { .system(size: $0) } ?? .caption
-                            )
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-                    }
+                initialsCircle
             }
+            #else
+            initialsCircle
+            #endif
         }
         .frame(width: diameter, height: diameter)
         .clipShape(Circle())
+        #if canImport(UIKit)
         .task(id: email) {
             await loadFavicon()
         }
+        #endif
     }
 
+    private var initialsCircle: some View {
+        Circle()
+            .fill(fallbackColor)
+            .frame(width: diameter, height: diameter)
+            .overlay {
+                Text(initials)
+                    .font(
+                        initialsFontSize.map { .system(size: $0) } ?? .caption
+                    )
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+            }
+    }
+
+    #if canImport(UIKit)
     private func loadFavicon() async {
         guard !email.isEmpty else { return }
 
@@ -71,6 +87,7 @@ struct CachedFaviconView: View {
             didFail = true
         }
     }
+    #endif
 
     /// Extract domain from email, normalized to lowercase.
     private func extractDomain(from email: String) -> String? {

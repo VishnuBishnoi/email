@@ -237,6 +237,14 @@ public protocol IMAPClientProtocol: Sendable {
     /// Used to copy sent messages to the Sent folder (FR-SYNC-07).
     func appendMessage(to imapPath: String, messageData: Data, flags: [String]) async throws
 
+    /// Fetches a single body part (attachment) by UID and MIME section.
+    ///
+    /// Maps to IMAP `UID FETCH <uid> (BODY.PEEK[<section>])`.
+    /// Returns the raw body part data (still transfer-encoded).
+    ///
+    /// Spec ref: FR-SYNC-08 (Lazy attachment download)
+    func fetchBodyPart(uid: UInt32, section: String) async throws -> Data
+
     /// Starts IMAP IDLE on the currently selected folder.
     ///
     /// The handler is called when the server sends an EXISTS notification.

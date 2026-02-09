@@ -11,6 +11,7 @@ public struct OnboardingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let manageAccounts: ManageAccountsUseCaseProtocol
+    let syncEmails: SyncEmailsUseCaseProtocol
 
     @State private var currentStep = 0
     @State private var addedAccounts: [Account] = []
@@ -18,8 +19,12 @@ public struct OnboardingView: View {
 
     private let totalSteps = 5
 
-    public init(manageAccounts: ManageAccountsUseCaseProtocol) {
+    public init(
+        manageAccounts: ManageAccountsUseCaseProtocol,
+        syncEmails: SyncEmailsUseCaseProtocol
+    ) {
         self.manageAccounts = manageAccounts
+        self.syncEmails = syncEmails
     }
 
     public var body: some View {
@@ -92,12 +97,21 @@ public struct OnboardingView: View {
         // Mark onboarding complete — do not re-display on subsequent launches
         settingsStore.isOnboardingComplete = true
 
-        // PARTIAL SCOPE: Initial sync trigger deferred (Email Sync FR-SYNC-01).
-        // The sync engine (Data/Sync/) does not exist yet — blocked on IOS-F-05/F-06.
-        // When implemented, this MUST call:
-        //   for account in addedAccounts { syncEngine.startInitialSync(for: account) }
-        // Until then, onboarding completes without triggering sync.
-        // Tracked in: https://github.com/VishnuBishnoi/email/issues (Email Sync epic)
+        // Trigger initial IMAP sync for all added accounts (FR-SYNC-01).
+        // Fires concurrently in the background — ThreadListView's initialLoad()
+        // will pick up data as it populates SwiftData.
+        let accountsToSync = addedAccounts
+        let sync = syncEmails
+        Task {
+            for account in accountsToSync {
+                do {
+                    try await sync.syncAccount(accountId: account.id)
+                    NSLog("[Onboarding] Initial sync completed for \(account.email)")
+                } catch {
+                    NSLog("[Onboarding] Initial sync failed for \(account.email): \(error)")
+                }
+            }
+        }
     }
 }
 

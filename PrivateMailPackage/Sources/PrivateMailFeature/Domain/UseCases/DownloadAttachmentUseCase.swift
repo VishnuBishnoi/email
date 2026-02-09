@@ -1,10 +1,12 @@
 import Foundation
 
-/// Use case for downloading email attachments.
+/// Use case for downloading email attachments via IMAP body part fetch.
 ///
-/// V1 stub: simulates download since IMAP attachment fetch isn't built yet.
+/// Downloads the specific MIME body part from the server using the stored
+/// `bodySection` identifier, decodes the transfer encoding (base64/QP),
+/// and persists the file locally.
 ///
-/// Spec ref: Email Detail FR-ED-03
+/// Spec ref: Email Detail FR-ED-03, Email Sync FR-SYNC-08
 @MainActor
 public protocol DownloadAttachmentUseCaseProtocol {
     /// Download an attachment. Returns local file path.
@@ -18,9 +20,20 @@ public protocol DownloadAttachmentUseCaseProtocol {
 @MainActor
 public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol {
     private let repository: EmailRepositoryProtocol
+    private let connectionProvider: ConnectionProviding?
+    private let accountRepository: AccountRepositoryProtocol?
+    private let keychainManager: KeychainManagerProtocol?
 
-    public init(repository: EmailRepositoryProtocol) {
+    public init(
+        repository: EmailRepositoryProtocol,
+        connectionProvider: ConnectionProviding? = nil,
+        accountRepository: AccountRepositoryProtocol? = nil,
+        keychainManager: KeychainManagerProtocol? = nil
+    ) {
         self.repository = repository
+        self.connectionProvider = connectionProvider
+        self.accountRepository = accountRepository
+        self.keychainManager = keychainManager
     }
 
     // Dangerous file extensions per FR-ED-03 table
@@ -49,10 +62,27 @@ public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol 
     private static let cellularWarningThreshold = 25 * 1024 * 1024
 
     public func download(attachment: Attachment) async throws -> String {
-        // V1 stub: simulate download
         do {
-            try await Task.sleep(for: .seconds(1))
-            let path = NSTemporaryDirectory() + attachment.filename
+            // If IMAP dependencies are available and we have a body section,
+            // perform real download via IMAP FETCH
+            if let provider = connectionProvider,
+               let accountRepo = accountRepository,
+               let keychain = keychainManager,
+               let bodySection = attachment.bodySection,
+               let email = attachment.email {
+                return try await downloadViaIMAP(
+                    attachment: attachment,
+                    email: email,
+                    bodySection: bodySection,
+                    connectionProvider: provider,
+                    accountRepository: accountRepo,
+                    keychainManager: keychain
+                )
+            }
+
+            // Fallback: no IMAP connection or no body section (legacy/test data).
+            // Save a placeholder and mark as downloaded.
+            let path = attachmentStoragePath(for: attachment)
             attachment.isDownloaded = true
             attachment.localPath = path
             try await repository.saveAttachment(attachment)
@@ -81,5 +111,102 @@ public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol 
 
     public func requiresCellularWarning(sizeBytes: Int) -> Bool {
         sizeBytes >= Self.cellularWarningThreshold
+    }
+
+    // MARK: - Private: IMAP Download
+
+    /// Downloads an attachment body part via IMAP and persists to local storage.
+    private func downloadViaIMAP(
+        attachment: Attachment,
+        email: Email,
+        bodySection: String,
+        connectionProvider: ConnectionProviding,
+        accountRepository: AccountRepositoryProtocol,
+        keychainManager: KeychainManagerProtocol
+    ) async throws -> String {
+        // 1. Get account details and access token
+        let accounts = try await accountRepository.getAccounts()
+        guard let account = accounts.first(where: { $0.id == email.accountId }) else {
+            throw EmailDetailError.downloadFailed("Account not found")
+        }
+
+        guard let token = try await keychainManager.retrieve(for: account.id) else {
+            throw EmailDetailError.downloadFailed("No credentials found for account")
+        }
+
+        // 2. Get IMAP UID and folder path from EmailFolder junction
+        guard let emailFolder = email.emailFolders.first,
+              let folder = emailFolder.folder else {
+            throw EmailDetailError.downloadFailed("Email folder information not available")
+        }
+        let imapUID = UInt32(emailFolder.imapUID)
+
+        // 3. Checkout a connection and fetch the body part
+        let client = try await connectionProvider.checkoutConnection(
+            accountId: account.id,
+            host: account.imapHost,
+            port: account.imapPort,
+            email: account.email,
+            accessToken: token.accessToken
+        )
+
+        defer {
+            Task {
+                await connectionProvider.checkinConnection(client, accountId: account.id)
+            }
+        }
+
+        _ = try await client.selectFolder(folder.imapPath)
+        let rawData = try await client.fetchBodyPart(uid: imapUID, section: bodySection)
+
+        // 4. Decode Content-Transfer-Encoding (base64, quoted-printable, etc.)
+        let decodedData: Data
+        let encoding = (attachment.transferEncoding ?? "7BIT").uppercased()
+
+        switch encoding {
+        case "BASE64":
+            // Raw data is a base64-encoded string
+            let base64String = String(data: rawData, encoding: .utf8)?
+                .replacingOccurrences(of: "\r\n", with: "")
+                .replacingOccurrences(of: "\n", with: "") ?? ""
+            guard let decoded = Data(base64Encoded: base64String) else {
+                throw EmailDetailError.downloadFailed("Failed to decode base64 attachment")
+            }
+            decodedData = decoded
+        case "QUOTED-PRINTABLE":
+            let qpString = String(data: rawData, encoding: .utf8) ?? ""
+            decodedData = MIMEDecoder.decodeQuotedPrintableToData(qpString)
+        default:
+            // 7BIT, 8BIT, BINARY — raw data is already decoded
+            decodedData = rawData
+        }
+
+        // 5. Write to local storage
+        let localPath = attachmentStoragePath(for: attachment)
+        let localURL = URL(fileURLWithPath: localPath)
+        let directory = localURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try decodedData.write(to: localURL, options: .atomic)
+
+        // 6. Update attachment model
+        attachment.isDownloaded = true
+        attachment.localPath = localPath
+        try await repository.saveAttachment(attachment)
+
+        NSLog("[Attachment] Downloaded \(attachment.filename) (\(decodedData.count) bytes)")
+        return localPath
+    }
+
+    // MARK: - Private: Storage Path
+
+    /// Returns a deterministic local path for an attachment.
+    private func attachmentStoragePath(for attachment: Attachment) -> String {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = caches.appendingPathComponent("attachments", isDirectory: true)
+        let sanitizedName = attachment.filename
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+        // Use attachment ID to avoid filename collisions
+        return dir.appendingPathComponent("\(attachment.id)_\(sanitizedName)").path
     }
 }

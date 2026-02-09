@@ -30,6 +30,7 @@ struct ThreadListView: View {
     let downloadAttachment: DownloadAttachmentUseCaseProtocol
     let composeEmail: ComposeEmailUseCaseProtocol
     let queryContacts: QueryContactsUseCaseProtocol
+    let idleMonitor: IDLEMonitorUseCaseProtocol?
 
     @Environment(UndoSendManager.self) private var undoSendManager
 
@@ -99,6 +100,9 @@ struct ThreadListView: View {
 
     // Move-to-folder sheet for multi-select (Comment 7)
     @State private var showMoveSheet = false
+
+    // IMAP IDLE monitoring task (FR-SYNC-03 real-time updates)
+    @State private var idleTask: Task<Void, Never>?
 
     // Programmatic navigation for bottom tab bar
     @State private var navigationPath = NavigationPath()
@@ -257,6 +261,13 @@ struct ThreadListView: View {
         }
         .onChange(of: selectedCategory) {
             Task { await reloadThreads() }
+        }
+        .onChange(of: selectedFolder?.id) {
+            // Restart IDLE when folder changes
+            startIDLEMonitor()
+        }
+        .onDisappear {
+            stopIDLEMonitor()
         }
     }
 
@@ -641,6 +652,9 @@ struct ThreadListView: View {
                     }
                     await loadThreadsAndCounts()
                     NSLog("[UI] Threads reloaded, count: \(threads.count)")
+
+                    // Phase 3: Start IMAP IDLE for real-time inbox updates (FR-SYNC-03)
+                    startIDLEMonitor()
                 } catch {
                     NSLog("[UI] Background sync FAILED: \(error)")
                     errorBannerMessage = "Sync failed: \(error.localizedDescription)"
@@ -649,6 +663,58 @@ struct ThreadListView: View {
         } catch {
             viewState = .error(error.localizedDescription)
         }
+    }
+
+    // MARK: - IMAP IDLE Monitoring (FR-SYNC-03)
+
+    /// Starts monitoring the current folder for new mail via IMAP IDLE.
+    ///
+    /// On `.newMail` events, triggers an incremental folder sync and reloads threads.
+    /// Automatically cancels when the folder/account changes or view disappears.
+    private func startIDLEMonitor() {
+        // Cancel any existing monitor
+        stopIDLEMonitor()
+
+        guard let monitor = idleMonitor,
+              let accountId = selectedAccount?.id,
+              let folderPath = selectedFolder?.imapPath else {
+            return
+        }
+
+        NSLog("[IDLE] Starting monitor for \(folderPath)")
+        idleTask = Task {
+            var retryDelay: Duration = .seconds(2)
+            let maxDelay: Duration = .seconds(60)
+
+            while !Task.isCancelled {
+                let stream = monitor.monitor(accountId: accountId, folderImapPath: folderPath)
+                for await event in stream {
+                    guard !Task.isCancelled else { break }
+                    switch event {
+                    case .newMail:
+                        NSLog("[IDLE] New mail notification, syncing folder...")
+                        if let folderId = selectedFolder?.id {
+                            try? await syncEmails.syncFolder(accountId: accountId, folderId: folderId)
+                            await loadThreadsAndCounts()
+                        }
+                        retryDelay = .seconds(2) // reset on success
+                    case .disconnected:
+                        NSLog("[IDLE] Monitor disconnected, will retry in \(retryDelay)")
+                    }
+                }
+
+                // Stream ended — retry with exponential backoff
+                guard !Task.isCancelled else { break }
+                try? await Task.sleep(for: retryDelay)
+                retryDelay = min(retryDelay * 2, maxDelay)
+            }
+        }
+    }
+
+    /// Stops the IMAP IDLE monitor.
+    private func stopIDLEMonitor() {
+        idleTask?.cancel()
+        idleTask = nil
     }
 
     /// Reload threads for current account/folder/category selection.

@@ -1,4 +1,6 @@
+#if canImport(UIKit)
 import SwiftUI
+import UIKit
 
 /// Filesystem-backed favicon cache.
 ///
@@ -137,3 +139,4 @@ actor FaviconCache {
         }
     }
 }
+#endif

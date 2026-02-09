@@ -34,6 +34,7 @@ public struct ContentView: View {
     let downloadAttachment: DownloadAttachmentUseCaseProtocol
     let composeEmail: ComposeEmailUseCaseProtocol
     let queryContacts: QueryContactsUseCaseProtocol
+    let idleMonitor: IDLEMonitorUseCaseProtocol?
     let appLockManager: AppLockManager
 
     @State private var accounts: [Account] = []
@@ -50,6 +51,7 @@ public struct ContentView: View {
         downloadAttachment: DownloadAttachmentUseCaseProtocol,
         composeEmail: ComposeEmailUseCaseProtocol,
         queryContacts: QueryContactsUseCaseProtocol,
+        idleMonitor: IDLEMonitorUseCaseProtocol? = nil,
         appLockManager: AppLockManager
     ) {
         self.manageAccounts = manageAccounts
@@ -61,6 +63,7 @@ public struct ContentView: View {
         self.downloadAttachment = downloadAttachment
         self.composeEmail = composeEmail
         self.queryContacts = queryContacts
+        self.idleMonitor = idleMonitor
         self.appLockManager = appLockManager
     }
 
@@ -70,7 +73,7 @@ public struct ContentView: View {
                 if !hasLoaded {
                     ProgressView()
                 } else if accounts.isEmpty || !settings.isOnboardingComplete {
-                    OnboardingView(manageAccounts: manageAccounts)
+                    OnboardingView(manageAccounts: manageAccounts, syncEmails: syncEmails)
                 } else {
                     mainAppView
                 }
@@ -120,7 +123,8 @@ public struct ContentView: View {
             markRead: markRead,
             downloadAttachment: downloadAttachment,
             composeEmail: composeEmail,
-            queryContacts: queryContacts
+            queryContacts: queryContacts,
+            idleMonitor: idleMonitor
         )
         .environment(undoSendManager)
         .preferredColorScheme(settings.colorScheme)

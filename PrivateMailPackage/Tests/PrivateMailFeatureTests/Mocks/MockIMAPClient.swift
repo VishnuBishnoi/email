@@ -26,6 +26,7 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     private(set) var copyMessagesCallCount = 0
     private(set) var expungeMessagesCallCount = 0
     private(set) var appendMessageCallCount = 0
+    private(set) var fetchBodyPartCallCount = 0
     private(set) var startIDLECallCount = 0
     private(set) var stopIDLECallCount = 0
 
@@ -47,6 +48,8 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     private(set) var lastAppendPath: String?
     private(set) var lastAppendData: Data?
     private(set) var lastAppendFlags: [String]?
+    private(set) var lastFetchBodyPartUID: UInt32?
+    private(set) var lastFetchBodyPartSection: String?
 
     // MARK: - Configurable Results
 
@@ -62,6 +65,7 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     var copyMessagesError: IMAPError?
     var expungeMessagesError: IMAPError?
     var appendMessageError: IMAPError?
+    var fetchBodyPartResult: Result<Data, IMAPError> = .success(Data())
     var startIDLEError: IMAPError?
     var stopIDLEError: IMAPError?
 
@@ -173,6 +177,13 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
         if let error = appendMessageError {
             throw error
         }
+    }
+
+    func fetchBodyPart(uid: UInt32, section: String) async throws -> Data {
+        fetchBodyPartCallCount += 1
+        lastFetchBodyPartUID = uid
+        lastFetchBodyPartSection = section
+        return try fetchBodyPartResult.get()
     }
 
     func startIDLE(onNewMail: @Sendable @escaping () -> Void) async throws {

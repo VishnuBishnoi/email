@@ -589,12 +589,17 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     }
 
     /// Map IMAP attachment info to an Attachment model.
+    ///
+    /// Stores `bodySection` (MIME part ID) so ``DownloadAttachmentUseCase``
+    /// can lazily fetch this part via `BODY.PEEK[<section>]` (FR-SYNC-08).
     private func mapToAttachment(from info: IMAPAttachmentInfo) -> Attachment {
         Attachment(
             filename: info.filename ?? "attachment",
             mimeType: info.mimeType ?? "application/octet-stream",
             sizeBytes: Int(info.sizeBytes ?? 0),
-            isDownloaded: false
+            isDownloaded: false,
+            bodySection: info.partId,
+            contentId: info.contentId
         )
     }
 

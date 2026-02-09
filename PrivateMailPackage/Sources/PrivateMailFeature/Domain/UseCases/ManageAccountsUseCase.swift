@@ -11,10 +11,11 @@ import Foundation
 @MainActor
 public protocol ManageAccountsUseCaseProtocol {
     /// Authenticate via OAuth 2.0 PKCE, create an account with Gmail defaults,
-    /// store the token in Keychain, and persist the account in SwiftData.
-    /// Returns the newly created Account.
+    /// store the token in Keychain, persist the account in SwiftData, and
+    /// validate IMAP connectivity.
     ///
-    /// IMAP/SMTP validation is stubbed until the sync layer is built (FR-ACCT-01).
+    /// Throws `AccountError.imapValidationFailed` if IMAP connection fails.
+    /// Spec ref: FR-ACCT-01, FR-OB-01 step 2
     func addAccountViaOAuth() async throws -> Account
 
     /// Remove an account and all associated data (cascade delete).
@@ -47,23 +48,28 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
     private let oauthManager: OAuthManagerProtocol
     private let keychainManager: KeychainManagerProtocol
     private let resolveEmail: EmailResolver
+    private let connectionProvider: ConnectionProviding?
 
     /// Creates a ManageAccountsUseCase.
     /// - Parameters:
     ///   - repository: Account persistence.
     ///   - oauthManager: OAuth 2.0 authentication.
     ///   - keychainManager: Token storage.
+    ///   - connectionProvider: Optional IMAP connection provider for validating
+    ///     credentials during account creation (FR-ACCT-01). Pass `nil` to skip.
     ///   - resolveEmail: Resolves user email from access token.
     ///     Defaults to Google UserInfo API call.
     public init(
         repository: AccountRepositoryProtocol,
         oauthManager: OAuthManagerProtocol,
         keychainManager: KeychainManagerProtocol,
+        connectionProvider: ConnectionProviding? = nil,
         resolveEmail: EmailResolver? = nil
     ) {
         self.repository = repository
         self.oauthManager = oauthManager
         self.keychainManager = keychainManager
+        self.connectionProvider = connectionProvider
         self.resolveEmail = resolveEmail ?? Self.defaultEmailResolver
     }
 
@@ -98,11 +104,29 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
             throw error
         }
 
-        // PARTIAL SCOPE: IMAP/SMTP validation deferred (FR-ACCT-01, FR-OB-01 step 2).
-        // Blocked on Data/Network/IMAPClient (not yet built — IOS-F-05).
-        // Real implementation MUST: connect to imap.gmail.com:993 with XOAUTH2,
-        // send LOGIN + NOOP, and fail account creation if unreachable.
-        // For V1, this step succeeds unconditionally.
+        // Step 6: Validate IMAP connectivity (FR-ACCT-01, FR-OB-01 step 2).
+        // Connect to imap.gmail.com:993 with XOAUTH2 to verify credentials work.
+        // If validation fails, roll back both Keychain and SwiftData.
+        if let provider = connectionProvider {
+            do {
+                let client = try await provider.checkoutConnection(
+                    accountId: account.id,
+                    host: account.imapHost,
+                    port: account.imapPort,
+                    email: account.email,
+                    accessToken: token.accessToken
+                )
+                // Connection succeeded — return it to pool immediately
+                await provider.checkinConnection(client, accountId: account.id)
+                NSLog("[IMAP] Validation succeeded for \(account.email)")
+            } catch {
+                NSLog("[IMAP] Validation FAILED for \(account.email): \(error)")
+                // Roll back: remove account from SwiftData and Keychain
+                try? await repository.removeAccount(id: account.id)
+                try? await keychainManager.delete(for: account.id)
+                throw AccountError.imapValidationFailed(error.localizedDescription)
+            }
+        }
 
         return account
     }

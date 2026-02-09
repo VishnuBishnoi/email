@@ -18,6 +18,13 @@ public final class Attachment {
     public var localPath: String?
     /// Whether the attachment has been downloaded locally
     public var isDownloaded: Bool
+    /// MIME body section identifier from BODYSTRUCTURE (e.g. "1.2").
+    /// Used by IMAP FETCH to download this specific part (FR-SYNC-08).
+    public var bodySection: String?
+    /// Content-Transfer-Encoding (e.g. "base64", "quoted-printable", "7bit")
+    public var transferEncoding: String?
+    /// Content-ID for inline attachments (e.g. "<cid:image001>")
+    public var contentId: String?
 
     /// Parent email
     public var email: Email?
@@ -28,7 +35,10 @@ public final class Attachment {
         mimeType: String,
         sizeBytes: Int = 0,
         localPath: String? = nil,
-        isDownloaded: Bool = false
+        isDownloaded: Bool = false,
+        bodySection: String? = nil,
+        transferEncoding: String? = nil,
+        contentId: String? = nil
     ) {
         self.id = id
         self.filename = filename
@@ -36,5 +46,8 @@ public final class Attachment {
         self.sizeBytes = sizeBytes
         self.localPath = localPath
         self.isDownloaded = isDownloaded
+        self.bodySection = bodySection
+        self.transferEncoding = transferEncoding
+        self.contentId = contentId
     }
 }

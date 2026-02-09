@@ -16,6 +16,8 @@ struct PrivateMailApp: App {
     let downloadAttachment: DownloadAttachmentUseCaseProtocol
     let composeEmail: ComposeEmailUseCaseProtocol
     let queryContacts: QueryContactsUseCaseProtocol
+    let idleMonitor: IDLEMonitorUseCaseProtocol
+    let backgroundSyncScheduler: BackgroundSyncScheduler
 
     init() {
         do {
@@ -34,18 +36,25 @@ struct PrivateMailApp: App {
             keychainManager: keychainManager,
             oauthManager: oauthManager
         )
-        manageAccounts = ManageAccountsUseCase(
-            repository: accountRepo,
-            oauthManager: oauthManager,
-            keychainManager: keychainManager
-        )
 
         let emailRepo = EmailRepositoryImpl(modelContainer: modelContainer)
         let connectionPool = ConnectionPool()
 
+        manageAccounts = ManageAccountsUseCase(
+            repository: accountRepo,
+            oauthManager: oauthManager,
+            keychainManager: keychainManager,
+            connectionProvider: connectionPool
+        )
+
         fetchEmailDetail = FetchEmailDetailUseCase(repository: emailRepo)
         markRead = MarkReadUseCase(repository: emailRepo)
-        downloadAttachment = DownloadAttachmentUseCase(repository: emailRepo)
+        downloadAttachment = DownloadAttachmentUseCase(
+            repository: emailRepo,
+            connectionProvider: connectionPool,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
 
         fetchThreads = FetchThreadsUseCase(repository: emailRepo)
         manageThreadActions = ManageThreadActionsUseCase(
@@ -68,6 +77,19 @@ struct PrivateMailApp: App {
             keychainManager: keychainManager,
             connectionPool: connectionPool
         )
+
+        idleMonitor = IDLEMonitorUseCase(
+            connectionProvider: connectionPool,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
+
+        backgroundSyncScheduler = BackgroundSyncScheduler(
+            syncEmails: syncEmails,
+            manageAccounts: manageAccounts
+        )
+        backgroundSyncScheduler.registerTasks()
+        backgroundSyncScheduler.scheduleNextSync()
     }
 
     var body: some Scene {
@@ -82,6 +104,7 @@ struct PrivateMailApp: App {
                 downloadAttachment: downloadAttachment,
                 composeEmail: composeEmail,
                 queryContacts: queryContacts,
+                idleMonitor: idleMonitor,
                 appLockManager: appLockManager
             )
             .environment(settingsStore)
