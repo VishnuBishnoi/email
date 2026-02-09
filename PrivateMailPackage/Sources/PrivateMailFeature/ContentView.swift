@@ -29,22 +29,38 @@ public struct ContentView: View {
     let fetchThreads: FetchThreadsUseCaseProtocol
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
+    let fetchEmailDetail: FetchEmailDetailUseCaseProtocol
+    let markRead: MarkReadUseCaseProtocol
+    let downloadAttachment: DownloadAttachmentUseCaseProtocol
+    let composeEmail: ComposeEmailUseCaseProtocol
+    let queryContacts: QueryContactsUseCaseProtocol
     let appLockManager: AppLockManager
 
     @State private var accounts: [Account] = []
     @State private var hasLoaded = false
+    @State private var undoSendManager = UndoSendManager()
 
     public init(
         manageAccounts: ManageAccountsUseCaseProtocol,
         fetchThreads: FetchThreadsUseCaseProtocol,
         manageThreadActions: ManageThreadActionsUseCaseProtocol,
         syncEmails: SyncEmailsUseCaseProtocol,
+        fetchEmailDetail: FetchEmailDetailUseCaseProtocol,
+        markRead: MarkReadUseCaseProtocol,
+        downloadAttachment: DownloadAttachmentUseCaseProtocol,
+        composeEmail: ComposeEmailUseCaseProtocol,
+        queryContacts: QueryContactsUseCaseProtocol,
         appLockManager: AppLockManager
     ) {
         self.manageAccounts = manageAccounts
         self.fetchThreads = fetchThreads
         self.manageThreadActions = manageThreadActions
         self.syncEmails = syncEmails
+        self.fetchEmailDetail = fetchEmailDetail
+        self.markRead = markRead
+        self.downloadAttachment = downloadAttachment
+        self.composeEmail = composeEmail
+        self.queryContacts = queryContacts
         self.appLockManager = appLockManager
     }
 
@@ -82,6 +98,12 @@ public struct ContentView: View {
                 appLockManager.lock()
                 Task { await authenticateAppLock() }
             }
+            // Undo-send timer pause/resume (FR-COMP-02)
+            if newPhase == .background {
+                undoSendManager.pause()
+            } else if oldPhase == .background && newPhase == .active {
+                undoSendManager.resume()
+            }
         }
     }
 
@@ -93,8 +115,14 @@ public struct ContentView: View {
             fetchThreads: fetchThreads,
             manageThreadActions: manageThreadActions,
             manageAccounts: manageAccounts,
-            syncEmails: syncEmails
+            syncEmails: syncEmails,
+            fetchEmailDetail: fetchEmailDetail,
+            markRead: markRead,
+            downloadAttachment: downloadAttachment,
+            composeEmail: composeEmail,
+            queryContacts: queryContacts
         )
+        .environment(undoSendManager)
         .preferredColorScheme(settings.colorScheme)
     }
 

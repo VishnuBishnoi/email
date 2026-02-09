@@ -1,0 +1,27 @@
+{
+    "version": "1.0.0",
+    "domains": [
+        "pixel.mailchimp.com",
+        "open.tracker.com",
+        "mailtrack.io",
+        "t.sidekickopen.com",
+        "t.signauxun.com",
+        "track.customer.io",
+        "email.mailgun.net",
+        "mandrillapp.com",
+        "list-manage.com",
+        "ct.sendgrid.net",
+        "links.mkt.com",
+        "trk.klclick.com",
+        "pixel.monitor.com",
+        "t.yesware.com",
+        "t.sendinblue.com",
+        "t.brevoinblue.com",
+        "r.mailjet.com",
+        "tracking.mailerlite.com",
+        "beacon.krxd.net",
+        "pixel.advertising.com",
+        "e.customeriomail.com",
+        "img.constantcontact.com"
+    ]
+}

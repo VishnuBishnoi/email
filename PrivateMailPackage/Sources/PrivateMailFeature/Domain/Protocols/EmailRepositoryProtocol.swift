@@ -119,4 +119,37 @@ public protocol EmailRepositoryProtocol {
     func starThreads(ids: [String]) async throws
     /// Move multiple threads to a folder.
     func moveThreads(ids: [String], toFolderId: String) async throws
+
+    // MARK: - Email-Level Actions (PR #8 Comment 1)
+
+    /// Toggle star status for a single email and recalculate thread-level star.
+    func toggleEmailStarStatus(emailId: String) async throws
+
+    // MARK: - Trusted Senders (FR-ED-04)
+
+    /// Check if a sender is trusted (always load remote images).
+    func getTrustedSender(email: String) async throws -> TrustedSender?
+    /// Save a trusted sender preference.
+    func saveTrustedSender(_ sender: TrustedSender) async throws
+    /// Delete a trusted sender preference.
+    func deleteTrustedSender(email: String) async throws
+    /// Get all trusted senders (for Settings management).
+    func getAllTrustedSenders() async throws -> [TrustedSender]
+
+    // MARK: - Email Lookup (FR-COMP-01)
+
+    /// Fetch a single email by ID.
+    func getEmail(id: String) async throws -> Email?
+
+    /// Fetch emails matching a given send state.
+    func getEmailsBySendState(_ state: String) async throws -> [Email]
+
+    // MARK: - Contact Cache (FR-COMP-04)
+
+    /// Query cached contacts matching a prefix, sorted by frequency.
+    func queryContacts(accountId: String, prefix: String, limit: Int) async throws -> [ContactCacheEntry]
+    /// Upsert a contact cache entry (increment frequency if exists).
+    func upsertContact(_ entry: ContactCacheEntry) async throws
+    /// Delete all contact cache entries for an account (cascade on account removal).
+    func deleteContactsForAccount(accountId: String) async throws
 }

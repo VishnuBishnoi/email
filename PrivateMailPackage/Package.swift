@@ -14,7 +14,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "PrivateMailFeature"
+            name: "PrivateMailFeature",
+            resources: [.copy("Resources/tracking_domains.json")]
         ),
         .testTarget(
             name: "PrivateMailFeatureTests",

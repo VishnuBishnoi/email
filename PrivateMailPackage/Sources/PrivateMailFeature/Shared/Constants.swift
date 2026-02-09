@@ -71,4 +71,17 @@ public enum AppConstants {
 
     /// Number of threads per page for cursor-based pagination (FR-TL-01)
     public static let threadListPageSize = 25
+
+    // MARK: - Composer (FR-COMP-01, FR-COMP-02, FR-COMP-04)
+
+    /// Draft auto-save interval in seconds (FR-COMP-01)
+    public static let draftAutoSaveIntervalSeconds = 30
+    /// Maximum total attachment size in MB before warning (FR-COMP-01)
+    public static let maxAttachmentSizeMB = 25
+    /// Maximum contact autocomplete suggestions to display (FR-COMP-04)
+    public static let contactAutocompleteLimitItems = 10
+    /// Maximum smart reply suggestions (FR-COMP-03)
+    public static let smartReplyMaxSuggestions = 3
+    /// SMTP retry delays in seconds: 30s, 2m, 8m (FR-SYNC-07)
+    public static let sendRetryDelays: [TimeInterval] = [30, 120, 480]
 }

@@ -25,6 +25,13 @@ struct ThreadListView: View {
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let manageAccounts: ManageAccountsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
+    let fetchEmailDetail: FetchEmailDetailUseCaseProtocol
+    let markRead: MarkReadUseCaseProtocol
+    let downloadAttachment: DownloadAttachmentUseCaseProtocol
+    let composeEmail: ComposeEmailUseCaseProtocol
+    let queryContacts: QueryContactsUseCaseProtocol
+
+    @Environment(UndoSendManager.self) private var undoSendManager
 
     // MARK: - View State
 
@@ -69,7 +76,7 @@ struct ThreadListView: View {
     @State private var unreadCounts: [String?: Int] = [:]
 
     // Compose sheet
-    @State private var showComposer = false
+    @State private var composerMode: ComposerMode? = nil
 
     // Multi-select mode (placeholder for future integration)
     @State private var isMultiSelectMode = false
@@ -134,25 +141,54 @@ struct ThreadListView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Category tab bar
-                if showCategoryTabs {
-                    CategoryTabBar(
-                        selectedCategory: $selectedCategory,
-                        unreadCounts: unreadCounts
-                    )
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    // Category tab bar
+                    if showCategoryTabs {
+                        CategoryTabBar(
+                            selectedCategory: $selectedCategory,
+                            unreadCounts: unreadCounts
+                        )
+                    }
+
+                    // Main content
+                    contentView
                 }
 
-                // Main content
-                contentView
+                // Undo-send overlay (FR-COMP-02)
+                if undoSendManager.isCountdownActive {
+                    UndoSendToastView(
+                        remainingSeconds: undoSendManager.remainingSeconds,
+                        onUndo: {
+                            if let emailId = undoSendManager.undoSend() {
+                                Task {
+                                    try? await composeEmail.undoSend(emailId: emailId)
+                                    // TODO: Reopen composer with draft content
+                                }
+                            }
+                        }
+                    )
+                    .animation(.easeInOut(duration: 0.3), value: undoSendManager.isCountdownActive)
+                }
             }
             .navigationTitle(navigationTitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
             #endif
             .toolbar { toolbarContent }
-            .sheet(isPresented: $showComposer) {
-                ComposerPlaceholder(fromAccount: selectedAccount?.email)
+            .sheet(item: $composerMode) { mode in
+                ComposerView(
+                    composeEmail: composeEmail,
+                    queryContacts: queryContacts,
+                    smartReply: SmartReplyUseCase(aiRepository: StubAIRepository()),
+                    mode: mode,
+                    accounts: accounts,
+                    onDismiss: { result in
+                        composerMode = nil
+                        handleComposerDismiss(result)
+                    }
+                )
+                .environment(settings)
             }
             .sheet(isPresented: $showAccountSwitcher) {
                 AccountSwitcherSheet(
@@ -258,9 +294,18 @@ struct ThreadListView: View {
             await reloadThreads()
         }
         .navigationDestination(for: String.self) { threadId in
-            if let thread = threads.first(where: { $0.id == threadId }) {
-                EmailDetailPlaceholder(threadSubject: thread.subject)
-            }
+            EmailDetailView(
+                threadId: threadId,
+                fetchEmailDetail: fetchEmailDetail,
+                markRead: markRead,
+                manageThreadActions: manageThreadActions,
+                downloadAttachment: downloadAttachment,
+                summarizeThread: nil,
+                smartReply: nil,
+                composeEmail: composeEmail,
+                queryContacts: queryContacts,
+                accounts: accounts
+            )
         }
         .accessibilityLabel("Email threads")
     }
@@ -354,10 +399,16 @@ struct ThreadListView: View {
                     Label("Delete", systemImage: "trash")
                 }
             }
-            // Comment 7: Long-press to enter multi-select mode
-            .onLongPressGesture {
-                isMultiSelectMode = true
-                selectedThreadIds.insert(thread.id)
+            // Comment 7: Context menu to enter multi-select mode.
+            // Note: .onLongPressGesture blocks NavigationLink tap gesture in
+            // SwiftUI Lists, so we use .contextMenu instead.
+            .contextMenu {
+                Button {
+                    isMultiSelectMode = true
+                    selectedThreadIds.insert(thread.id)
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
+                }
             }
         }
     }
@@ -548,7 +599,8 @@ struct ThreadListView: View {
 
             // Compose
             Button {
-                showComposer = true
+                let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
+                composerMode = .new(accountId: accountId)
             } label: {
                 Label("Compose", systemImage: "square.and.pencil")
             }
@@ -881,6 +933,24 @@ struct ThreadListView: View {
         selectedThreadIds.removeAll()
         if threads.isEmpty {
             viewState = selectedCategory != nil ? .emptyFiltered : .empty
+        }
+    }
+
+    // MARK: - Composer Dismiss Handling
+
+    private func handleComposerDismiss(_ result: ComposerDismissResult) {
+        switch result {
+        case .sent(let emailId):
+            let delay = settings.undoSendDelay.rawValue
+            undoSendManager.startCountdown(emailId: emailId, delaySeconds: delay) { emailId in
+                // Timer expired — execute the actual send
+                try? await composeEmail.executeSend(emailId: emailId)
+            }
+        case .savedDraft:
+            // Could show a "Draft saved" toast here
+            break
+        case .discarded, .cancelled:
+            break
         }
     }
 

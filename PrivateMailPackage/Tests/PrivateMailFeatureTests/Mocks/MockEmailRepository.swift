@@ -13,6 +13,8 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     var emails: [Email] = []
     var threads: [PrivateMailFeature.Thread] = []
     var emailFolders: [EmailFolder] = []
+    var attachments: [Attachment] = []
+    var trustedSenders: [TrustedSender] = []
 
     // MARK: - Call Counters
 
@@ -41,6 +43,10 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     var markThreadsUnreadCallCount = 0
     var starThreadsCallCount = 0
     var moveThreadsCallCount = 0
+    var getTrustedSenderCallCount = 0
+    var saveTrustedSenderCallCount = 0
+    var deleteTrustedSenderCallCount = 0
+    var getAllTrustedSendersCallCount = 0
 
     // MARK: - Error Injection
 
@@ -153,6 +159,11 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     func saveAttachment(_ attachment: Attachment) async throws {
         saveAttachmentCallCount += 1
         if let error = errorToThrow { throw error }
+        if let index = attachments.firstIndex(where: { $0.id == attachment.id }) {
+            attachments[index] = attachment
+        } else {
+            attachments.append(attachment)
+        }
     }
 
     // MARK: - Thread List Queries
@@ -253,6 +264,13 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         }
     }
 
+    var toggleEmailStarCallCount = 0
+
+    func toggleEmailStarStatus(emailId: String) async throws {
+        toggleEmailStarCallCount += 1
+        if let error = errorToThrow { throw error }
+    }
+
     // MARK: - Batch Actions
 
     func archiveThreads(ids: [String]) async throws {
@@ -300,5 +318,90 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     func moveThreads(ids: [String], toFolderId: String) async throws {
         moveThreadsCallCount += 1
         if let error = errorToThrow { throw error }
+    }
+
+    // MARK: - Trusted Senders
+
+    func getTrustedSender(email: String) async throws -> TrustedSender? {
+        getTrustedSenderCallCount += 1
+        if let error = errorToThrow { throw error }
+        return trustedSenders.first { $0.senderEmail == email }
+    }
+
+    func saveTrustedSender(_ sender: TrustedSender) async throws {
+        saveTrustedSenderCallCount += 1
+        if let error = errorToThrow { throw error }
+        trustedSenders.append(sender)
+    }
+
+    func deleteTrustedSender(email: String) async throws {
+        deleteTrustedSenderCallCount += 1
+        if let error = errorToThrow { throw error }
+        trustedSenders.removeAll { $0.senderEmail == email }
+    }
+
+    func getAllTrustedSenders() async throws -> [TrustedSender] {
+        getAllTrustedSendersCallCount += 1
+        if let error = errorToThrow { throw error }
+        return trustedSenders
+    }
+
+    // MARK: - Email Lookup (FR-COMP-01)
+
+    var getEmailCallCount = 0
+
+    func getEmail(id: String) async throws -> Email? {
+        getEmailCallCount += 1
+        if let error = errorToThrow { throw error }
+        return emails.first { $0.id == id }
+    }
+
+    func getEmailsBySendState(_ state: String) async throws -> [Email] {
+        if let error = errorToThrow { throw error }
+        return emails.filter { $0.sendState == state }
+    }
+
+    // MARK: - Contact Cache (FR-COMP-04)
+
+    var contactEntries: [ContactCacheEntry] = []
+    var queryContactsCallCount = 0
+    var upsertContactCallCount = 0
+    var deleteContactsForAccountCallCount = 0
+
+    func queryContacts(accountId: String, prefix: String, limit: Int) async throws -> [ContactCacheEntry] {
+        queryContactsCallCount += 1
+        if let error = errorToThrow { throw error }
+        let lowercased = prefix.lowercased()
+        let filtered = contactEntries
+            .filter { $0.accountId == accountId }
+            .filter {
+                $0.emailAddress.lowercased().hasPrefix(lowercased) ||
+                ($0.displayName?.lowercased().hasPrefix(lowercased) ?? false)
+            }
+            .sorted { $0.frequency > $1.frequency }
+        return Array(filtered.prefix(limit))
+    }
+
+    func upsertContact(_ entry: ContactCacheEntry) async throws {
+        upsertContactCallCount += 1
+        if let error = errorToThrow { throw error }
+        if let index = contactEntries.firstIndex(where: {
+            $0.emailAddress.lowercased() == entry.emailAddress.lowercased() &&
+            $0.accountId == entry.accountId
+        }) {
+            contactEntries[index].frequency += 1
+            contactEntries[index].lastSeenDate = entry.lastSeenDate
+            if let name = entry.displayName, !name.isEmpty {
+                contactEntries[index].displayName = name
+            }
+        } else {
+            contactEntries.append(entry)
+        }
+    }
+
+    func deleteContactsForAccount(accountId: String) async throws {
+        deleteContactsForAccountCallCount += 1
+        if let error = errorToThrow { throw error }
+        contactEntries.removeAll { $0.accountId == accountId }
     }
 }
