@@ -22,13 +22,13 @@ struct CachedFaviconView: View {
     let initials: String
     let initialsFontSize: CGFloat?
 
-    @State private var faviconImage: UIImage?
+    @State private var faviconImage: PlatformImage?
     @State private var didFail = false
 
     var body: some View {
         ZStack {
             if let faviconImage {
-                Image(uiImage: faviconImage)
+                Image(platformImage: faviconImage)
                     .resizable()
                     .scaledToFill()
                     .frame(width: diameter, height: diameter)

@@ -95,8 +95,8 @@ struct BottomTabBar: View {
 
     @ViewBuilder
     private var barBackground: some View {
-        // iOS 26+: Liquid Glass effect; fallback: material blur
-        if #available(iOS 26.0, *) {
+        // iOS/macOS 26+: Liquid Glass effect; fallback: material blur
+        if #available(iOS 26.0, macOS 26.0, *) {
             Color.clear
                 .glassEffect(.regular, in: .rect(cornerRadius: 0))
         } else {

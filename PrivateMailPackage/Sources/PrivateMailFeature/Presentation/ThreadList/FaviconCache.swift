@@ -20,11 +20,11 @@ actor FaviconCache {
 
     // MARK: - Storage
 
-    /// In-memory LRU cache (domain → UIImage).
-    private let memoryCache = NSCache<NSString, UIImage>()
+    /// In-memory LRU cache (domain → PlatformImage).
+    private let memoryCache = NSCache<NSString, PlatformImage>()
 
     /// Active download tasks keyed by domain, preventing duplicate fetches.
-    private var activeTasks: [String: Task<UIImage?, Never>] = [:]
+    private var activeTasks: [String: Task<PlatformImage?, Never>] = [:]
 
     // MARK: - Init
 
@@ -37,8 +37,8 @@ actor FaviconCache {
     /// Returns a cached favicon for the given domain, downloading if needed.
     ///
     /// - Parameter domain: The email domain (e.g. `"gmail.com"`).
-    /// - Returns: A `UIImage` or `nil` if download failed.
-    func favicon(for domain: String) async -> UIImage? {
+    /// - Returns: A `PlatformImage` or `nil` if download failed.
+    func favicon(for domain: String) async -> PlatformImage? {
         // 1. Check in-memory cache
         let key = domain as NSString
         if let cached = memoryCache.object(forKey: key) {
@@ -58,7 +58,7 @@ actor FaviconCache {
         }
 
         // 4. Download from Google Favicon CDN
-        let task = Task<UIImage?, Never> {
+        let task = Task<PlatformImage?, Never> {
             await downloadAndCache(domain: domain, to: fileURL)
         }
         activeTasks[domain] = task
@@ -95,10 +95,10 @@ actor FaviconCache {
         return cacheDirectory.appendingPathComponent("\(sanitized).png")
     }
 
-    private func loadFromDisk(at url: URL) -> UIImage? {
+    private func loadFromDisk(at url: URL) -> PlatformImage? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return UIImage(data: data)
+        return PlatformImage(data: data)
     }
 
     private func saveToDisk(_ data: Data, at url: URL) {
@@ -109,7 +109,7 @@ actor FaviconCache {
 
     // MARK: - Network
 
-    private func downloadAndCache(domain: String, to fileURL: URL) async -> UIImage? {
+    private func downloadAndCache(domain: String, to fileURL: URL) async -> PlatformImage? {
         guard let url = URL(
             string: "https://www.google.com/s2/favicons?domain=\(domain)&sz=128"
         ) else { return nil }
@@ -124,7 +124,7 @@ actor FaviconCache {
             }
 
             // Validate it's actually a decodable image
-            guard let image = UIImage(data: data) else { return nil }
+            guard let image = PlatformImage(data: data) else { return nil }
 
             // Google returns a generic globe icon (16×16) for unknown domains.
             // Only cache if the image is reasonably sized (> 16px).
