@@ -683,20 +683,30 @@ struct ThreadListView: View {
 
         NSLog("[IDLE] Starting monitor for \(folderPath)")
         idleTask = Task {
-            let stream = monitor.monitor(accountId: accountId, folderImapPath: folderPath)
-            for await event in stream {
-                guard !Task.isCancelled else { break }
-                switch event {
-                case .newMail:
-                    NSLog("[IDLE] New mail notification, syncing folder...")
-                    if let folderId = selectedFolder?.id {
-                        try? await syncEmails.syncFolder(accountId: accountId, folderId: folderId)
-                        await loadThreadsAndCounts()
+            var retryDelay: Duration = .seconds(2)
+            let maxDelay: Duration = .seconds(60)
+
+            while !Task.isCancelled {
+                let stream = monitor.monitor(accountId: accountId, folderImapPath: folderPath)
+                for await event in stream {
+                    guard !Task.isCancelled else { break }
+                    switch event {
+                    case .newMail:
+                        NSLog("[IDLE] New mail notification, syncing folder...")
+                        if let folderId = selectedFolder?.id {
+                            try? await syncEmails.syncFolder(accountId: accountId, folderId: folderId)
+                            await loadThreadsAndCounts()
+                        }
+                        retryDelay = .seconds(2) // reset on success
+                    case .disconnected:
+                        NSLog("[IDLE] Monitor disconnected, will retry in \(retryDelay)")
                     }
-                case .disconnected:
-                    NSLog("[IDLE] Monitor disconnected, will restart on next sync")
-                    break
                 }
+
+                // Stream ended — retry with exponential backoff
+                guard !Task.isCancelled else { break }
+                try? await Task.sleep(for: retryDelay)
+                retryDelay = min(retryDelay * 2, maxDelay)
             }
         }
     }

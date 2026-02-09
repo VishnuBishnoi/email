@@ -97,7 +97,12 @@ public final class BackgroundSyncScheduler {
                     NSLog("[BackgroundSync] Synced account: \(account.email)")
                 }
 
-                task.setTaskCompleted(success: true)
+                if Task.isCancelled {
+                    NSLog("[BackgroundSync] Cancelled before completing all accounts")
+                    task.setTaskCompleted(success: false)
+                } else {
+                    task.setTaskCompleted(success: true)
+                }
             } catch {
                 NSLog("[BackgroundSync] Failed: \(error)")
                 task.setTaskCompleted(success: false)

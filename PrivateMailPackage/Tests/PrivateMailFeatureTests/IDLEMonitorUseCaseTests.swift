@@ -174,6 +174,36 @@ struct IDLEMonitorUseCaseTests {
         #expect(events == [.disconnected])
     }
 
+    @Test("Monitor checks in connection when selectFolder throws")
+    func monitorChecksInConnectionOnSelectFolderFailure() async throws {
+        let account = createAccount()
+        try await addAccountWithToken(account)
+
+        let provider = connectionProvider
+        let failingClient = provider.client
+        failingClient.selectFolderResult = .failure(.commandFailed("SELECT failed"))
+
+        let sut = IDLEMonitorUseCase(
+            connectionProvider: provider,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
+
+        let stream = sut.monitor(accountId: account.id, folderImapPath: "INBOX")
+
+        var events: [IDLEEvent] = []
+        for await event in stream {
+            events.append(event)
+        }
+
+        #expect(events == [.disconnected])
+        #expect(provider.checkoutCount == 1)
+        // Connection must be returned even though selectFolder threw
+        // Give the deferred Task a moment to execute
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(provider.checkinCount == 1)
+    }
+
     @Test("Monitor selects correct folder before starting IDLE")
     func monitorSelectsFolder() async throws {
         let account = createAccount()

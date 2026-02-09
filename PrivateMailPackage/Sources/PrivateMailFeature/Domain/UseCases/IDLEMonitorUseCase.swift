@@ -88,6 +88,14 @@ public final class IDLEMonitorUseCase: IDLEMonitorUseCaseProtocol {
                         accessToken: token.accessToken
                     )
 
+                    // Always return the connection to the pool, even if
+                    // selectFolder or startIDLE throws.
+                    defer {
+                        Task {
+                            await provider.checkinConnection(client, accountId: account.id)
+                        }
+                    }
+
                     // 3. Select the folder for IDLE
                     _ = try await client.selectFolder(folderImapPath)
 
@@ -101,9 +109,8 @@ public final class IDLEMonitorUseCase: IDLEMonitorUseCaseProtocol {
                         try await Task.sleep(for: .seconds(1))
                     }
 
-                    // Cleanup: stop IDLE and return connection
+                    // Cleanup: stop IDLE (checkin handled by defer)
                     try? await client.stopIDLE()
-                    await provider.checkinConnection(client, accountId: account.id)
 
                 } catch {
                     NSLog("[IDLE] Monitor error for \(accountId): \(error)")
