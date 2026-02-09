@@ -86,13 +86,14 @@ public struct ComposerView: View {
     private var canSend: Bool {
         let allRecipients = toRecipients + ccRecipients + bccRecipients
         let hasRecipient = !allRecipients.isEmpty
-        let notOverSize = totalAttachmentMB < AppConstants.maxAttachmentSizeMB
+        let maxBytes = AppConstants.maxAttachmentSizeMB * 1024 * 1024
+        let notOverSize = totalAttachmentBytes < maxBytes
         return hasRecipient && notOverSize && viewState == .composing
     }
 
-    /// Total attachment size in MB.
-    private var totalAttachmentMB: Int {
-        attachments.reduce(0) { $0 + $1.sizeBytes } / (1024 * 1024)
+    /// Total attachment size in bytes.
+    private var totalAttachmentBytes: Int {
+        attachments.reduce(0) { $0 + $1.sizeBytes }
     }
 
     /// Account IDs for contact queries.
@@ -380,12 +381,10 @@ public struct ComposerView: View {
         if !ccRecipients.isEmpty { showCC = true }
         if !bccRecipients.isEmpty { showBCC = true }
 
-        // Set up forwarded attachments
-        if !prefill.forwardedAttachmentIds.isEmpty {
-            attachments = prefill.forwardedAttachmentIds.map {
-                AttachmentItem(id: $0, filename: "attachment", sizeBytes: 0, mimeType: "application/octet-stream")
-            }
-        }
+        // TODO: Forward/draft attachment download not yet implemented.
+        // Original attachments require IMAP FETCH to retrieve their bytes.
+        // Until that path is wired, don't show placeholder tokens that would
+        // silently be omitted from the outgoing MIME message (no localPath).
 
         // For draft editing, set the draft ID
         if case .editDraft(let ctx) = mode {

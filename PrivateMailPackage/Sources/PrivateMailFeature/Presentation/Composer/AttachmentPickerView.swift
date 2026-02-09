@@ -81,11 +81,13 @@ struct AttachmentPickerView: View {
             }
         }
         #endif
+        #if os(iOS)
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 10, matching: .images)
         .onChange(of: selectedPhotos) { _, newItems in
             Task { await addPhotos(from: newItems) }
             selectedPhotos = []
         }
+        #endif
     }
 
     // MARK: - Attachment Row
@@ -143,7 +145,11 @@ struct AttachmentPickerView: View {
 
             let name = url.lastPathComponent
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            #if os(iOS)
             let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            #else
+            let mimeType = "application/octet-stream"
+            #endif
 
             // Copy file to temp directory while security scope is active.
             // After defer releases the scope, the original URL may be inaccessible.
@@ -165,6 +171,7 @@ struct AttachmentPickerView: View {
         }
     }
 
+    #if os(iOS)
     private func addPhotos(from items: [PhotosPickerItem]) async {
         for item in items {
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
@@ -185,6 +192,7 @@ struct AttachmentPickerView: View {
             attachments.append(attachment)
         }
     }
+    #endif
 
     /// Writes attachment data to a persistent temp directory.
     ///

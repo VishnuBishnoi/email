@@ -55,9 +55,11 @@ struct RecipientFieldView: View {
             }
 
             TextField("", text: $inputText)
+                #if os(iOS)
                 .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
                 .keyboardType(.emailAddress)
+                #endif
+                .autocorrectionDisabled()
                 .focused($isInputFocused)
                 .frame(minWidth: 100)
                 .onSubmit {
