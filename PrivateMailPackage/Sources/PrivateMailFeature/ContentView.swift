@@ -29,22 +29,29 @@ public struct ContentView: View {
     let fetchThreads: FetchThreadsUseCaseProtocol
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
+    let composeEmail: ComposeEmailUseCaseProtocol
+    let queryContacts: QueryContactsUseCaseProtocol
     let appLockManager: AppLockManager
 
     @State private var accounts: [Account] = []
     @State private var hasLoaded = false
+    @State private var undoSendManager = UndoSendManager()
 
     public init(
         manageAccounts: ManageAccountsUseCaseProtocol,
         fetchThreads: FetchThreadsUseCaseProtocol,
         manageThreadActions: ManageThreadActionsUseCaseProtocol,
         syncEmails: SyncEmailsUseCaseProtocol,
+        composeEmail: ComposeEmailUseCaseProtocol,
+        queryContacts: QueryContactsUseCaseProtocol,
         appLockManager: AppLockManager
     ) {
         self.manageAccounts = manageAccounts
         self.fetchThreads = fetchThreads
         self.manageThreadActions = manageThreadActions
         self.syncEmails = syncEmails
+        self.composeEmail = composeEmail
+        self.queryContacts = queryContacts
         self.appLockManager = appLockManager
     }
 
@@ -82,6 +89,12 @@ public struct ContentView: View {
                 appLockManager.lock()
                 Task { await authenticateAppLock() }
             }
+            // Undo-send timer pause/resume (FR-COMP-02)
+            if newPhase == .background {
+                undoSendManager.pause()
+            } else if oldPhase == .background && newPhase == .active {
+                undoSendManager.resume()
+            }
         }
     }
 
@@ -93,8 +106,11 @@ public struct ContentView: View {
             fetchThreads: fetchThreads,
             manageThreadActions: manageThreadActions,
             manageAccounts: manageAccounts,
-            syncEmails: syncEmails
+            syncEmails: syncEmails,
+            composeEmail: composeEmail,
+            queryContacts: queryContacts
         )
+        .environment(undoSendManager)
         .preferredColorScheme(settings.colorScheme)
     }
 
