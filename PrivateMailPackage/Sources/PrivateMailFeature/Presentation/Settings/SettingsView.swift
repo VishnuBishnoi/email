@@ -30,38 +30,36 @@ public struct SettingsView: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            List {
-                // ACCOUNTS (FR-SET-02)
-                accountsSection
+        List {
+            // ACCOUNTS (FR-SET-02)
+            accountsSection
 
-                // COMPOSITION (FR-SET-01)
-                compositionSection
+            // COMPOSITION (FR-SET-01)
+            compositionSection
 
-                // APPEARANCE (FR-SET-01)
-                appearanceSection
+            // APPEARANCE (FR-SET-01)
+            appearanceSection
 
-                // AI FEATURES (FR-SET-04)
-                aiSection
+            // AI FEATURES (FR-SET-04)
+            aiSection
 
-                // NOTIFICATIONS (FR-SET-01)
-                notificationsSection
+            // NOTIFICATIONS (FR-SET-01)
+            notificationsSection
 
-                // SECURITY (FR-SET-01)
-                securitySection
+            // SECURITY (FR-SET-01)
+            securitySection
 
-                // DATA MANAGEMENT (FR-SET-03)
-                dataManagementSection
+            // DATA MANAGEMENT (FR-SET-03)
+            dataManagementSection
 
-                // ABOUT (FR-SET-05)
-                aboutSection
-            }
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #endif
-            .navigationTitle("Settings")
-            .task { await loadAccounts() }
+            // ABOUT (FR-SET-05)
+            aboutSection
         }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #endif
+        .navigationTitle("Settings")
+        .task { await loadAccounts() }
     }
 
     // MARK: - Sections

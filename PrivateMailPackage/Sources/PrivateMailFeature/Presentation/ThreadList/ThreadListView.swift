@@ -100,6 +100,15 @@ struct ThreadListView: View {
     // Move-to-folder sheet for multi-select (Comment 7)
     @State private var showMoveSheet = false
 
+    // Programmatic navigation for bottom tab bar
+    @State private var navigationPath = NavigationPath()
+
+    /// Destinations triggered from the bottom tab bar.
+    enum TabDestination: Hashable {
+        case search
+        case settings
+    }
+
     // MARK: - Derived State
 
     /// Whether the selected folder is the virtual Outbox.
@@ -140,7 +149,7 @@ struct ThreadListView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
                     // Category tab bar
@@ -171,11 +180,43 @@ struct ThreadListView: View {
                     .animation(.easeInOut(duration: 0.3), value: undoSendManager.isCountdownActive)
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                if !isMultiSelectMode {
+                    BottomTabBar(
+                        folders: folders,
+                        onSelectFolder: { folder in selectFolder(folder) },
+                        onAccountTap: { showAccountSwitcher = true },
+                        onSearchTap: { navigationPath.append(TabDestination.search) },
+                        onComposeTap: {
+                            let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
+                            composerMode = .new(accountId: accountId)
+                        },
+                        onSettingsTap: { navigationPath.append(TabDestination.settings) }
+                    )
+                }
+            }
             .navigationTitle(navigationTitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
             #endif
-            .toolbar { toolbarContent }
+            .toolbar {
+                if isMultiSelectMode {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            isMultiSelectMode = false
+                            selectedThreadIds.removeAll()
+                        }
+                    }
+                }
+            }
+            .navigationDestination(for: TabDestination.self) { destination in
+                switch destination {
+                case .search:
+                    SearchPlaceholder()
+                case .settings:
+                    SettingsView(manageAccounts: manageAccounts)
+                }
+            }
             .sheet(item: $composerMode) { mode in
                 ComposerView(
                     composeEmail: composeEmail,
@@ -553,77 +594,6 @@ struct ThreadListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("You are offline. Check your connection and try again.")
-    }
-
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .automatic) {
-            // Folders button
-            // TODO: Replace with navigation to FolderListView (Phase 6 integration)
-            Menu {
-                if folders.isEmpty {
-                    Text("No folders")
-                } else {
-                    ForEach(folders, id: \.id) { folder in
-                        Button {
-                            selectFolder(folder)
-                        } label: {
-                            Label(folder.name, systemImage: folderIcon(for: folder))
-                        }
-                    }
-                }
-            } label: {
-                Label("Folders", systemImage: "folder")
-            }
-            .accessibilityLabel("Folders")
-        }
-
-        ToolbarItemGroup(placement: .automatic) {
-            // Account switcher
-            Button {
-                showAccountSwitcher = true
-            } label: {
-                Label("Account", systemImage: "person.circle")
-            }
-            .accessibilityLabel("Switch account")
-
-            // Search
-            NavigationLink {
-                SearchPlaceholder()
-            } label: {
-                Label("Search", systemImage: "magnifyingglass")
-            }
-            .accessibilityLabel("Search emails")
-
-            // Compose
-            Button {
-                let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
-                composerMode = .new(accountId: accountId)
-            } label: {
-                Label("Compose", systemImage: "square.and.pencil")
-            }
-            .accessibilityLabel("Compose new email")
-
-            // Settings
-            NavigationLink {
-                SettingsView(manageAccounts: manageAccounts)
-            } label: {
-                Label("Settings", systemImage: "gear")
-            }
-            .accessibilityLabel("Settings")
-        }
-
-        // Multi-select cancel button
-        if isMultiSelectMode {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    isMultiSelectMode = false
-                    selectedThreadIds.removeAll()
-                }
-            }
-        }
     }
 
     // MARK: - Data Loading

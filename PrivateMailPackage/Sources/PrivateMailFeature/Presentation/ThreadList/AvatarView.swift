@@ -44,18 +44,17 @@ struct AvatarView: View {
 
     private func singleAvatar(for participant: Participant?) -> some View {
         let email = participant?.email ?? ""
-        let initials = Self.initials(for: participant)
-        let color = Self.color(for: email)
+        let brandInfo = BrandIconProvider.brand(for: email)
+        let initials = brandInfo?.initial ?? Self.initials(for: participant)
+        let color = brandInfo?.color ?? Self.color(for: email)
 
-        return Circle()
-            .fill(color)
-            .frame(width: Self.singleDiameter, height: Self.singleDiameter)
-            .overlay {
-                Text(initials)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.white)
-            }
+        return CachedFaviconView(
+            email: email,
+            diameter: Self.singleDiameter,
+            fallbackColor: color,
+            initials: initials,
+            initialsFontSize: nil
+        )
     }
 
     private var stackedAvatars: some View {
@@ -73,22 +72,21 @@ struct AvatarView: View {
     }
 
     private func smallAvatar(for participant: Participant) -> some View {
-        let initials = Self.initials(for: participant)
-        let color = Self.color(for: participant.email)
+        let brandInfo = BrandIconProvider.brand(for: participant.email)
+        let initials = brandInfo?.initial ?? Self.initials(for: participant)
+        let color = brandInfo?.color ?? Self.color(for: participant.email)
 
-        return Circle()
-            .fill(color)
-            .frame(width: Self.stackedDiameter, height: Self.stackedDiameter)
-            .overlay {
-                Text(initials)
-                    .font(.system(size: 11))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.white)
-            }
-            .overlay {
-                Circle()
-                    .stroke(.background, lineWidth: 1.5)
-            }
+        return CachedFaviconView(
+            email: participant.email,
+            diameter: Self.stackedDiameter,
+            fallbackColor: color,
+            initials: initials,
+            initialsFontSize: 11
+        )
+        .overlay {
+            Circle()
+                .stroke(.background, lineWidth: 1.5)
+        }
     }
 
     // MARK: - Account Dot
