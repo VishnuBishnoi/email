@@ -306,6 +306,7 @@ struct AttachmentRowView: View {
 
 // MARK: - Previews
 
+#if os(iOS)
 #Preview("Not Downloaded") {
     let attachment = Attachment(
         filename: "quarterly-report.pdf",
@@ -364,6 +365,7 @@ struct AttachmentRowView: View {
     }
     .environment(NetworkMonitor())
 }
+#endif
 
 // MARK: - Preview Helper
 

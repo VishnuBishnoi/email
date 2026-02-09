@@ -173,6 +173,25 @@ struct ComposeEmailUseCaseTests {
         #expect(prefill.toAddresses.contains("sender@example.com"))
     }
 
+    @Test("buildPrefill replyAll does not remove addresses that are substrings of self")
+    func buildPrefillReplyAllSubstringEdge() {
+        let (useCase, _) = Self.makeSUT()
+        // "team@example.com" is a substring of "ann+team@example.com" but should NOT be removed
+        let ctx = Self.makeEmailContext(
+            fromAddress: "sender@example.com",
+            toAddresses: "[\"ann+team@example.com\"]",
+            ccAddresses: "[\"team@example.com\",\"other@example.com\"]"
+        )
+        let prefill = useCase.buildPrefill(mode: .replyAll(email: ctx), userEmail: "team@example.com")
+
+        // ann+team@example.com must NOT be filtered out (it's a different address)
+        #expect(prefill.toAddresses.contains("ann+team@example.com"))
+        // team@example.com (self) should be filtered out from CC
+        #expect(!prefill.ccAddresses.contains("team@example.com"))
+        // other@example.com should remain in CC
+        #expect(prefill.ccAddresses.contains("other@example.com"))
+    }
+
     // MARK: - buildPrefill: Forward
 
     @Test("buildPrefill forward adds Fwd: prefix")

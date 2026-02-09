@@ -196,11 +196,28 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
     }
 
     public func toggleEmailStarStatus(emailId: String) async throws {
+        // Capture current state before toggle
+        let wasStarred: Bool
+        do {
+            let email = try await repository.getEmail(id: emailId)
+            wasStarred = email?.isStarred ?? false
+        } catch {
+            throw ThreadListError.actionFailed(error.localizedDescription)
+        }
+
+        // Perform local change
         do {
             try await repository.toggleEmailStarStatus(emailId: emailId)
         } catch {
             throw ThreadListError.actionFailed(error.localizedDescription)
         }
+
+        // Push to IMAP: add or remove \Flagged for this single email
+        await syncEmailFlagChange(
+            emailId: emailId,
+            addFlags: wasStarred ? [] : ["\\Flagged"],
+            removeFlags: wasStarred ? ["\\Flagged"] : []
+        )
     }
 
     // MARK: - Batch Actions
@@ -377,6 +394,39 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
                 } catch {
                     NSLog("[ThreadActions] IMAP flag sync failed for UID \(uid) in \(folderPath): \(error)")
                 }
+            }
+        }
+    }
+
+    /// Pushes a flag change to IMAP for a single email.
+    ///
+    /// Similar to `syncFlagChange` but operates on one email instead of a whole thread.
+    /// Used for single-email operations like toggling star status.
+    /// Errors are logged but not thrown (optimistic UI).
+    private func syncEmailFlagChange(
+        emailId: String,
+        addFlags: [String],
+        removeFlags: [String]
+    ) async {
+        guard !addFlags.isEmpty || !removeFlags.isEmpty else { return }
+        guard let email = try? await repository.getEmail(id: emailId) else { return }
+
+        for ef in email.emailFolders {
+            guard ef.imapUID > 0,
+                  let folderPath = ef.folder?.imapPath,
+                  !folderPath.isEmpty else { continue }
+
+            let uid = UInt32(ef.imapUID)
+            let accountId = email.accountId
+
+            do {
+                let client = try await getIMAPClient(accountId: accountId)
+                defer { Task { await self.connectionProvider.checkinConnection(client, accountId: accountId) } }
+
+                _ = try await client.selectFolder(folderPath)
+                try await client.storeFlags(uid: uid, add: addFlags, remove: removeFlags)
+            } catch {
+                NSLog("[ThreadActions] IMAP email flag sync failed for UID \(uid) in \(folderPath): \(error)")
             }
         }
     }

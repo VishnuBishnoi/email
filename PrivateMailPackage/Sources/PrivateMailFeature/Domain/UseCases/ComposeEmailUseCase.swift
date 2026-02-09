@@ -305,7 +305,13 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
             for attachment in email.attachments {
                 guard let localPath = attachment.localPath else { continue }
                 let fileURL = URL(fileURLWithPath: localPath)
-                guard let fileData = try? Data(contentsOf: fileURL) else { continue }
+                guard let fileData = try? Data(contentsOf: fileURL) else {
+                    email.sendState = SendState.failed.rawValue
+                    try await repository.saveEmail(email)
+                    throw ComposerError.sendFailed(
+                        "Could not read attachment \"\(attachment.filename)\". Please re-add it and try again."
+                    )
+                }
                 attachmentDataList.append(MIMEEncoder.AttachmentData(
                     filename: attachment.filename,
                     mimeType: attachment.mimeType,
@@ -422,17 +428,17 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
         if replyAll {
             // Add original To recipients (minus self)
             let originalTo = decodeAddresses(ctx.toAddresses)
-            let filteredTo = originalTo.filter { !$0.lowercased().contains(userEmail.lowercased()) }
+            let filteredTo = originalTo.filter { $0.lowercased() != userEmail.lowercased() }
             toAddresses.append(contentsOf: filteredTo)
 
             // Add original CC recipients (minus self)
             if let ccJSON = ctx.ccAddresses {
                 let originalCC = decodeAddresses(ccJSON)
-                ccAddresses = originalCC.filter { !$0.lowercased().contains(userEmail.lowercased()) }
+                ccAddresses = originalCC.filter { $0.lowercased() != userEmail.lowercased() }
             }
 
             // Remove self from To as well
-            toAddresses = toAddresses.filter { !$0.lowercased().contains(userEmail.lowercased()) }
+            toAddresses = toAddresses.filter { $0.lowercased() != userEmail.lowercased() }
             if toAddresses.isEmpty {
                 toAddresses = [ctx.fromAddress] // At minimum, reply to sender
             }

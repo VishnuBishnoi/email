@@ -15,7 +15,9 @@ struct AttachmentPickerView: View {
     @Binding var attachments: [AttachmentItem]
     @State private var showDocumentPicker = false
     @State private var showPhotoPicker = false
+    #if os(iOS)
     @State private var selectedPhotos: [PhotosPickerItem] = []
+    #endif
 
     /// Total attachment size in bytes.
     private var totalSizeBytes: Int {
