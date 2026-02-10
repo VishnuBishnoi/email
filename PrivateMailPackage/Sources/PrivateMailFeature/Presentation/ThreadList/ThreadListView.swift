@@ -339,6 +339,7 @@ struct ThreadListView: View {
             smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
             mode: mode,
             accounts: accounts,
+            initialBody: nil,
             onDismiss: { result in
                 composerMode = nil
                 handleComposerDismiss(result)

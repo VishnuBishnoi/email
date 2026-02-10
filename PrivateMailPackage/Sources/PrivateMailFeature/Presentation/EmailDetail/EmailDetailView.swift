@@ -73,6 +73,7 @@ public struct EmailDetailView: View {
     // MARK: - Composer State
 
     @State private var composerMode: ComposerMode?
+    @State private var composerInitialBody: String?
 
     // MARK: - Attachment Preview
 
@@ -154,7 +155,11 @@ public struct EmailDetailView: View {
                     smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
                     mode: mode,
                     accounts: accounts,
-                    onDismiss: { _ in composerMode = nil }
+                    initialBody: composerInitialBody,
+                    onDismiss: { _ in
+                        composerMode = nil
+                        composerInitialBody = nil
+                    }
                 )
             }
         }
@@ -229,7 +234,8 @@ public struct EmailDetailView: View {
                     if !smartReplySuggestions.isEmpty {
                         SmartReplyView(
                             suggestions: smartReplySuggestions,
-                            onTap: { _ in
+                            onTap: { suggestion in
+                                composerInitialBody = suggestion
                                 openComposer { .reply(email: $0) }
                             }
                         )
