@@ -27,7 +27,12 @@ struct DetectSpamUseCaseTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("SpamTest-\(UUID().uuidString)")
         let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+        // Inject StubAIEngine as FM engine so tests exercise the rule-based
+        // path consistently, regardless of macOS 26+ Apple Intelligence availability.
+        let resolver = AIEngineResolver(
+            modelManager: modelManager,
+            foundationModelEngine: StubAIEngine()
+        )
         return DetectSpamUseCase(engineResolver: resolver)
     }
 

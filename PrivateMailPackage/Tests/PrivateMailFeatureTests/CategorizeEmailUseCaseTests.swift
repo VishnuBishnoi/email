@@ -26,6 +26,23 @@ struct CategorizeEmailUseCaseTests {
         )
     }
 
+    /// Create a resolver guaranteed to fall back to keyword classification.
+    ///
+    /// Injects a `StubAIEngine` as the FM engine so that FoundationModelEngine
+    /// availability on macOS 26+ doesn't influence keyword fallback tests.
+    /// All three engine tiers report unavailable → keyword fallback is exercised.
+    private func makeStubResolver() -> AIEngineResolver {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
+        let modelManager = ModelManager(modelsDirectory: tempDir)
+        return AIEngineResolver(
+            modelManager: modelManager,
+            foundationModelEngine: StubAIEngine(),
+            llamaEngine: LlamaEngine(),
+            stubEngine: StubAIEngine()
+        )
+    }
+
     private func makeResolver() -> (AIEngineResolver, MockAIEngine) {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
@@ -33,6 +50,7 @@ struct CategorizeEmailUseCaseTests {
         let mockEngine = MockAIEngine()
         let resolver = AIEngineResolver(
             modelManager: modelManager,
+            foundationModelEngine: StubAIEngine(),
             llamaEngine: LlamaEngine(),
             stubEngine: StubAIEngine()
         )
@@ -43,26 +61,18 @@ struct CategorizeEmailUseCaseTests {
 
     @Test("falls back to keyword classification when engine unavailable")
     func engineUnavailable() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
-        let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+        let resolver = makeStubResolver()
         let useCase = CategorizeEmailUseCase(engineResolver: resolver)
         let email = makeEmail()
 
         let result = await useCase.categorize(email: email)
         // Keyword fallback classifies generic email as .primary (personal)
         #expect(result == .primary)
-
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     @Test("categorizeBatch processes multiple emails")
     func batchProcessing() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
-        let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+        let resolver = makeStubResolver()
         let useCase = CategorizeEmailUseCase(engineResolver: resolver)
 
         let emails = (0..<5).map { _ in makeEmail() }
@@ -70,16 +80,11 @@ struct CategorizeEmailUseCaseTests {
         let count = await useCase.categorizeBatch(emails: emails)
         // With keyword fallback, generic emails get classified as .primary (non-uncategorized)
         #expect(count == 5)
-
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     @Test("categorizeBatch skips already-categorized emails via CategorizeEmailUseCase.categorizeBatch check")
     func batchSkipsAlreadyCategorized() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
-        let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+        let resolver = makeStubResolver()
         let useCase = CategorizeEmailUseCase(engineResolver: resolver)
 
         // Pre-categorized email still goes through since categorizeBatch doesn't filter
@@ -88,54 +93,37 @@ struct CategorizeEmailUseCaseTests {
         let count = await useCase.categorizeBatch(emails: [email])
         // Keyword fallback classifies the generic email as .primary (non-uncategorized)
         #expect(count == 1)
-
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     // MARK: - Keyword Fallback Tests
 
     @Test("keyword fallback classifies social domain emails")
     func keywordSocialDomain() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
-        let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+        let resolver = makeStubResolver()
         let useCase = CategorizeEmailUseCase(engineResolver: resolver)
 
         let email = makeEmail(from: "notifications@facebook.com")
         let result = await useCase.categorize(email: email)
         #expect(result == .social)
-
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     @Test("keyword fallback classifies promotional emails")
     func keywordPromotional() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
-        let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+        let resolver = makeStubResolver()
         let useCase = CategorizeEmailUseCase(engineResolver: resolver)
 
         let email = makeEmail(subject: "50% off sale - limited time offer", body: "Unsubscribe from this list")
         let result = await useCase.categorize(email: email)
         #expect(result == .promotions)
-
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     @Test("keyword fallback classifies update emails")
     func keywordUpdates() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CategorizeTest-\(UUID().uuidString)")
-        let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+        let resolver = makeStubResolver()
         let useCase = CategorizeEmailUseCase(engineResolver: resolver)
 
         let email = makeEmail(subject: "Your order confirmation", from: "noreply@service.com")
         let result = await useCase.categorize(email: email)
         #expect(result == .updates)
-
-        try? FileManager.default.removeItem(at: tempDir)
     }
 }

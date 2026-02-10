@@ -30,12 +30,19 @@ struct AIEngineResolverTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ResolverTest-\(UUID().uuidString)")
         let modelManager = ModelManager(modelsDirectory: tempDir)
-        let resolver = AIEngineResolver(modelManager: modelManager)
+
+        // Inject StubAIEngine as the FM engine so the test always exercises
+        // the full fallback chain regardless of macOS version / Apple Intelligence.
+        let resolver = AIEngineResolver(
+            modelManager: modelManager,
+            foundationModelEngine: StubAIEngine()
+        )
 
         let engine = await resolver.resolveGenerativeEngine()
         let available = await engine.isAvailable()
 
         #expect(!available, "Should return stub engine (not available) when no models downloaded")
+        #expect(engine is StubAIEngine, "Resolved engine should be StubAIEngine")
 
         // Clean up
         try? FileManager.default.removeItem(at: tempDir)

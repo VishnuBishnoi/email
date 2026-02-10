@@ -145,11 +145,23 @@ public final class CategorizeEmailUseCase: CategorizeEmailUseCaseProtocol {
         )
     }
 
-    /// Update thread category based on the latest email's category.
+    /// Update thread category from the most recent email's category.
     ///
-    /// Per spec Section 6: Thread.aiCategory is derived from the latest email.
+    /// Per spec Section 6: Thread.aiCategory is derived from the **latest**
+    /// email by `dateReceived`. This prevents processing order from determining
+    /// the thread category — only recency matters.
     private func updateThreadCategory(for email: Email) {
-        if let thread = email.thread {
+        guard let thread = email.thread else { return }
+
+        // Find the most recent email in the thread that has a category
+        let latestCategorized = thread.emails
+            .filter { $0.aiCategory != nil && $0.aiCategory != AICategory.uncategorized.rawValue }
+            .max(by: { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) })
+
+        if let latest = latestCategorized {
+            thread.aiCategory = latest.aiCategory
+        } else {
+            // No categorized emails yet — use the current one
             thread.aiCategory = email.aiCategory
         }
     }

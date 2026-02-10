@@ -1032,9 +1032,12 @@ struct ThreadListView: View {
     ///
     /// Called after sync completes to trigger background AI classification.
     /// The queue itself filters to uncategorized-only, so we can pass all emails.
+    /// Sorted oldest→newest so the most recent email is processed last,
+    /// ensuring Thread.aiCategory reflects the latest email's category.
     private func runAIClassification() {
         guard let queue = aiProcessingQueue else { return }
         let allEmails = threads.flatMap(\.emails)
+            .sorted { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) }
         guard !allEmails.isEmpty else { return }
         NSLog("[AI] Enqueuing \(allEmails.count) emails for AI classification")
         queue.enqueue(emails: allEmails)

@@ -117,6 +117,10 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
         return ""
     }
 
+    /// Hard time limit for smart reply generation (spec FR-AI-03).
+    /// If generation exceeds this, we parse whatever we have so far.
+    private static let smartReplyTimeout: TimeInterval = 8.0
+
     public func smartReply(email: Email) async throws -> [String] {
         let engine = await engineResolver.resolveGenerativeEngine()
         let available = await engine.isAvailable()
@@ -132,10 +136,15 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
             body: email.bodyPlain ?? email.snippet ?? ""
         )
 
+        // Enforce 8-second hard limit per spec FR-AI-03.
+        // If the model is slow, we parse whatever partial response we have.
+        let deadline = Date().addingTimeInterval(Self.smartReplyTimeout)
         let stream = await engine.generate(prompt: prompt, maxTokens: 300)
         var response = ""
         for await token in stream {
             response += token
+            // Check 8s budget after each token
+            if Date() >= deadline { break }
         }
 
         let replies = PromptTemplates.parseSmartReplyResponse(response)

@@ -17,6 +17,9 @@ public actor AIEngineResolver {
     // MARK: - Dependencies
 
     private let modelManager: ModelManager
+    /// Tier-1 engine slot. Typed as `any AIEngineProtocol` so tests can inject
+    /// a `StubAIEngine` to force fallback to keyword classification.
+    private let foundationModelEngine: any AIEngineProtocol
     private let llamaEngine: LlamaEngine
     private let stubEngine: StubAIEngine
 
@@ -30,10 +33,12 @@ public actor AIEngineResolver {
 
     public init(
         modelManager: ModelManager,
+        foundationModelEngine: any AIEngineProtocol = FoundationModelEngine(),
         llamaEngine: LlamaEngine = LlamaEngine(),
         stubEngine: StubAIEngine = StubAIEngine()
     ) {
         self.modelManager = modelManager
+        self.foundationModelEngine = foundationModelEngine
         self.llamaEngine = llamaEngine
         self.stubEngine = stubEngine
     }
@@ -67,15 +72,11 @@ public actor AIEngineResolver {
         // Tier 1: Foundation Models (iOS/macOS 26+)
         // FoundationModelEngine wraps Apple's on-device language model API.
         // Provides zero-download generative AI via Apple Intelligence.
-        // Requires: iOS 26+, device with Apple Intelligence support.
-        //
-        // Implementation deferred to IOS-A-02 (requires iOS 26 SDK + device testing).
-        // Uncomment when FoundationModelEngine is built:
-        //
-        // if #available(iOS 26.0, macOS 26.0, *) {
-        //     let fmEngine = FoundationModelEngine()
-        //     if await fmEngine.isAvailable() { return fmEngine }
-        // }
+        // On platforms without FoundationModels framework, the engine's
+        // isAvailable() always returns false and is immediately skipped.
+        if await foundationModelEngine.isAvailable() {
+            return foundationModelEngine
+        }
 
         // Tier 2: llama.cpp with downloaded GGUF
         if await llamaEngine.isAvailable() {

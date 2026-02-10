@@ -35,12 +35,16 @@ public struct RuleEngine: Sendable {
     ///   - sender: Sender email address.
     ///   - bodyText: Plain text email body.
     ///   - bodyHTML: HTML email body (for URL extraction).
+    ///   - authenticationResults: Raw Authentication-Results header (SPF/DKIM/DMARC).
     /// - Returns: Combined spam signal with score and triggered rules.
+    ///
+    /// Spec ref: FR-AI-06, AC-A-09
     public func analyze(
         subject: String,
         sender: String,
         bodyText: String?,
-        bodyHTML: String?
+        bodyHTML: String?,
+        authenticationResults: String? = nil
     ) -> SpamSignal {
         var totalScore: Double = 0
         var rules: [String] = []
@@ -64,6 +68,14 @@ public struct RuleEngine: Sendable {
         let bodyResult = checkBodyPatterns(bodyText ?? "")
         totalScore += bodyResult.score
         rules.append(contentsOf: bodyResult.rules)
+
+        // Check email authentication headers (SPF/DKIM/DMARC)
+        // Spec ref: FR-AI-06 (header authentication signal path)
+        if let authHeader = authenticationResults {
+            let authResult = checkAuthentication(authHeader)
+            totalScore += authResult.score
+            rules.append(contentsOf: authResult.rules)
+        }
 
         // Normalize score to 0.0–1.0
         let normalizedScore = min(totalScore, 1.0)
@@ -244,6 +256,52 @@ public struct RuleEngine: Sendable {
             score += 0.3
             rules.append("body_spam_pattern: \(pattern)")
             break
+        }
+
+        return RuleResult(score: min(score, 0.5), rules: rules)
+    }
+
+    // MARK: - Authentication Header Analysis (SPF/DKIM/DMARC)
+
+    /// Analyze Authentication-Results header for failed auth checks.
+    ///
+    /// Parses SPF, DKIM, and DMARC results from the header value.
+    /// Failed authentication is a strong signal for spoofing/phishing.
+    ///
+    /// Header format (RFC 8601): "spf=pass; dkim=pass; dmarc=pass"
+    /// Possible values: pass, fail, softfail, neutral, none, temperror, permerror
+    ///
+    /// Spec ref: FR-AI-06 (header authentication signal path)
+    private func checkAuthentication(_ header: String) -> RuleResult {
+        let lower = header.lowercased()
+        var score: Double = 0
+        var rules: [String] = []
+
+        // SPF check
+        if lower.contains("spf=fail") || lower.contains("spf=softfail") {
+            score += 0.2
+            rules.append("auth_spf_fail")
+        } else if lower.contains("spf=none") {
+            score += 0.1
+            rules.append("auth_spf_none")
+        }
+
+        // DKIM check
+        if lower.contains("dkim=fail") {
+            score += 0.25
+            rules.append("auth_dkim_fail")
+        } else if lower.contains("dkim=none") {
+            score += 0.1
+            rules.append("auth_dkim_none")
+        }
+
+        // DMARC check
+        if lower.contains("dmarc=fail") {
+            score += 0.3
+            rules.append("auth_dmarc_fail")
+        } else if lower.contains("dmarc=none") {
+            score += 0.1
+            rules.append("auth_dmarc_none")
         }
 
         return RuleResult(score: min(score, 0.5), rules: rules)

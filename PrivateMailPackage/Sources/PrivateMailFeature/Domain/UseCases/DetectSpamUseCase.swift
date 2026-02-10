@@ -3,8 +3,11 @@ import Foundation
 /// Use case for detecting spam and phishing emails.
 ///
 /// Combines two signals for final decision:
-/// 1. **ML signal**: LLM-based classification via `AIEngineProtocol.classify()`
-/// 2. **Rule signal**: URL/header/pattern analysis via `RuleEngine`
+/// 1. **ML signal**: Classification via `AIEngineProtocol.classify()`.
+///    When a CoreML DistilBERT model is available (bundled), it provides
+///    the classification. Falls back to LLM-based classify on generative engines.
+/// 2. **Rule signal**: URL/header/pattern + SPF/DKIM/DMARC analysis via `RuleEngine`.
+///    Parses `Email.authenticationResults` header for auth failure signals.
 ///
 /// Design principle: Never auto-delete. Flag with visual warning only.
 /// Users can override with "Not Spam" action.
@@ -43,12 +46,13 @@ public final class DetectSpamUseCase: DetectSpamUseCaseProtocol {
     }
 
     public func detect(email: Email) async -> Bool {
-        // Rule-based analysis (always available, fast)
+        // Rule-based analysis including header auth (always available, fast)
         let ruleSignal = ruleEngine.analyze(
             subject: email.subject,
             sender: email.fromAddress,
             bodyText: email.bodyPlain,
-            bodyHTML: email.bodyHTML
+            bodyHTML: email.bodyHTML,
+            authenticationResults: email.authenticationResults
         )
 
         // ML-based analysis (may be unavailable)

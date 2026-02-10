@@ -108,7 +108,8 @@ struct PrivateMailApp: App {
         aiProcessingQueue = AIProcessingQueue(
             categorize: categorizeUseCase,
             detectSpam: detectSpamUseCase,
-            aiRepository: aiRepository
+            aiRepository: aiRepository,
+            modelContainer: modelContainer
         )
         summarizeThread = SummarizeThreadUseCase(aiRepository: aiRepository)
         smartReply = SmartReplyUseCase(aiRepository: aiRepository)
