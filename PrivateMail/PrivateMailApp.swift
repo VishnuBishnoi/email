@@ -150,6 +150,11 @@ struct PrivateMailApp: App {
                 searchUseCase: searchUseCase
             )
             .environment(settingsStore)
+            .task {
+                // Open FTS5 search database and backfill index on first launch
+                await searchIndexManager.openIndex()
+                await searchIndexManager.reindexIfNeeded()
+            }
         }
         .modelContainer(modelContainer)
 

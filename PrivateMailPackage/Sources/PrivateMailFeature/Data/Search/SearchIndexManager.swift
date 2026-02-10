@@ -194,6 +194,46 @@ public final class SearchIndexManager {
         }
     }
 
+    // MARK: - Reindex
+
+    /// Indexes all emails that are not yet in the FTS5 index.
+    ///
+    /// Fetches all Email entities from SwiftData and inserts any that are
+    /// missing from FTS5. This is used on first launch after the search
+    /// feature is added to backfill the index with existing emails.
+    ///
+    /// Uses a UserDefaults guard to run only once.
+    ///
+    /// Spec ref: FR-SEARCH-08, AC-S-09
+    public func reindexIfNeeded() async {
+        let key = "searchFTS5InitialIndexComplete"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        let context = modelContainer.mainContext
+        let descriptor = FetchDescriptor<Email>()
+        guard let emails = try? context.fetch(descriptor), !emails.isEmpty else {
+            UserDefaults.standard.set(true, forKey: key)
+            return
+        }
+
+        for email in emails {
+            try? await fts5Manager.insert(
+                emailId: email.id,
+                accountId: email.accountId,
+                subject: email.subject,
+                body: email.bodyPlain ?? "",
+                senderName: email.fromName ?? "",
+                senderEmail: email.fromAddress
+            )
+            // Yield periodically to keep UI responsive
+            if email.id.hashValue % 50 == 0 {
+                await Task.yield()
+            }
+        }
+
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
     // MARK: - Lifecycle
 
     /// Opens the FTS5 search database.
