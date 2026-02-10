@@ -18,6 +18,7 @@ struct BottomTabBar: View {
     let onAccountTap: () -> Void
     let onSearchTap: () -> Void
     let onComposeTap: () -> Void
+    let onAIChatTap: () -> Void
     let onSettingsTap: () -> Void
 
     // MARK: - Body
@@ -34,6 +35,8 @@ struct BottomTabBar: View {
                 tabButton(icon: "magnifyingglass", label: "Search", action: onSearchTap)
                 Spacer()
                 tabButton(icon: "square.and.pencil", label: "Compose", action: onComposeTap)
+                Spacer()
+                tabButton(icon: "sparkles", label: "AI", action: onAIChatTap)
                 Spacer()
                 tabButton(icon: "gear", label: "Settings", action: onSettingsTap)
             }
@@ -135,6 +138,7 @@ struct BottomTabBar: View {
             onAccountTap: {},
             onSearchTap: {},
             onComposeTap: {},
+            onAIChatTap: {},
             onSettingsTap: {}
         )
     }

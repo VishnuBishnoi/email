@@ -19,7 +19,10 @@ struct PrivateMailApp: App {
     let idleMonitor: IDLEMonitorUseCaseProtocol
     let backgroundSyncScheduler: BackgroundSyncScheduler
     let aiModelManager: ModelManager
+    let aiEngineResolver: AIEngineResolver
     let aiProcessingQueue: AIProcessingQueue
+    let summarizeThread: SummarizeThreadUseCase
+    let smartReply: SmartReplyUseCase
 
     init() {
         do {
@@ -95,14 +98,19 @@ struct PrivateMailApp: App {
 
         aiModelManager = ModelManager()
 
-        // AI classification pipeline
-        let aiEngineResolver = AIEngineResolver(modelManager: aiModelManager)
+        // AI engine resolver + classification pipeline
+        aiEngineResolver = AIEngineResolver(modelManager: aiModelManager)
         let categorizeUseCase = CategorizeEmailUseCase(engineResolver: aiEngineResolver)
         let detectSpamUseCase = DetectSpamUseCase(engineResolver: aiEngineResolver)
         aiProcessingQueue = AIProcessingQueue(
             categorize: categorizeUseCase,
             detectSpam: detectSpamUseCase
         )
+
+        // AI summary + smart reply use cases
+        let aiRepository = AIRepositoryImpl(engineResolver: aiEngineResolver)
+        summarizeThread = SummarizeThreadUseCase(aiRepository: aiRepository)
+        smartReply = SmartReplyUseCase(aiRepository: aiRepository)
     }
 
     var body: some Scene {
@@ -120,7 +128,10 @@ struct PrivateMailApp: App {
                 idleMonitor: idleMonitor,
                 appLockManager: appLockManager,
                 modelManager: aiModelManager,
-                aiProcessingQueue: aiProcessingQueue
+                aiEngineResolver: aiEngineResolver,
+                aiProcessingQueue: aiProcessingQueue,
+                summarizeThread: summarizeThread,
+                smartReply: smartReply
             )
             .environment(settingsStore)
         }

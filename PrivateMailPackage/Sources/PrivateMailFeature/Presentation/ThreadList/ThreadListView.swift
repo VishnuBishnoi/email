@@ -32,7 +32,10 @@ struct ThreadListView: View {
     let queryContacts: QueryContactsUseCaseProtocol
     let idleMonitor: IDLEMonitorUseCaseProtocol?
     var modelManager: ModelManager = ModelManager()
+    var aiEngineResolver: AIEngineResolver?
     var aiProcessingQueue: AIProcessingQueue?
+    var summarizeThread: SummarizeThreadUseCaseProtocol?
+    var smartReply: SmartReplyUseCaseProtocol?
 
     @Environment(UndoSendManager.self) private var undoSendManager
 
@@ -113,6 +116,7 @@ struct ThreadListView: View {
     enum TabDestination: Hashable {
         case search
         case settings
+        case aiChat
     }
 
     // MARK: - Derived State
@@ -197,6 +201,7 @@ struct ThreadListView: View {
                             let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
                             composerMode = .new(accountId: accountId)
                         },
+                        onAIChatTap: { navigationPath.append(TabDestination.aiChat) },
                         onSettingsTap: { navigationPath.append(TabDestination.settings) }
                     )
                 }
@@ -221,13 +226,20 @@ struct ThreadListView: View {
                     SearchPlaceholder()
                 case .settings:
                     SettingsView(manageAccounts: manageAccounts, modelManager: modelManager)
+                case .aiChat:
+                    if let resolver = aiEngineResolver {
+                        AIChatView(engineResolver: resolver)
+                    } else {
+                        Text("AI not available")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .sheet(item: $composerMode) { mode in
                 ComposerView(
                     composeEmail: composeEmail,
                     queryContacts: queryContacts,
-                    smartReply: SmartReplyUseCase(aiRepository: AIRepositoryImpl(engineResolver: AIEngineResolver(modelManager: modelManager))),
+                    smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
                     mode: mode,
                     accounts: accounts,
                     onDismiss: { result in
@@ -355,8 +367,8 @@ struct ThreadListView: View {
                 markRead: markRead,
                 manageThreadActions: manageThreadActions,
                 downloadAttachment: downloadAttachment,
-                summarizeThread: nil,
-                smartReply: nil,
+                summarizeThread: summarizeThread,
+                smartReply: smartReply,
                 composeEmail: composeEmail,
                 queryContacts: queryContacts,
                 accounts: accounts

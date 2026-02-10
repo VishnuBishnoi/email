@@ -37,7 +37,10 @@ public struct ContentView: View {
     let idleMonitor: IDLEMonitorUseCaseProtocol?
     let appLockManager: AppLockManager
     let modelManager: ModelManager
+    let aiEngineResolver: AIEngineResolver
     let aiProcessingQueue: AIProcessingQueue
+    let summarizeThread: SummarizeThreadUseCaseProtocol
+    let smartReply: SmartReplyUseCaseProtocol
 
     @State private var accounts: [Account] = []
     @State private var hasLoaded = false
@@ -56,10 +59,13 @@ public struct ContentView: View {
         idleMonitor: IDLEMonitorUseCaseProtocol? = nil,
         appLockManager: AppLockManager,
         modelManager: ModelManager = ModelManager(),
+        aiEngineResolver: AIEngineResolver,
         aiProcessingQueue: AIProcessingQueue = AIProcessingQueue(
             categorize: CategorizeEmailUseCase(engineResolver: AIEngineResolver(modelManager: ModelManager())),
             detectSpam: DetectSpamUseCase(engineResolver: AIEngineResolver(modelManager: ModelManager()))
-        )
+        ),
+        summarizeThread: SummarizeThreadUseCaseProtocol,
+        smartReply: SmartReplyUseCaseProtocol
     ) {
         self.manageAccounts = manageAccounts
         self.fetchThreads = fetchThreads
@@ -73,7 +79,10 @@ public struct ContentView: View {
         self.idleMonitor = idleMonitor
         self.appLockManager = appLockManager
         self.modelManager = modelManager
+        self.aiEngineResolver = aiEngineResolver
         self.aiProcessingQueue = aiProcessingQueue
+        self.summarizeThread = summarizeThread
+        self.smartReply = smartReply
     }
 
     public var body: some View {
@@ -135,7 +144,10 @@ public struct ContentView: View {
             queryContacts: queryContacts,
             idleMonitor: idleMonitor,
             modelManager: modelManager,
-            aiProcessingQueue: aiProcessingQueue
+            aiEngineResolver: aiEngineResolver,
+            aiProcessingQueue: aiProcessingQueue,
+            summarizeThread: summarizeThread,
+            smartReply: smartReply
         )
         .environment(undoSendManager)
         .preferredColorScheme(settings.colorScheme)

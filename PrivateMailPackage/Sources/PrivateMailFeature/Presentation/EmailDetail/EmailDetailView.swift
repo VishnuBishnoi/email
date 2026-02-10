@@ -151,7 +151,7 @@ public struct EmailDetailView: View {
                 ComposerView(
                     composeEmail: composeEmail,
                     queryContacts: queryContacts,
-                    smartReply: SmartReplyUseCase(aiRepository: StubAIRepository()),
+                    smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
                     mode: mode,
                     accounts: accounts,
                     onDismiss: { _ in composerMode = nil }

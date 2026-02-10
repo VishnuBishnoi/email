@@ -1,0 +1,274 @@
+import SwiftUI
+
+/// On-device AI chat assistant for email-related conversations.
+///
+/// Uses `AIEngineResolver` to resolve the best available local LLM engine,
+/// then streams token-by-token responses via `engine.generate()`. All processing
+/// is on-device — no data leaves the device.
+///
+/// MV pattern: view state managed via @State, engine injected as `let` property.
+///
+/// Spec ref: FR-AI-CHAT
+struct AIChatView: View {
+
+    let engineResolver: AIEngineResolver
+
+    // MARK: - State
+
+    @State private var messages: [ChatMessage] = []
+    @State private var inputText = ""
+    @State private var isGenerating = false
+    @State private var generationTask: Task<Void, Never>?
+    @State private var engineAvailable = true
+
+    // MARK: - Body
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if messages.isEmpty {
+                emptyState
+            } else {
+                messageList
+            }
+
+            Divider()
+            inputBar
+        }
+        .navigationTitle("AI Assistant")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task {
+            await checkEngineAvailability()
+        }
+        .onDisappear {
+            generationTask?.cancel()
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Image(systemName: "sparkles")
+                .font(.system(size: 48))
+                .foregroundStyle(.purple.opacity(0.6))
+                .accessibilityHidden(true)
+
+            Text("AI Assistant")
+                .font(.title2.bold())
+
+            Text("Ask me anything about your emails.\nI run entirely on your device.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            if !engineAvailable {
+                Label(
+                    "Download an AI model in Settings to get started.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 24)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("AI Assistant. Ask me anything about your emails.")
+    }
+
+    // MARK: - Message List
+
+    private var messageList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(messages) { message in
+                        ChatBubble(message: message)
+                            .id(message.id)
+                    }
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+            }
+            .onChange(of: messages.count) {
+                if let last = messages.last {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
+            }
+            // Also scroll when streaming updates the last message content
+            .onChange(of: messages.last?.text) {
+                if let last = messages.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
+        }
+    }
+
+    // MARK: - Input Bar
+
+    private var inputBar: some View {
+        HStack(spacing: 12) {
+            TextField("Ask about your emails...", text: $inputText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...5)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 20))
+                .disabled(isGenerating)
+
+            if isGenerating {
+                Button {
+                    stopGeneration()
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.red)
+                }
+                .accessibilityLabel("Stop generating")
+            } else {
+                Button {
+                    sendMessage()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(canSend ? .blue : .gray.opacity(0.5))
+                }
+                .disabled(!canSend)
+                .accessibilityLabel("Send message")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Computed
+
+    private var canSend: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isGenerating
+    }
+
+    // MARK: - Actions
+
+    private func checkEngineAvailability() async {
+        let engine = await engineResolver.resolveGenerativeEngine()
+        engineAvailable = await engine.isAvailable()
+    }
+
+    private func sendMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        // Add user message
+        let userMessage = ChatMessage(role: .user, text: text)
+        messages.append(userMessage)
+        inputText = ""
+
+        // Start generating response
+        isGenerating = true
+        let assistantMessage = ChatMessage(role: .assistant, text: "")
+        messages.append(assistantMessage)
+        let assistantIndex = messages.count - 1
+
+        generationTask = Task {
+            defer { isGenerating = false }
+
+            let engine = await engineResolver.resolveGenerativeEngine()
+
+            guard await engine.isAvailable() else {
+                messages[assistantIndex].text = "AI model not available. Please download a model in Settings."
+                engineAvailable = false
+                return
+            }
+
+            // Build conversation history for the prompt
+            let history: [(role: String, content: String)] = messages.dropLast().map { msg in
+                (role: msg.role == .user ? "User" : "Assistant", content: msg.text)
+            }
+            let prompt = PromptTemplates.chat(
+                conversationHistory: history,
+                userMessage: text
+            )
+
+            let stream = await engine.generate(prompt: prompt, maxTokens: 1024)
+            for await token in stream {
+                guard !Task.isCancelled else { break }
+                messages[assistantIndex].text += token
+            }
+
+            // If empty response (model returned nothing), show fallback
+            if messages[assistantIndex].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messages[assistantIndex].text = "I couldn't generate a response. Please try again."
+            }
+        }
+    }
+
+    private func stopGeneration() {
+        generationTask?.cancel()
+        generationTask = nil
+        isGenerating = false
+
+        // If the assistant message is empty after cancellation, add a note
+        if let last = messages.last, last.role == .assistant,
+           last.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages[messages.count - 1].text = "(Generation stopped)"
+        }
+    }
+}
+
+// MARK: - Chat Message Model
+
+struct ChatMessage: Identifiable, Equatable {
+    let id = UUID()
+    let role: Role
+    var text: String
+    let timestamp = Date()
+
+    enum Role: Equatable {
+        case user
+        case assistant
+    }
+
+    static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        lhs.id == rhs.id && lhs.text == rhs.text
+    }
+}
+
+// MARK: - Chat Bubble
+
+private struct ChatBubble: View {
+    let message: ChatMessage
+
+    var body: some View {
+        HStack {
+            if message.role == .user { Spacer(minLength: 60) }
+
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+                Text(message.text)
+                    .font(.body)
+                    .foregroundStyle(message.role == .user ? .white : .primary)
+                    .textSelection(.enabled)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                message.role == .user
+                    ? Color.blue
+                    : Color.secondary.opacity(0.15),
+                in: RoundedRectangle(cornerRadius: 16)
+            )
+
+            if message.role == .assistant { Spacer(minLength: 60) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(message.role == .user ? "You" : "AI"): \(message.text)")
+    }
+}
