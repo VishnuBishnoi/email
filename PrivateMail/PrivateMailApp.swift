@@ -122,7 +122,8 @@ struct PrivateMailApp: App {
             detectSpam: detectSpamUseCase,
             aiRepository: aiRepository,
             modelContainer: modelContainer,
-            searchIndexManager: searchIndexManager
+            searchIndexManager: searchIndexManager,
+            aiEngineResolver: aiEngineResolver
         )
         summarizeThread = SummarizeThreadUseCase(aiRepository: aiRepository)
         smartReply = SmartReplyUseCase(aiRepository: aiRepository)

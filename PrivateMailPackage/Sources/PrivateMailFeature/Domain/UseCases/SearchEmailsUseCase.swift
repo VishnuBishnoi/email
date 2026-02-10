@@ -147,6 +147,9 @@ public final class SearchEmailsUseCase {
 
     /// Performs semantic vector search. Returns empty array if engine is nil
     /// or embedding generation fails.
+    ///
+    /// Lazily loads vectors from SwiftData SearchIndex into the in-memory
+    /// VectorSearchEngine on each query to pick up newly indexed embeddings.
     private func performSemanticSearch(
         query: String,
         engine: (any AIEngineProtocol)?
@@ -160,7 +163,34 @@ public final class SearchEmailsUseCase {
             return []
         }
 
+        // Load vectors from SwiftData into the in-memory engine (P0 fix)
+        await loadVectorsFromStore()
+
         return await vectorEngine.search(query: embedding)
+    }
+
+    /// Loads embedding vectors from SwiftData SearchIndex entries into the
+    /// in-memory VectorSearchEngine. Only loads entries that have non-nil
+    /// embedding data. Called before each semantic search to ensure the
+    /// engine has current data.
+    private func loadVectorsFromStore() async {
+        let context = modelContainer.mainContext
+        let descriptor = FetchDescriptor<SearchIndex>()
+        guard let entries = try? context.fetch(descriptor) else { return }
+
+        var vectorEntries: [VectorEntry] = []
+        vectorEntries.reserveCapacity(entries.count)
+
+        for entry in entries {
+            guard let data = entry.embedding, !data.isEmpty else { continue }
+            let floats = data.withUnsafeBytes { buffer in
+                Array(buffer.bindMemory(to: Float.self))
+            }
+            guard !floats.isEmpty else { continue }
+            vectorEntries.append(VectorEntry(emailId: entry.emailId, embedding: floats))
+        }
+
+        await vectorEngine.loadVectors(from: vectorEntries)
     }
 
     // MARK: - Private: SwiftData Hydration
@@ -236,6 +266,15 @@ public final class SearchEmailsUseCase {
             // Read status filter
             if let isRead = filters.isRead {
                 guard email.isRead == isRead else { return false }
+            }
+
+            // Folder filter (P1 fix: was defined in model but never applied)
+            if let folderName = filters.folder {
+                let folderLower = folderName.lowercased()
+                let inFolder = email.emailFolders.contains { emailFolder in
+                    emailFolder.folder?.name.lowercased() == folderLower
+                }
+                guard inFolder else { return false }
             }
 
             // Scope filter

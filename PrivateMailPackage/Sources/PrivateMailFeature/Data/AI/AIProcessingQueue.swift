@@ -39,6 +39,7 @@ public final class AIProcessingQueue: Sendable {
     private let aiRepository: AIRepositoryProtocol?
     private let modelContainer: ModelContainer?
     private let searchIndexManager: SearchIndexManager?
+    private let aiEngineResolver: AIEngineResolver?
 
     /// Batch size for processing. 50 emails per batch with yields between.
     private let batchSize = 50
@@ -56,13 +57,15 @@ public final class AIProcessingQueue: Sendable {
         detectSpam: DetectSpamUseCaseProtocol,
         aiRepository: AIRepositoryProtocol? = nil,
         modelContainer: ModelContainer? = nil,
-        searchIndexManager: SearchIndexManager? = nil
+        searchIndexManager: SearchIndexManager? = nil,
+        aiEngineResolver: AIEngineResolver? = nil
     ) {
         self.categorize = categorize
         self.detectSpam = detectSpam
         self.aiRepository = aiRepository
         self.modelContainer = modelContainer
         self.searchIndexManager = searchIndexManager
+        self.aiEngineResolver = aiEngineResolver
     }
 
     // MARK: - Public API
@@ -171,9 +174,16 @@ public final class AIProcessingQueue: Sendable {
     ) async {
         // Delegate to SearchIndexManager when available (FR-SEARCH-08: single owner)
         if let indexManager = searchIndexManager {
+            // Resolve embedding engine (P0 fix: was passing nil, disabling semantic indexing)
+            let engine: (any AIEngineProtocol)?
+            if let resolver = aiEngineResolver {
+                engine = await resolver.resolveGenerativeEngine()
+            } else {
+                engine = nil
+            }
             for email in emails {
                 guard !Task.isCancelled, self.generation == generation else { break }
-                await indexManager.indexEmail(email, engine: nil)
+                await indexManager.indexEmail(email, engine: engine)
             }
             return
         }

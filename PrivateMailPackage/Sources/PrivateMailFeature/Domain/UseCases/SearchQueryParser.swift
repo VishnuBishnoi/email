@@ -35,6 +35,7 @@ public enum SearchQueryParser: Sendable {
 
         // Extract filters in specified order
         filters.sender = extractSender(&remaining)
+        filters.folder = extractFolder(&remaining)
         filters.dateRange = extractDateRange(&remaining)
         filters.hasAttachment = extractAttachmentFilter(&remaining)
         filters.category = extractCategory(&remaining)
@@ -83,6 +84,23 @@ public enum SearchQueryParser: Sendable {
         }
 
         return nil
+    }
+
+    // MARK: - Folder Extraction
+
+    /// Extract folder filter from the query.
+    ///
+    /// Supports patterns like "in:inbox", "in:sent", "in:drafts",
+    /// "in:trash", "folder:archive".
+    private static func extractFolder(_ query: inout String) -> String? {
+        let pattern = #"(?i)(?:in|folder)\s*:\s*(\S+)"#
+        guard let regex = try? Regex<(Substring, Substring)>(pattern),
+              let match = query.firstMatch(of: regex) else {
+            return nil
+        }
+        let folder = String(match.output.1)
+        query.replaceSubrange(match.range, with: "")
+        return folder
     }
 
     // MARK: - Date Range Extraction

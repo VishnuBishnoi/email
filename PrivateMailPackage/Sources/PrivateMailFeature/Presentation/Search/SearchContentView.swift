@@ -29,7 +29,10 @@ struct SearchContentView: View {
     @Binding var searchText: String
     let viewState: SearchViewState
     @Binding var filters: SearchFilters
+    @Binding var isCurrentFolderScope: Bool
+    let currentFolderName: String?
     let threads: [PrivateMailFeature.Thread]
+    let searchResults: [SearchResult]
     let recentSearches: [String]
     let onSelectRecentSearch: (String) -> Void
     let onClearRecentSearches: () -> Void
@@ -44,6 +47,13 @@ struct SearchContentView: View {
                 .padding(.horizontal)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
+
+            // Scope picker (All Mail / Current Folder)
+            if currentFolderName != nil {
+                scopePicker
+                    .padding(.horizontal)
+                    .padding(.vertical, 4)
+            }
 
             // Filter chips (visible when filters or query active)
             if filters.hasActiveFilters || !searchText.isEmpty {
@@ -130,13 +140,38 @@ struct SearchContentView: View {
         }
     }
 
-    // MARK: - Results List (uses same ThreadRowView as inbox)
+    // MARK: - Scope Picker
+
+    private var scopePicker: some View {
+        Picker("Search scope", selection: $isCurrentFolderScope) {
+            Text("All Mailboxes")
+                .tag(false)
+            if let name = currentFolderName {
+                Text(name)
+                    .tag(true)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Search scope")
+    }
+
+    // MARK: - Results List (uses same ThreadRowView with highlights)
 
     @ViewBuilder
     private var searchResultsList: some View {
+        let resultMap = Dictionary(uniqueKeysWithValues: searchResults.map { ($0.threadId, $0) })
         List(threads, id: \.id) { thread in
             NavigationLink(value: thread.id) {
-                ThreadRowView(thread: thread)
+                if let result = resultMap[thread.id], !searchText.isEmpty {
+                    HighlightedThreadRowView(
+                        thread: thread,
+                        highlightedSubject: result.subject,
+                        highlightedSnippet: result.snippet,
+                        queryText: searchText
+                    )
+                } else {
+                    ThreadRowView(thread: thread)
+                }
             }
         }
         .listStyle(.plain)

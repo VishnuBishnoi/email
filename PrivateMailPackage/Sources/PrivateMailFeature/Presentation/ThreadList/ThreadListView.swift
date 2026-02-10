@@ -120,6 +120,7 @@ struct ThreadListView: View {
     @State private var searchThreads: [PrivateMailFeature.Thread] = []
     @State private var searchViewState: SearchViewState = .idle
     @State private var searchFilters = SearchFilters()
+    @State private var isCurrentFolderScope = false
     @State private var recentSearches: [String] = []
 
     private let recentSearchesKey = "recentSearches"
@@ -269,7 +270,7 @@ struct ThreadListView: View {
         .onDisappear {
             stopIDLEMonitor()
         }
-        .task(id: SearchDebounceTrigger(text: searchText, filters: searchFilters)) {
+        .task(id: SearchDebounceTrigger(text: searchText, filters: searchFilters, isCurrentFolderScope: isCurrentFolderScope)) {
             guard isSearchActive else { return }
             // 300ms debounce via task cancellation (FR-SEARCH-01)
             try? await Task.sleep(for: .milliseconds(300))
@@ -284,6 +285,7 @@ struct ThreadListView: View {
                 searchThreads = []
                 searchViewState = .idle
                 searchFilters = SearchFilters()
+                isCurrentFolderScope = false
             } else {
                 loadRecentSearches()
             }
@@ -354,7 +356,10 @@ struct ThreadListView: View {
                 searchText: $searchText,
                 viewState: searchViewState,
                 filters: $searchFilters,
+                isCurrentFolderScope: $isCurrentFolderScope,
+                currentFolderName: selectedFolder?.name,
                 threads: searchThreads,
+                searchResults: searchResults,
                 recentSearches: recentSearches,
                 onSelectRecentSearch: { query in
                     searchText = query
@@ -1121,8 +1126,16 @@ struct ThreadListView: View {
             return
         }
 
+        // Build scope from current selection
+        let scope: SearchScope
+        if isCurrentFolderScope, let folderId = selectedFolder?.id {
+            scope = .currentFolder(folderId: folderId)
+        } else {
+            scope = .allMail
+        }
+
         // Parse natural language query
-        var query = SearchQueryParser.parse(trimmed, scope: .allMail)
+        var query = SearchQueryParser.parse(trimmed, scope: scope)
         // Merge manual filter chips with NL-parsed filters
         query.filters = mergeSearchFilters(parsed: query.filters, manual: searchFilters)
 
@@ -1141,12 +1154,20 @@ struct ThreadListView: View {
 
         searchResults = results
 
+        // Deduplicate thread IDs preserving first (highest-scored) occurrence (P2 fix)
+        var seenThreadIds = Set<String>()
+        var uniqueThreadIds: [String] = []
+        for result in results {
+            if seenThreadIds.insert(result.threadId).inserted {
+                uniqueThreadIds.append(result.threadId)
+            }
+        }
+
         // Fetch full Thread objects from SwiftData for unified ThreadRowView display
-        let threadIds = results.map(\.threadId)
-        let fetchedThreads = fetchThreadsForSearch(ids: threadIds)
+        let fetchedThreads = fetchThreadsForSearch(ids: uniqueThreadIds)
         // Preserve search ranking order
         let threadMap = Dictionary(uniqueKeysWithValues: fetchedThreads.map { ($0.id, $0) })
-        searchThreads = threadIds.compactMap { threadMap[$0] }
+        searchThreads = uniqueThreadIds.compactMap { threadMap[$0] }
 
         searchViewState = searchThreads.isEmpty ? .empty : .results
 
@@ -1225,4 +1246,5 @@ struct ThreadListView: View {
 private struct SearchDebounceTrigger: Equatable {
     let text: String
     let filters: SearchFilters
+    let isCurrentFolderScope: Bool
 }
