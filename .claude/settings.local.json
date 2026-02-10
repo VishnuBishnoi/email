@@ -60,7 +60,12 @@
       "Bash(xcrun simctl list:*)",
       "Bash(xcrun simctl erase:*)",
       "Bash(xcrun simctl shutdown:*)",
-      "Bash(xcrun simctl boot:*)"
+      "Bash(xcrun simctl boot:*)",
+      "WebFetch(domain:artemnovichkov.com)",
+      "WebFetch(domain:www.createwithswift.com)",
+      "WebFetch(domain:www.appcoda.com)",
+      "Bash(sw_vers:*)",
+      "Bash(gh pr list:*)"
     ]
   },
   "enabledPlugins": {
