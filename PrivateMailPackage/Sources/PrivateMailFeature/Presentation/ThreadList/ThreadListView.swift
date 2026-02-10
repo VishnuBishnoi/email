@@ -113,6 +113,12 @@ struct ThreadListView: View {
     // IMAP IDLE monitoring task (FR-SYNC-03 real-time updates)
     @State private var idleTask: Task<Void, Never>?
 
+    // Background sync task — stored so it can be cancelled on timeout or disappear
+    @State private var syncTask: Task<Void, Never>?
+
+    // Tracks elapsed sync time for showing "taking longer than expected" + cancel
+    @State private var syncElapsedSeconds: Int = 0
+
     // Programmatic navigation for bottom tab bar
     @State private var navigationPath = NavigationPath()
 
@@ -272,6 +278,17 @@ struct ThreadListView: View {
         }
         .onDisappear {
             stopIDLEMonitor()
+            syncTask?.cancel()
+            syncTask = nil
+        }
+        .task(id: isSyncing) {
+            // Tick elapsed seconds while sync is active (for progress feedback)
+            guard isSyncing else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                syncElapsedSeconds += 1
+            }
         }
         .task(id: SearchDebounceTrigger(text: searchText, filters: searchFilters, isCurrentFolderScope: isCurrentFolderScope)) {
             guard isSearchActive else { return }
@@ -464,9 +481,20 @@ struct ThreadListView: View {
             HStack(spacing: 10) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Syncing…")
+                Text(syncElapsedSeconds >= 15 ? "Still syncing…" : "Syncing…")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Spacer()
+                if syncElapsedSeconds >= 15 {
+                    Button("Cancel") {
+                        syncTask?.cancel()
+                        syncTask = nil
+                        isSyncing = false
+                        syncElapsedSeconds = 0
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                }
             }
             .padding(.vertical, 4)
             .listRowBackground(Color.accentColor.opacity(0.05))
@@ -646,9 +674,26 @@ struct ThreadListView: View {
                     .controlSize(.large)
                 Text("Syncing your mailbox…")
                     .font(.title3.bold())
-                Text("This may take a moment on first login")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+
+                if syncElapsedSeconds < 15 {
+                    Text("This may take a moment on first login")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Still syncing — this is taking longer than expected")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Button("Cancel Sync") {
+                        syncTask?.cancel()
+                        syncTask = nil
+                        isSyncing = false
+                        syncElapsedSeconds = 0
+                        errorBannerMessage = "Sync cancelled. Pull to refresh to try again."
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.secondary)
+                }
             } else {
                 Image(systemName: "tray")
                     .font(.system(size: 48))
@@ -763,13 +808,23 @@ struct ThreadListView: View {
             // Phase 2: Sync from IMAP in the background, then refresh the view
             NSLog("[UI] Starting background sync for account: \(firstAccount.id)")
             isSyncing = true
-            Task {
-                defer { isSyncing = false }
+            syncElapsedSeconds = 0
+
+            // Store the sync task so it can be cancelled on timeout or view disappear.
+            // A separate timeout task cancels this one after 90 seconds.
+            let accountId = firstAccount.id
+            syncTask = Task {
+                defer {
+                    isSyncing = false
+                    syncElapsedSeconds = 0
+                    syncTask = nil
+                }
                 do {
-                    let syncedEmails = try await syncEmails.syncAccount(accountId: firstAccount.id)
+                    let syncedEmails = try await syncEmails.syncAccount(accountId: accountId)
+                    guard !Task.isCancelled else { return }
                     NSLog("[UI] Background sync succeeded, reloading threads...")
                     // Sync succeeded — reload folders and threads with fresh data
-                    folders = try await fetchThreads.fetchFolders(accountId: firstAccount.id)
+                    folders = try await fetchThreads.fetchFolders(accountId: accountId)
                     if selectedFolder == nil {
                         let inboxType = FolderType.inbox.rawValue
                         selectedFolder = folders.first(where: { $0.folderType == inboxType }) ?? folders.first
@@ -782,9 +837,25 @@ struct ThreadListView: View {
 
                     // Phase 3: Start IMAP IDLE for real-time inbox updates (FR-SYNC-03)
                     startIDLEMonitor()
+                } catch is CancellationError {
+                    NSLog("[UI] Background sync cancelled")
                 } catch {
+                    guard !Task.isCancelled else { return }
                     NSLog("[UI] Background sync FAILED: \(error)")
                     errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+                }
+            }
+
+            // Schedule a timeout that cancels the sync after 90 seconds
+            Task {
+                try? await Task.sleep(for: .seconds(90))
+                if isSyncing {
+                    NSLog("[UI] Sync timeout after 90 seconds, cancelling")
+                    syncTask?.cancel()
+                    syncTask = nil
+                    isSyncing = false
+                    syncElapsedSeconds = 0
+                    errorBannerMessage = "Sync timed out. Pull to refresh to try again."
                 }
             }
         } catch {
