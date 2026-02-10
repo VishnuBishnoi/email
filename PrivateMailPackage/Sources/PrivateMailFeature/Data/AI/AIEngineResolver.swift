@@ -83,15 +83,24 @@ public actor AIEngineResolver {
             return llamaEngine
         }
 
-        // Try to load a model if one is downloaded
-        let bestModelID = recommendedModelID()
-        if await modelManager.isModelDownloaded(id: bestModelID),
-           let modelPath = await modelManager.modelPath(forID: bestModelID) {
-            do {
-                try await llamaEngine.loadModel(at: modelPath.path)
-                return llamaEngine
-            } catch {
-                // Model load failed — fall through to stub
+        // Try to load a downloaded model.
+        // Check recommended model first, then fall back to any other downloaded model.
+        // This ensures a user who downloads a non-recommended model (e.g., smaller model
+        // on a high-RAM device for storage reasons) still gets AI features.
+        let recommended = recommendedModelID()
+        let modelIDs = ModelManager.availableModelInfos.map(\.id)
+        let sortedIDs = modelIDs.sorted { a, _ in a == recommended }
+
+        for modelID in sortedIDs {
+            if await modelManager.isModelDownloaded(id: modelID),
+               let modelPath = await modelManager.modelPath(forID: modelID) {
+                do {
+                    try await llamaEngine.loadModel(at: modelPath.path)
+                    return llamaEngine
+                } catch {
+                    // This model failed to load — try next
+                    continue
+                }
             }
         }
 

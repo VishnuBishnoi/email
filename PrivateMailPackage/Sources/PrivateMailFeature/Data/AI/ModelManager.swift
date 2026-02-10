@@ -399,6 +399,16 @@ public actor ModelManager {
         return fileManager.fileExists(atPath: modelPath(for: info).path)
     }
 
+    /// Check if ANY model is downloaded and available on disk.
+    ///
+    /// Used by UI to determine if AI features should be enabled,
+    /// regardless of which specific model the user chose to download.
+    public func isAnyModelDownloaded() -> Bool {
+        Self.availableModelInfos.contains { info in
+            fileManager.fileExists(atPath: modelPath(for: info).path)
+        }
+    }
+
     // MARK: - Private
 
     private func currentStatus(for info: ModelInfo) -> DownloadStatus {

@@ -380,14 +380,17 @@ struct NotificationToggleRow: View {
 // MARK: - Category Tabs Settings
 
 /// Category tab visibility toggles.
-/// If AI model is not downloaded, toggles are disabled with a note.
+/// If no AI engine is available, toggles are disabled with a note.
+///
+/// Checks effective engine availability: Foundation Models (iOS 26+),
+/// ANY downloaded GGUF model (not just the recommended one).
 ///
 /// Spec ref: FR-SET-01 Appearance section
 struct CategoryTabsSettingsView: View {
     @Environment(SettingsStore.self) private var settings
     let modelManager: ModelManager
 
-    @State private var isAIModelAvailable = false
+    @State private var isAIAvailable = false
 
     private let toggleableCategories: [(String, String)] = [
         (AICategory.primary.rawValue, "Primary"),
@@ -399,7 +402,7 @@ struct CategoryTabsSettingsView: View {
     var body: some View {
         @Bindable var settings = settings
         List {
-            if !isAIModelAvailable {
+            if !isAIAvailable {
                 Section {
                     Label(
                         "Download the AI model to enable smart categories.",
@@ -416,14 +419,20 @@ struct CategoryTabsSettingsView: View {
                         get: { settings.categoryTabVisibility[key] ?? true },
                         set: { settings.categoryTabVisibility[key] = $0 }
                     ))
-                    .disabled(!isAIModelAvailable)
+                    .disabled(!isAIAvailable)
                 }
             }
         }
         .navigationTitle("Category Tabs")
         .task {
-            let recommendedID = AIEngineResolver(modelManager: modelManager).recommendedModelID()
-            isAIModelAvailable = await modelManager.isModelDownloaded(id: recommendedID)
+            // Check Foundation Models first (iOS 26+ — zero download needed)
+            let fmEngine = FoundationModelEngine()
+            if await fmEngine.isAvailable() {
+                isAIAvailable = true
+                return
+            }
+            // Then check if ANY GGUF model is downloaded (not just the recommended one)
+            isAIAvailable = await modelManager.isAnyModelDownloaded()
         }
     }
 }

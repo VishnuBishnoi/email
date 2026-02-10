@@ -76,7 +76,7 @@ public actor LlamaEngine: AIEngineProtocol {
     // MARK: - AIEngineProtocol
 
     public func isAvailable() -> Bool {
-        model != nil && ctx != nil
+        model != nil && ctx != nil && samplerChain != nil
     }
 
     public func generate(prompt: String, maxTokens: Int) -> AsyncStream<String> {
