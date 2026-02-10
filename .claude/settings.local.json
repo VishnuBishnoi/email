@@ -42,7 +42,25 @@
       "Bash(gh pr view:*)",
       "Bash(gh api:*)",
       "Bash(git ls-tree:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git stash:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(BODY='## Summary\n- **Onboarding sync trigger**: `completeOnboarding\\(\\)` fires background sync for all added accounts\n- **IMAP IDLE monitor**: `IDLEMonitorUseCase` wraps `startIDLE\\(\\)` in `AsyncStream<IDLEEvent>` for real-time inbox updates\n- **Background sync**: `BackgroundSyncScheduler` registers `BGAppRefreshTask` \\(15-min interval, 30-sec budget\\)\n- **Real attachment downloads**: `DownloadAttachmentUseCase` — IMAP `FETCH BODY[section]` with base64/QP decode\n- **OAuth IMAP validation**: `ManageAccountsUseCase` performs real IMAP connection test after account creation\n- **macOS fixes**: cross-platform CachedFaviconView, FaviconCache UIKit guard, BottomTabBar glass effect\n\n## Documentation\n- [Implementation Plan]\\(docs/features/email-sync/ios-macos/plan.md\\) — architecture, files, design decisions\n- [Task Breakdown]\\(docs/features/email-sync/ios-macos/tasks.md\\) — IOS-F-05/06/08/10 done\n- [Validation]\\(docs/features/email-sync/ios-macos/validation.md\\) — traceability matrix updated\n\n## Test plan\n- [x] 549 tests in 38 suites, all passing\n- [ ] iOS simulator: onboarding triggers sync\n- [ ] IDLE picks up new mail\n- [ ] Attachment real IMAP download\n- [ ] Background fetch via Xcode\n- [ ] macOS build passes')",
+      "Bash(__NEW_LINE_6b112d95c0093c02__ gh api repos/VishnuBishnoi/email/pulls/18 -X PATCH -f body=\"$BODY\" --jq '.html_url')",
+      "Bash(python3:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:swiftpackageindex.com)",
+      "Bash(xcrun simctl list:*)",
+      "Bash(xcrun simctl erase:*)",
+      "Bash(xcrun simctl shutdown:*)",
+      "Bash(xcrun simctl boot:*)"
     ]
   },
   "enabledPlugins": {
