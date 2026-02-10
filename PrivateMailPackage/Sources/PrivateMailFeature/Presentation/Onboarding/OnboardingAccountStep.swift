@@ -98,6 +98,26 @@ struct OnboardingAccountStep: View {
         }
         .padding(.horizontal, 32)
         .padding(.bottom, 40)
+        .task {
+            await loadExistingAccounts()
+        }
+    }
+
+    /// Load any accounts already persisted in SwiftData so they appear in the list.
+    ///
+    /// This handles the case where the user previously added an account (e.g., before
+    /// a simulator restart or app re-launch) — without this, the account exists in
+    /// persistence but doesn't show in the onboarding list, blocking the user from
+    /// proceeding since `addedAccounts` is empty and re-adding throws `.duplicateAccount`.
+    private func loadExistingAccounts() async {
+        do {
+            let existing = try await manageAccounts.getAccounts()
+            for account in existing where !addedAccounts.contains(where: { $0.id == account.id }) {
+                addedAccounts.append(account)
+            }
+        } catch {
+            // Non-fatal — user can still add accounts manually
+        }
     }
 
     // MARK: - Actions
