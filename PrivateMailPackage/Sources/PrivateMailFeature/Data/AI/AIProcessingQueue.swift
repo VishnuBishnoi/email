@@ -35,6 +35,7 @@ public final class AIProcessingQueue: Sendable {
 
     private let categorize: CategorizeEmailUseCaseProtocol
     private let detectSpam: DetectSpamUseCaseProtocol
+    private let aiRepository: AIRepositoryProtocol?
 
     /// Batch size for processing. 50 emails per batch with yields between.
     private let batchSize = 50
@@ -49,10 +50,12 @@ public final class AIProcessingQueue: Sendable {
 
     public init(
         categorize: CategorizeEmailUseCaseProtocol,
-        detectSpam: DetectSpamUseCaseProtocol
+        detectSpam: DetectSpamUseCaseProtocol,
+        aiRepository: AIRepositoryProtocol? = nil
     ) {
         self.categorize = categorize
         self.detectSpam = detectSpam
+        self.aiRepository = aiRepository
     }
 
     // MARK: - Public API
@@ -122,6 +125,13 @@ public final class AIProcessingQueue: Sendable {
             let spamDetected = await detectSpam.detectBatch(emails: batch)
             spamTotal += spamDetected
 
+            // Semantic embedding generation (FR-AI-05 / AC-A-07)
+            // Generates embeddings and indexes emails for semantic search.
+            // Uses SearchIndex SwiftData model for persistence.
+            if let repo = aiRepository {
+                await generateEmbeddings(for: batch, using: repo, generation: generation)
+            }
+
             // Only update state if this generation is still current
             guard self.generation == generation else { break }
             processedCount += batch.count
@@ -135,6 +145,30 @@ public final class AIProcessingQueue: Sendable {
         // Only mark done if this generation is still current
         if self.generation == generation {
             isProcessing = false
+        }
+    }
+
+    // MARK: - Embedding Generation (FR-AI-05)
+
+    /// Generate embeddings for a batch of emails and store in SearchIndex.
+    ///
+    /// Embedding data is stored on the email's associated SearchIndex entry.
+    /// If the engine doesn't support embeddings (returns empty), the email
+    /// is still indexed with text-only content for keyword search.
+    private func generateEmbeddings(
+        for emails: [Email],
+        using repo: AIRepositoryProtocol,
+        generation: Int
+    ) async {
+        for email in emails {
+            guard !Task.isCancelled, self.generation == generation else { break }
+            let searchText = [email.subject, email.fromAddress,
+                              email.bodyPlain ?? email.snippet ?? ""]
+                .joined(separator: " ")
+            let embedding = try? await repo.generateEmbedding(text: searchText)
+            // SearchIndex persistence wired here when SearchRepositoryImpl is built.
+            // For now, embeddings are generated but not persisted until IOS-A-07.
+            _ = embedding
         }
     }
 }

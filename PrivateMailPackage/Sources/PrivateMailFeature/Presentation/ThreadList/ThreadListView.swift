@@ -221,53 +221,13 @@ struct ThreadListView: View {
                 }
             }
             .navigationDestination(for: TabDestination.self) { destination in
-                switch destination {
-                case .search:
-                    SearchPlaceholder()
-                case .settings:
-                    SettingsView(manageAccounts: manageAccounts, modelManager: modelManager)
-                case .aiChat:
-                    if let resolver = aiEngineResolver {
-                        AIChatView(engineResolver: resolver)
-                    } else {
-                        Text("AI not available")
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                tabDestinationView(for: destination)
             }
             .sheet(item: $composerMode) { mode in
-                ComposerView(
-                    composeEmail: composeEmail,
-                    queryContacts: queryContacts,
-                    smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
-                    mode: mode,
-                    accounts: accounts,
-                    onDismiss: { result in
-                        composerMode = nil
-                        handleComposerDismiss(result)
-                    }
-                )
-                .environment(settings)
+                composerSheet(for: mode)
             }
             .sheet(isPresented: $showAccountSwitcher) {
-                AccountSwitcherSheet(
-                    accounts: accounts,
-                    selectedAccountId: selectedAccount?.id,
-                    onSelectAccount: { accountId in
-                        if let accountId {
-                            if let account = accounts.first(where: { $0.id == accountId }) {
-                                selectedAccount = account
-                                selectedCategory = nil
-                                Task { await switchToAccount(account) }
-                            }
-                        } else {
-                            selectedAccount = nil
-                            selectedFolder = nil
-                            selectedCategory = nil
-                            Task { await reloadThreads() }
-                        }
-                    }
-                )
+                accountSwitcherSheet
             }
         }
         .task {
@@ -283,6 +243,63 @@ struct ThreadListView: View {
         .onDisappear {
             stopIDLEMonitor()
         }
+    }
+
+    // MARK: - Extracted Sheets & Destinations
+
+    @ViewBuilder
+    private func tabDestinationView(for destination: TabDestination) -> some View {
+        switch destination {
+        case .search:
+            SearchPlaceholder()
+        case .settings:
+            SettingsView(manageAccounts: manageAccounts, modelManager: modelManager, aiEngineResolver: aiEngineResolver)
+        case .aiChat:
+            if let resolver = aiEngineResolver {
+                AIChatView(engineResolver: resolver)
+            } else {
+                Text("AI not available")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func composerSheet(for mode: ComposerMode) -> some View {
+        ComposerView(
+            composeEmail: composeEmail,
+            queryContacts: queryContacts,
+            smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
+            mode: mode,
+            accounts: accounts,
+            onDismiss: { result in
+                composerMode = nil
+                handleComposerDismiss(result)
+            }
+        )
+        .environment(settings)
+    }
+
+    @ViewBuilder
+    private var accountSwitcherSheet: some View {
+        AccountSwitcherSheet(
+            accounts: accounts,
+            selectedAccountId: selectedAccount?.id,
+            onSelectAccount: { accountId in
+                if let accountId {
+                    if let account = accounts.first(where: { $0.id == accountId }) {
+                        selectedAccount = account
+                        selectedCategory = nil
+                        Task { await switchToAccount(account) }
+                    }
+                } else {
+                    selectedAccount = nil
+                    selectedFolder = nil
+                    selectedCategory = nil
+                    Task { await reloadThreads() }
+                }
+            }
+        )
     }
 
     // MARK: - Content View

@@ -91,10 +91,11 @@ struct OpenSourceLicensesView: View {
                     .font(.body)
                     .foregroundStyle(.secondary)
 
-                // TODO: Populate from SPM dependencies when they are added.
-                Text("No third-party dependencies in V1.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                LicenseRow(
+                    name: "llama.cpp (via llama.swift)",
+                    license: "MIT",
+                    url: "https://github.com/ggerganov/llama.cpp"
+                )
             }
             .padding()
         }
@@ -102,24 +103,54 @@ struct OpenSourceLicensesView: View {
     }
 }
 
-/// AI model licenses page.
+/// AI model licenses page showing real model metadata from ModelManager.
 /// Spec ref: Constitution LG-01, Foundation Section 10.1
 struct AIModelLicensesView: View {
+    private let models = ModelManager.availableModelInfos
+
     var body: some View {
         List {
-            Section("AI Model") {
-                LabeledContent("Model", value: "PrivateMail AI v1")
-                LabeledContent("License", value: "Apache 2.0")
-                LabeledContent("Source", value: "huggingface.co/privatemail")
+            ForEach(models) { model in
+                Section(model.name) {
+                    LabeledContent("Model", value: model.name)
+                    LabeledContent("File", value: model.fileName)
+                    LabeledContent("Size", value: model.formattedSize)
+                    LabeledContent("License", value: model.license)
+                    LabeledContent("Source", value: model.downloadURL.host ?? "Unknown")
+                    LabeledContent("Min RAM", value: "\(model.minRAMGB) GB")
+                }
             }
 
             Section {
-                Text("The AI model is licensed under the Apache License 2.0. You may use it for personal and commercial purposes. The model runs entirely on your device.")
+                Text("All AI models are licensed under the Apache License 2.0. You may use them for personal and commercial purposes. Models run entirely on your device — no email content is sent to external servers.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("AI Model Licenses")
+    }
+}
+
+// MARK: - License Row
+
+/// Reusable row for displaying an open-source dependency.
+private struct LicenseRow: View {
+    let name: String
+    let license: String
+    let url: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(name)
+                .font(.body)
+            Text(license)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let link = URL(string: url) {
+                Link(url, destination: link)
+                    .font(.caption)
+            }
+        }
     }
 }
 

@@ -91,7 +91,7 @@ public struct ContentView: View {
                 if !hasLoaded {
                     ProgressView()
                 } else if accounts.isEmpty || !settings.isOnboardingComplete {
-                    OnboardingView(manageAccounts: manageAccounts, syncEmails: syncEmails, modelManager: modelManager)
+                    OnboardingView(manageAccounts: manageAccounts, syncEmails: syncEmails, modelManager: modelManager, aiEngineResolver: aiEngineResolver)
                 } else {
                     mainAppView
                 }

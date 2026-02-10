@@ -17,6 +17,7 @@ public struct SettingsView: View {
 
     let manageAccounts: ManageAccountsUseCaseProtocol
     let modelManager: ModelManager
+    var aiEngineResolver: AIEngineResolver?
 
     @State private var accounts: [Account] = []
     @State private var isAddingAccount = false
@@ -26,9 +27,10 @@ public struct SettingsView: View {
     @State private var errorMessage: String?
     @State private var notificationPermissionDenied = false
 
-    public init(manageAccounts: ManageAccountsUseCaseProtocol, modelManager: ModelManager = ModelManager()) {
+    public init(manageAccounts: ManageAccountsUseCaseProtocol, modelManager: ModelManager = ModelManager(), aiEngineResolver: AIEngineResolver? = nil) {
         self.manageAccounts = manageAccounts
         self.modelManager = modelManager
+        self.aiEngineResolver = aiEngineResolver
     }
 
     public var body: some View {
@@ -144,7 +146,7 @@ public struct SettingsView: View {
     private var aiSection: some View {
         Section("AI Features") {
             NavigationLink("AI Model") {
-                AIModelSettingsView(modelManager: modelManager)
+                AIModelSettingsView(modelManager: modelManager, aiEngineResolver: aiEngineResolver)
             }
         }
     }

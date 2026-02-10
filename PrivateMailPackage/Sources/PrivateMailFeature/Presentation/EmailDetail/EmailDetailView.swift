@@ -177,10 +177,21 @@ public struct EmailDetailView: View {
 
     // MARK: - Loaded View
 
+    /// Whether any email in the thread is flagged as spam.
+    private var hasSpamEmails: Bool {
+        sortedEmails.contains { $0.isSpam }
+    }
+
     private var loadedView: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 8) {
+                    // Spam/phishing warning banner (FR-AI-06)
+                    if hasSpamEmails {
+                        spamWarningBanner
+                            .padding(.horizontal)
+                    }
+
                     // AI Summary (FR-ED-02)
                     AISummaryView(
                         summary: aiSummary,
@@ -552,10 +563,14 @@ public struct EmailDetailView: View {
     private func loadAIContent() async {
         guard let thread else { return }
 
-        // Summary
-        if let summarize = summarizeThread {
+        // Summary: use cached thread.aiSummary first, then generate
+        if let cached = thread.aiSummary, !cached.isEmpty {
+            aiSummary = cached
+        } else if let summarize = summarizeThread {
             aiSummaryLoading = true
-            aiSummary = await summarize.summarize(thread: thread)
+            let result = await summarize.summarize(thread: thread)
+            // Only set if non-empty; nil means engine unavailable → hide card
+            aiSummary = (result?.isEmpty == false) ? result : nil
             aiSummaryLoading = false
         }
 
@@ -681,6 +696,47 @@ public struct EmailDetailView: View {
         withAnimation {
             showUndoToast = false
             undoAction = nil
+        }
+    }
+
+    // MARK: - Spam Warning Banner (FR-AI-06)
+
+    private var spamWarningBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .foregroundStyle(.white)
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("This message looks suspicious")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.white)
+                Text("It may be spam or a phishing attempt")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+
+            Spacer()
+
+            Button("Not Spam") {
+                markThreadAsNotSpam()
+            }
+            .font(.caption.bold())
+            .foregroundStyle(.red)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.white, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .padding(12)
+        .background(.red, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Warning: this message may be spam or phishing. Tap Not Spam to override.")
+    }
+
+    /// Clear the spam flag on all emails in the thread.
+    private func markThreadAsNotSpam() {
+        for email in sortedEmails where email.isSpam {
+            email.isSpam = false
         }
     }
 

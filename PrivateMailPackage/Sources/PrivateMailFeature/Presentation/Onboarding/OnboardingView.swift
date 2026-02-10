@@ -13,6 +13,7 @@ public struct OnboardingView: View {
     let manageAccounts: ManageAccountsUseCaseProtocol
     let syncEmails: SyncEmailsUseCaseProtocol
     let modelManager: ModelManager
+    var aiEngineResolver: AIEngineResolver?
 
     @State private var currentStep = 0
     @State private var addedAccounts: [Account] = []
@@ -23,11 +24,13 @@ public struct OnboardingView: View {
     public init(
         manageAccounts: ManageAccountsUseCaseProtocol,
         syncEmails: SyncEmailsUseCaseProtocol,
-        modelManager: ModelManager = ModelManager()
+        modelManager: ModelManager = ModelManager(),
+        aiEngineResolver: AIEngineResolver? = nil
     ) {
         self.manageAccounts = manageAccounts
         self.syncEmails = syncEmails
         self.modelManager = modelManager
+        self.aiEngineResolver = aiEngineResolver
     }
 
     public var body: some View {
@@ -58,6 +61,7 @@ public struct OnboardingView: View {
                 case 3:
                     OnboardingAIModelStep(
                         modelManager: modelManager,
+                        aiEngineResolver: aiEngineResolver,
                         onNext: { advanceStep() },
                         onSkip: { advanceStep() }
                     )

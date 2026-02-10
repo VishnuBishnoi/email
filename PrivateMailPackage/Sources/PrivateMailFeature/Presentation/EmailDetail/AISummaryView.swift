@@ -12,7 +12,7 @@ struct AISummaryView: View {
     var body: some View {
         if isLoading && summary == nil {
             loadingCard
-        } else if let summary {
+        } else if let summary, !summary.isEmpty {
             summaryCard(summary)
                 .transition(.opacity)
         }

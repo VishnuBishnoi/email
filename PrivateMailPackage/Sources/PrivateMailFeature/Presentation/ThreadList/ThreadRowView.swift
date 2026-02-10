@@ -33,6 +33,11 @@ struct ThreadRowView: View {
         thread.emails.contains { !$0.attachments.isEmpty }
     }
 
+    /// Whether any email in the thread is flagged as spam/phishing.
+    private var isSpam: Bool {
+        thread.emails.contains { $0.isSpam }
+    }
+
     private var category: AICategory? {
         guard let raw = thread.aiCategory else { return nil }
         return AICategory(rawValue: raw)
@@ -142,9 +147,19 @@ struct ThreadRowView: View {
         }
     }
 
-    // Row 3: snippet + attachment + category
+    // Row 3: snippet + spam indicator + attachment + category
     private var snippetRow: some View {
         HStack {
+            if isSpam {
+                Label("Spam", systemImage: "exclamationmark.shield.fill")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.red, in: RoundedRectangle(cornerRadius: 4))
+                    .accessibilityLabel("Flagged as spam")
+            }
+
             Text(thread.snippet ?? "")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

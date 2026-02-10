@@ -64,11 +64,16 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
     }
 
     public func summarize(thread: Thread) async throws -> String {
+        // Return cached summary if available
+        if let cached = thread.aiSummary, !cached.isEmpty {
+            return cached
+        }
+
         let engine = await engineResolver.resolveGenerativeEngine()
         let available = await engine.isAvailable()
 
         guard available else {
-            return ""
+            throw AIEngineError.engineUnavailable
         }
 
         // Build message tuples from thread emails
@@ -101,7 +106,15 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
             response += token
         }
 
-        return PromptTemplates.parseSummarizationResponse(response) ?? ""
+        let parsed = PromptTemplates.parseSummarizationResponse(response)
+
+        // Cache the summary on the thread for subsequent loads
+        if let parsed, !parsed.isEmpty {
+            thread.aiSummary = parsed
+            return parsed
+        }
+
+        return ""
     }
 
     public func smartReply(email: Email) async throws -> [String] {

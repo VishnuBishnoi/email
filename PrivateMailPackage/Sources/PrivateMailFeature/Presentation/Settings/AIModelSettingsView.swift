@@ -10,6 +10,7 @@ import SwiftUI
 /// Spec ref: FR-SET-04, Proposal Section 3.4.1, Constitution LG-01, AC-A-03
 struct AIModelSettingsView: View {
     let modelManager: ModelManager
+    var aiEngineResolver: AIEngineResolver?
 
     @State private var models: [ModelManager.ModelState] = []
     @State private var downloadingModelID: String?
@@ -156,6 +157,7 @@ struct AIModelSettingsView: View {
                     }
                 }
                 downloadingModelID = nil
+                await aiEngineResolver?.invalidateCache()
                 await loadModels()
             } catch {
                 downloadingModelID = nil
@@ -176,6 +178,7 @@ struct AIModelSettingsView: View {
         Task {
             try? await modelManager.deleteModel(id: modelID)
             modelToDelete = nil
+            await aiEngineResolver?.invalidateCache()
             await loadModels()
         }
     }

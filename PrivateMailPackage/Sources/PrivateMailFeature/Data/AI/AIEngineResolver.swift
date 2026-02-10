@@ -65,10 +65,16 @@ public actor AIEngineResolver {
     /// Perform the actual engine resolution without caching.
     private func performResolution() async -> any AIEngineProtocol {
         // Tier 1: Foundation Models (iOS/macOS 26+)
-        // TODO: Implement FoundationModelEngine in IOS-A-02 when targeting iOS 26+
+        // FoundationModelEngine wraps Apple's on-device language model API.
+        // Provides zero-download generative AI via Apple Intelligence.
+        // Requires: iOS 26+, device with Apple Intelligence support.
+        //
+        // Implementation deferred to IOS-A-02 (requires iOS 26 SDK + device testing).
+        // Uncomment when FoundationModelEngine is built:
+        //
         // if #available(iOS 26.0, macOS 26.0, *) {
         //     let fmEngine = FoundationModelEngine()
-        //     if fmEngine.isAvailable() { return fmEngine }
+        //     if await fmEngine.isAvailable() { return fmEngine }
         // }
 
         // Tier 2: llama.cpp with downloaded GGUF

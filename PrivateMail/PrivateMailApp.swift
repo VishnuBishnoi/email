@@ -102,13 +102,14 @@ struct PrivateMailApp: App {
         aiEngineResolver = AIEngineResolver(modelManager: aiModelManager)
         let categorizeUseCase = CategorizeEmailUseCase(engineResolver: aiEngineResolver)
         let detectSpamUseCase = DetectSpamUseCase(engineResolver: aiEngineResolver)
-        aiProcessingQueue = AIProcessingQueue(
-            categorize: categorizeUseCase,
-            detectSpam: detectSpamUseCase
-        )
-
         // AI summary + smart reply use cases
         let aiRepository = AIRepositoryImpl(engineResolver: aiEngineResolver)
+
+        aiProcessingQueue = AIProcessingQueue(
+            categorize: categorizeUseCase,
+            detectSpam: detectSpamUseCase,
+            aiRepository: aiRepository
+        )
         summarizeThread = SummarizeThreadUseCase(aiRepository: aiRepository)
         smartReply = SmartReplyUseCase(aiRepository: aiRepository)
     }

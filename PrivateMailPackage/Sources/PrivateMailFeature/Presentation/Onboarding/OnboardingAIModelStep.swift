@@ -11,6 +11,7 @@ import SwiftUI
 /// Spec ref: FR-OB-01 step 4, Proposal Section 3.4.1, Constitution TC-06, AC-A-08
 struct OnboardingAIModelStep: View {
     let modelManager: ModelManager
+    var aiEngineResolver: AIEngineResolver?
     let onNext: () -> Void
     let onSkip: () -> Void
 
@@ -174,6 +175,7 @@ struct OnboardingAIModelStep: View {
                         self.downloadState = .downloading(progress: progress)
                     }
                 }
+                await aiEngineResolver?.invalidateCache()
                 downloadState = .downloaded
             } catch {
                 if case AIEngineError.downloadCancelled = error {

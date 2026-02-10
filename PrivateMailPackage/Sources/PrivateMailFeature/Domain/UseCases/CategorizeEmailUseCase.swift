@@ -31,47 +31,88 @@ public final class CategorizeEmailUseCase: CategorizeEmailUseCaseProtocol {
         let engine = await engineResolver.resolveGenerativeEngine()
         let available = await engine.isAvailable()
 
-        guard available else {
-            return .uncategorized
-        }
+        if available {
+            // Tier 1: Try classify() — direct classification (faster if supported)
+            let categories = AICategory.allCases
+                .filter { $0 != .uncategorized }
+                .map(\.rawValue)
 
-        // Try classify() first (direct classification — faster if supported)
-        let categories = AICategory.allCases
-            .filter { $0 != .uncategorized }
-            .map(\.rawValue)
+            do {
+                let result = try await engine.classify(
+                    text: buildClassificationText(for: email),
+                    categories: categories
+                )
+                let category = AICategory(rawValue: result) ?? .uncategorized
+                email.aiCategory = category.rawValue
+                updateThreadCategory(for: email)
+                return category
+            } catch {
+                // classify() not supported or failed — fall through to generate()
+            }
 
-        do {
-            let result = try await engine.classify(
-                text: buildClassificationText(for: email),
-                categories: categories
+            // Tier 2: Use generate() with prompt template
+            let prompt = PromptTemplates.categorization(
+                subject: email.subject,
+                sender: email.fromName ?? email.fromAddress,
+                body: email.bodyPlain ?? email.snippet ?? ""
             )
-            let category = AICategory(rawValue: result) ?? .uncategorized
+
+            let stream = await engine.generate(prompt: prompt, maxTokens: 20)
+            var response = ""
+            for await token in stream {
+                response += token
+                if response.count > 50 { break }
+            }
+
+            let category = PromptTemplates.parseCategorizationResponse(response)
             email.aiCategory = category.rawValue
             updateThreadCategory(for: email)
             return category
-        } catch {
-            // classify() not supported or failed — fall through to generate()
         }
 
-        // Fallback: use generate() with prompt template
-        let prompt = PromptTemplates.categorization(
-            subject: email.subject,
-            sender: email.fromName ?? email.fromAddress,
-            body: email.bodyPlain ?? email.snippet ?? ""
-        )
-
-        let stream = await engine.generate(prompt: prompt, maxTokens: 20)
-        var response = ""
-        for await token in stream {
-            response += token
-            // Stop early once we have enough text
-            if response.count > 50 { break }
-        }
-
-        let category = PromptTemplates.parseCategorizationResponse(response)
+        // Tier 3: Keyword-based fallback (always available, no model required)
+        // Ensures classification works even without a downloaded model per spec.
+        let category = keywordClassify(email: email)
         email.aiCategory = category.rawValue
         updateThreadCategory(for: email)
         return category
+    }
+
+    // MARK: - Keyword Classification Fallback
+
+    /// Lightweight keyword-based classifier for when no AI engine is available.
+    ///
+    /// Uses sender domain and subject heuristics to approximate category.
+    /// Ensures classification is never fully gated on model download per spec.
+    private func keywordClassify(email: Email) -> AICategory {
+        let sender = email.fromAddress.lowercased()
+        let subject = email.subject.lowercased()
+        let body = (email.bodyPlain ?? email.snippet ?? "").lowercased()
+
+        // Social: known social platform domains
+        let socialDomains = ["facebook", "twitter", "linkedin", "instagram", "tiktok",
+                             "reddit", "pinterest", "snapchat", "tumblr", "mastodon"]
+        if socialDomains.contains(where: { sender.contains($0) }) {
+            return .social
+        }
+
+        // Promotions: marketing/unsubscribe signals
+        let promoSignals = ["unsubscribe", "sale", "discount", "offer", "promo",
+                            "deal", "coupon", "% off", "limited time", "free shipping"]
+        if promoSignals.contains(where: { subject.contains($0) || body.contains($0) }) {
+            return .promotions
+        }
+
+        // Updates: transactional/notification patterns
+        let updateSignals = ["noreply", "no-reply", "notification", "receipt", "invoice",
+                             "order confirmation", "shipping", "delivery", "your account",
+                             "password reset", "verification", "security alert"]
+        if updateSignals.contains(where: { sender.contains($0) || subject.contains($0) }) {
+            return .updates
+        }
+
+        // Default to primary (personal email)
+        return .primary
     }
 
     public func categorizeBatch(emails: [Email]) async -> Int {
