@@ -38,55 +38,53 @@ struct SearchView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Filter chips (below search bar, visible when filters or query active)
-                if filters.hasActiveFilters || !searchText.isEmpty {
-                    SearchFilterChipsView(filters: $filters)
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                }
-
-                // Content based on state
-                switch viewState {
-                case .idle:
-                    RecentSearchesView(
-                        recentSearches: recentSearches,
-                        onSelectSearch: { query in
-                            searchText = query
-                        },
-                        onClearAll: {
-                            recentSearches = []
-                            UserDefaults.standard.removeObject(forKey: recentSearchesKey)
-                        }
-                    )
-
-                case .searching:
-                    ProgressView("Searching...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .accessibilityLabel("Searching for emails")
-
-                case .results:
-                    resultsList
-
-                case .empty:
-                    ContentUnavailableView.search(text: searchText)
-                }
+        VStack(spacing: 0) {
+            // Filter chips (below search bar, visible when filters or query active)
+            if filters.hasActiveFilters || !searchText.isEmpty {
+                SearchFilterChipsView(filters: $filters)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
             }
-            .navigationTitle("Search")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .searchable(text: $searchText, prompt: "Search emails")
-            .task(id: DebounceTrigger(text: searchText, filters: filters)) {
-                // 300ms debounce via task cancellation
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-                await performSearch()
+
+            // Content based on state
+            switch viewState {
+            case .idle:
+                RecentSearchesView(
+                    recentSearches: recentSearches,
+                    onSelectSearch: { query in
+                        searchText = query
+                    },
+                    onClearAll: {
+                        recentSearches = []
+                        UserDefaults.standard.removeObject(forKey: recentSearchesKey)
+                    }
+                )
+
+            case .searching:
+                ProgressView("Searching...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("Searching for emails")
+
+            case .results:
+                resultsList
+
+            case .empty:
+                ContentUnavailableView.search(text: searchText)
             }
-            .onAppear {
-                loadRecentSearches()
-            }
+        }
+        .navigationTitle("Search")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .searchable(text: $searchText, prompt: "Search emails")
+        .task(id: DebounceTrigger(text: searchText, filters: filters)) {
+            // 300ms debounce via task cancellation
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await performSearch()
+        }
+        .onAppear {
+            loadRecentSearches()
         }
     }
 
