@@ -223,7 +223,6 @@ struct ThreadListView: View {
                             let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
                             composerMode = .new(accountId: accountId)
                         },
-                        onAIChatTap: { navigationPath.append(TabDestination.aiChat) },
                         onSettingsTap: { navigationPath.append(TabDestination.settings) }
                     )
                 }
