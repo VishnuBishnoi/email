@@ -20,9 +20,11 @@ public actor AIEngineResolver {
     private let llamaEngine: LlamaEngine
     private let stubEngine: StubAIEngine
 
-    // Cache the resolved engine to avoid re-resolution on every call
+    // Cache the resolved engine to avoid re-resolution on every call.
+    // TTL of 60 seconds: after that, re-resolve to pick up new model downloads/deletes.
     private var cachedEngine: (any AIEngineProtocol)?
     private var lastResolveTime: Date?
+    private let cacheTTL: TimeInterval = 60
 
     // MARK: - Init
 
@@ -47,6 +49,21 @@ public actor AIEngineResolver {
     /// - iOS 18-25 with downloaded GGUF → `LlamaEngine`
     /// - No generative engine → `StubAIEngine` (graceful degradation)
     public func resolveGenerativeEngine() async -> any AIEngineProtocol {
+        // Return cached engine if within TTL
+        if let cached = cachedEngine,
+           let resolveTime = lastResolveTime,
+           Date().timeIntervalSince(resolveTime) < cacheTTL {
+            return cached
+        }
+
+        let resolved = await performResolution()
+        cachedEngine = resolved
+        lastResolveTime = Date()
+        return resolved
+    }
+
+    /// Perform the actual engine resolution without caching.
+    private func performResolution() async -> any AIEngineProtocol {
         // Tier 1: Foundation Models (iOS/macOS 26+)
         // TODO: Implement FoundationModelEngine in IOS-A-02 when targeting iOS 26+
         // if #available(iOS 26.0, macOS 26.0, *) {

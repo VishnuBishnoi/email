@@ -90,9 +90,10 @@ public final class DetectSpamUseCase: DetectSpamUseCaseProtocol {
 
     // MARK: - Private
 
-    /// Get ML-based spam probability.
+    /// Get ML-based spam classification as a binary vote.
     ///
-    /// Returns 0.0–1.0 if ML is available, or -1.0 if unavailable.
+    /// Returns 1.0 (spam), 0.0 (legitimate), or -1.0 (unavailable).
+    /// Uses binary voting instead of fake probability scores (P1-7).
     private func mlSpamScore(for email: Email) async -> Double {
         let engine = await engineResolver.resolveGenerativeEngine()
         let available = await engine.isAvailable()
@@ -103,18 +104,21 @@ public final class DetectSpamUseCase: DetectSpamUseCaseProtocol {
                 text: buildSpamText(for: email),
                 categories: ["legitimate", "spam"]
             )
-            return result.lowercased() == "spam" ? 0.8 : 0.1
+            return result.lowercased() == "spam" ? 1.0 : 0.0
         } catch {
             return -1.0
         }
     }
 
+    /// Build sanitized spam detection text from email fields.
+    ///
+    /// All fields are sanitized via `PromptTemplates.sanitize()` to prevent
+    /// prompt injection via malicious email content (P1-4).
     private func buildSpamText(for email: Email) -> String {
-        var text = "Subject: \(email.subject)\n"
-        text += "From: \(email.fromAddress)\n"
-        if let body = email.bodyPlain ?? email.snippet {
-            text += "Body: \(String(body.prefix(500)))"
-        }
-        return text
+        PromptTemplates.buildSanitizedSpamText(
+            subject: email.subject,
+            sender: email.fromAddress,
+            body: email.bodyPlain ?? email.snippet ?? ""
+        )
     }
 }

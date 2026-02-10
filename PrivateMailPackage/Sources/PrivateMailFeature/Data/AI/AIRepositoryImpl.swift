@@ -26,14 +26,20 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
             return .uncategorized
         }
 
-        // Try classify() first
+        // Try classify() first — sanitize input to prevent prompt injection (P1-2)
         let categories = AICategory.allCases
             .filter { $0 != .uncategorized }
             .map(\.rawValue)
 
+        let sanitizedText = PromptTemplates.buildSanitizedClassificationText(
+            subject: email.subject,
+            sender: email.fromName ?? email.fromAddress,
+            body: email.bodyPlain ?? email.snippet ?? ""
+        )
+
         do {
             let result = try await engine.classify(
-                text: "Subject: \(email.subject)\nFrom: \(email.fromAddress)\nBody: \(String((email.bodyPlain ?? email.snippet ?? "").prefix(300)))",
+                text: sanitizedText,
                 categories: categories
             )
             return AICategory(rawValue: result) ?? .uncategorized

@@ -14,7 +14,6 @@ struct AIModelSettingsView: View {
     @State private var models: [ModelManager.ModelState] = []
     @State private var downloadingModelID: String?
     @State private var downloadProgress: Double = 0
-    @State private var downloadState: AIDownloadState = .notDownloaded
     @State private var storageUsage: UInt64 = 0
     @State private var showDeleteConfirmation = false
     @State private var modelToDelete: String?
@@ -148,21 +147,17 @@ struct AIModelSettingsView: View {
     private func startDownload(modelID: String) {
         downloadingModelID = modelID
         downloadProgress = 0
-        downloadState = .downloading(progress: 0)
 
         Task {
             do {
                 try await modelManager.downloadModel(id: modelID) { progress in
                     Task { @MainActor in
                         self.downloadProgress = progress
-                        self.downloadState = .downloading(progress: progress)
                     }
                 }
-                downloadState = .downloaded
                 downloadingModelID = nil
                 await loadModels()
             } catch {
-                downloadState = .failed(error.localizedDescription)
                 downloadingModelID = nil
                 await loadModels()
             }
@@ -173,7 +168,6 @@ struct AIModelSettingsView: View {
         Task {
             await modelManager.cancelDownload(id: modelID)
             downloadingModelID = nil
-            downloadState = .notDownloaded
             await loadModels()
         }
     }

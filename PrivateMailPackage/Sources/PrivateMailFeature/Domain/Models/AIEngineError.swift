@@ -28,6 +28,8 @@ public enum AIEngineError: Error, Sendable, LocalizedError {
     case downloadFailed(Error)
     /// Model download was cancelled by the user.
     case downloadCancelled
+    /// Classification response didn't match any provided categories.
+    case classificationFailed(response: String)
 
     public var errorDescription: String? {
         switch self {
@@ -53,6 +55,8 @@ public enum AIEngineError: Error, Sendable, LocalizedError {
             "Model download failed: \(error.localizedDescription)"
         case .downloadCancelled:
             "Model download was cancelled"
+        case .classificationFailed(let response):
+            "Classification failed: LLM response '\(response.prefix(50))' didn't match any category"
         }
     }
 }

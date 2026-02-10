@@ -10,6 +10,11 @@ import Foundation
 /// Spec ref: FR-AI-06, AC-A-09
 public struct RuleEngine: Sendable {
 
+    /// Cached NSDataDetector for URL extraction (P2-3: avoid recreating per email).
+    private static let urlDetector: NSDataDetector? = {
+        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    }()
+
     public init() {}
 
     /// Combined spam signal from all rule checks.
@@ -149,10 +154,9 @@ public struct RuleEngine: Sendable {
         var score: Double = 0
         var rules: [String] = []
 
-        // Extract URLs from both text and HTML
+        // Extract URLs from both text and HTML using cached detector (P2-3)
         let combined = text + " " + html
-        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-        let matches = detector?.matches(in: combined, range: NSRange(combined.startIndex..., in: combined)) ?? []
+        let matches = Self.urlDetector?.matches(in: combined, range: NSRange(combined.startIndex..., in: combined)) ?? []
 
         let urls = matches.compactMap { match -> URL? in
             guard let range = Range(match.range, in: combined) else { return nil }
@@ -161,14 +165,19 @@ public struct RuleEngine: Sendable {
 
         if urls.isEmpty { return RuleResult(score: 0, rules: []) }
 
+        var foundHighPriorityURL = false
+
         for url in urls {
+            guard !foundHighPriorityURL else { break } // P2-12: break outer loop consistently
             guard let host = url.host?.lowercased() else { continue }
 
-            // IP address URLs (not domain names)
-            if host.allSatisfy({ $0.isNumber || $0 == "." }) {
+            // IP address URLs — IPv4 (P2-14: also detect IPv6 with brackets/colons)
+            if host.allSatisfy({ $0.isNumber || $0 == "." }) ||
+               host.contains(":") || host.hasPrefix("[") {
                 score += 0.3
                 rules.append("url_ip_address")
-                break
+                foundHighPriorityURL = true
+                continue
             }
 
             // Suspicious TLDs in URLs
@@ -177,8 +186,10 @@ public struct RuleEngine: Sendable {
             for tld in suspiciousTLDs where host.hasSuffix(tld) {
                 score += 0.15
                 rules.append("url_suspicious_tld: \(tld)")
+                foundHighPriorityURL = true
                 break
             }
+            if foundHighPriorityURL { continue }
 
             // URL shorteners
             let shorteners = ["bit.ly", "tinyurl.com", "t.co", "goo.gl",
@@ -186,6 +197,7 @@ public struct RuleEngine: Sendable {
             if shorteners.contains(host) {
                 score += 0.1
                 rules.append("url_shortener: \(host)")
+                foundHighPriorityURL = true
             }
         }
 

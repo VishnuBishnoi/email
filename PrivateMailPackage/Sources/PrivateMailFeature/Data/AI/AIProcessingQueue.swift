@@ -42,6 +42,9 @@ public final class AIProcessingQueue: Sendable {
     /// Active processing task (for cancellation).
     private var processingTask: Task<Void, Never>?
 
+    /// Generation counter to detect stale task continuations after re-enqueue (P1-6).
+    private var generation: Int = 0
+
     // MARK: - Init
 
     public init(
@@ -68,18 +71,23 @@ public final class AIProcessingQueue: Sendable {
 
         guard !uncategorized.isEmpty else { return }
 
+        // Cancel any existing processing before resetting state (P1-6)
+        processingTask?.cancel()
+        processingTask = nil
+
+        // Increment generation to invalidate stale task continuations
+        generation += 1
+        let currentGeneration = generation
+
         totalCount = uncategorized.count
         processedCount = 0
         lastCategorizedCount = 0
         lastSpamCount = 0
         isProcessing = true
 
-        // Cancel any existing processing
-        processingTask?.cancel()
-
         processingTask = Task { [weak self] in
             guard let self else { return }
-            await self.processBatches(uncategorized)
+            await self.processBatches(uncategorized, generation: currentGeneration)
         }
     }
 
@@ -92,7 +100,7 @@ public final class AIProcessingQueue: Sendable {
 
     // MARK: - Processing
 
-    private func processBatches(_ emails: [Email]) async {
+    private func processBatches(_ emails: [Email], generation: Int) async {
         var categorizedTotal = 0
         var spamTotal = 0
 
@@ -103,7 +111,8 @@ public final class AIProcessingQueue: Sendable {
         }
 
         for batch in batches {
-            guard !Task.isCancelled else { break }
+            // Check both cancellation and generation to prevent stale writes (P1-6)
+            guard !Task.isCancelled, self.generation == generation else { break }
 
             // Categorize batch
             let categorized = await categorize.categorizeBatch(emails: batch)
@@ -113,6 +122,8 @@ public final class AIProcessingQueue: Sendable {
             let spamDetected = await detectSpam.detectBatch(emails: batch)
             spamTotal += spamDetected
 
+            // Only update state if this generation is still current
+            guard self.generation == generation else { break }
             processedCount += batch.count
             lastCategorizedCount = categorizedTotal
             lastSpamCount = spamTotal
@@ -121,6 +132,9 @@ public final class AIProcessingQueue: Sendable {
             await Task.yield()
         }
 
-        isProcessing = false
+        // Only mark done if this generation is still current
+        if self.generation == generation {
+            isProcessing = false
+        }
     }
 }

@@ -135,7 +135,7 @@ public struct SettingsView: View {
 
             // Category tab toggles (FR-SET-01, Thread List FR-TL-02)
             NavigationLink("Category Tabs") {
-                CategoryTabsSettingsView()
+                CategoryTabsSettingsView(modelManager: modelManager)
             }
         }
     }
@@ -383,6 +383,9 @@ struct NotificationToggleRow: View {
 /// Spec ref: FR-SET-01 Appearance section
 struct CategoryTabsSettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    let modelManager: ModelManager
+
+    @State private var isAIModelAvailable = false
 
     private let toggleableCategories: [(String, String)] = [
         (AICategory.primary.rawValue, "Primary"),
@@ -390,14 +393,6 @@ struct CategoryTabsSettingsView: View {
         (AICategory.promotions.rawValue, "Promotions"),
         (AICategory.updates.rawValue, "Updates"),
     ]
-
-    /// Whether the AI model is downloaded and available for categorization.
-    /// PARTIAL SCOPE — V1 STUB: Always returns false until Data/AI/ layer is built.
-    /// Wire to real AI model availability check when AIModelManager is implemented.
-    private var isAIModelAvailable: Bool {
-        // TODO: Replace with real check via AIModelManager (IOS-F-06).
-        false
-    }
 
     var body: some View {
         @Bindable var settings = settings
@@ -424,6 +419,10 @@ struct CategoryTabsSettingsView: View {
             }
         }
         .navigationTitle("Category Tabs")
+        .task {
+            let recommendedID = AIEngineResolver(modelManager: modelManager).recommendedModelID()
+            isAIModelAvailable = await modelManager.isModelDownloaded(id: recommendedID)
+        }
     }
 }
 

@@ -85,10 +85,14 @@ public actor ModelManager {
     // MARK: - State
 
     private var downloadStatuses: [String: DownloadStatus] = [:]
-    private var activeDownloads: [String: URLSessionDownloadTask] = [:]
+    /// Active download tasks keyed by model ID (for cancellation).
+    private var activeDownloadTasks: [String: Task<Void, any Error>] = [:]
     private let modelsDirectory: URL
     private let fileManager = FileManager.default
     private let urlSession: URLSession
+
+    /// Buffer size for chunked file writes during download (256 KB).
+    private static let downloadBufferSize = 256 * 1024
 
     // MARK: - Init
 
@@ -153,6 +157,29 @@ public actor ModelManager {
 
         downloadStatuses[id] = .downloading(progress: 0.0)
 
+        // Wrap download in a tracked Task for cancellation support (P0-5)
+        let downloadTask = Task { [self] in
+            try await self.performDownload(info: info, destination: destination, progress: progress)
+        }
+        activeDownloadTasks[id] = downloadTask
+
+        do {
+            try await downloadTask.value
+            activeDownloadTasks[id] = nil
+        } catch {
+            activeDownloadTasks[id] = nil
+            throw error
+        }
+    }
+
+    /// Internal download implementation — runs inside a tracked Task for cancellation.
+    private func performDownload(
+        info: ModelInfo,
+        destination: URL,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws {
+        let id = info.id
+
         // Check for partial download to resume
         let partialPath = destination.appendingPathExtension("partial")
         var request = URLRequest(url: info.downloadURL)
@@ -190,8 +217,12 @@ public actor ModelManager {
             }
 
             var downloadedBytes = existingBytes
-            let reportInterval: Int64 = max(totalBytes / 200, 65_536) // Report ~200 times or every 64KB
+            let reportInterval: Int64 = max(totalBytes / 200, 65_536)
             var lastReportedBytes: Int64 = 0
+
+            // Buffer writes in chunks (P0-2: avoid byte-by-byte writes)
+            var buffer = Data()
+            buffer.reserveCapacity(Self.downloadBufferSize)
 
             for try await byte in asyncBytes {
                 guard !Task.isCancelled else {
@@ -200,8 +231,14 @@ public actor ModelManager {
                     throw AIEngineError.downloadCancelled
                 }
 
-                fileHandle.write(Data([byte]))
+                buffer.append(byte)
                 downloadedBytes += 1
+
+                // Flush buffer when full
+                if buffer.count >= Self.downloadBufferSize {
+                    fileHandle.write(buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
 
                 if downloadedBytes - lastReportedBytes >= reportInterval {
                     let pct = Double(downloadedBytes) / Double(totalBytes)
@@ -211,14 +248,23 @@ public actor ModelManager {
                 }
             }
 
+            // Flush remaining bytes
+            if !buffer.isEmpty {
+                fileHandle.write(buffer)
+            }
+
             fileHandle.closeFile()
 
             // Move partial to final
             try fileManager.moveItem(at: partialPath, to: destination)
 
-            // Verify integrity
+            // Verify integrity (P0-3: warn when checksums are empty)
             downloadStatuses[id] = .verifying
-            if !info.sha256.isEmpty {
+            if info.sha256.isEmpty {
+                #if DEBUG
+                print("[ModelManager] ⚠️ No SHA-256 checksum for \(info.id) — skipping integrity verification. Fill checksums before release.")
+                #endif
+            } else {
                 try verifyIntegrity(path: destination, sha256: info.sha256)
             }
 
@@ -235,9 +281,12 @@ public actor ModelManager {
     }
 
     /// Cancel an active download.
+    ///
+    /// Cancels the tracked download Task, which triggers cooperative
+    /// cancellation via `Task.isCancelled` in the byte loop.
     public func cancelDownload(id: String) {
-        activeDownloads[id]?.cancel()
-        activeDownloads[id] = nil
+        activeDownloadTasks[id]?.cancel()
+        activeDownloadTasks[id] = nil
         downloadStatuses[id] = .notDownloaded
 
         // Clean up partial file
@@ -256,8 +305,21 @@ public actor ModelManager {
             throw AIEngineError.modelNotFound(path: path.path)
         }
 
-        let data = try Data(contentsOf: path, options: .mappedIfSafe)
-        let digest = SHA256.hash(data: data)
+        // Stream hash in chunks to avoid loading entire file into memory (P2-13).
+        // For 1 GB+ files, this prevents OOM on memory-constrained devices.
+        let handle = try FileHandle(forReadingFrom: path)
+        defer { handle.closeFile() }
+
+        var hasher = SHA256()
+        let chunkSize = 1024 * 1024 // 1 MB chunks
+        while autoreleasepool(invoking: {
+            let chunk = handle.readData(ofLength: chunkSize)
+            guard !chunk.isEmpty else { return false }
+            hasher.update(data: chunk)
+            return true
+        }) {}
+
+        let digest = hasher.finalize()
         let actualHash = digest.map { String(format: "%02x", $0) }.joined()
 
         guard actualHash == expectedHash.lowercased() else {

@@ -226,6 +226,37 @@ public enum PromptTemplates {
         return cleaned.isEmpty ? nil : cleaned
     }
 
+    // MARK: - Shared Sanitized Text Builders
+
+    /// Build sanitized classification text for `engine.classify()` calls.
+    ///
+    /// Ensures all email fields are sanitized before passing to the LLM,
+    /// preventing prompt injection via malicious email content.
+    ///
+    /// Used by `CategorizeEmailUseCase`, `AIRepositoryImpl`, and `DetectSpamUseCase`.
+    public static func buildSanitizedClassificationText(
+        subject: String,
+        sender: String,
+        body: String
+    ) -> String {
+        let sanitizedSubject = sanitize(subject, maxLength: 200)
+        let sanitizedSender = sanitize(sender, maxLength: 100)
+        let sanitizedBody = sanitize(body, maxLength: 300)
+        return "Subject: \(sanitizedSubject)\nFrom: \(sanitizedSender)\nBody: \(sanitizedBody)"
+    }
+
+    /// Build sanitized spam detection text for `engine.classify()` calls.
+    public static func buildSanitizedSpamText(
+        subject: String,
+        sender: String,
+        body: String
+    ) -> String {
+        let sanitizedSubject = sanitize(subject, maxLength: 200)
+        let sanitizedSender = sanitize(sender, maxLength: 100)
+        let sanitizedBody = sanitize(body, maxLength: 500)
+        return "Subject: \(sanitizedSubject)\nFrom: \(sanitizedSender)\nBody: \(sanitizedBody)"
+    }
+
     // MARK: - Input Sanitization
 
     /// Sanitize input text to prevent prompt injection.
@@ -237,7 +268,34 @@ public enum PromptTemplates {
     public static func sanitize(_ text: String, maxLength: Int) -> String {
         var result = text
 
-        // Strip HTML tags (including script, style blocks)
+        // 1. First pass: strip script and style blocks
+        result = result.replacingOccurrences(
+            of: #"<script[^>]*>[\s\S]*?</script>"#,
+            with: "",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"<style[^>]*>[\s\S]*?</style>"#,
+            with: "",
+            options: .regularExpression
+        )
+        // Strip remaining HTML tags
+        result = result.replacingOccurrences(
+            of: #"<[^>]+>"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // 2. Decode HTML entities (P1-5: decode AFTER first strip, then re-strip)
+        result = result.replacingOccurrences(of: "&amp;", with: "&")
+        result = result.replacingOccurrences(of: "&lt;", with: "<")
+        result = result.replacingOccurrences(of: "&gt;", with: ">")
+        result = result.replacingOccurrences(of: "&quot;", with: "\"")
+        result = result.replacingOccurrences(of: "&#39;", with: "'")
+        result = result.replacingOccurrences(of: "&nbsp;", with: " ")
+
+        // 3. Second pass: strip any tags formed by entity decoding
+        //    e.g., &lt;script&gt; → <script> needs to be caught
         result = result.replacingOccurrences(
             of: #"<script[^>]*>[\s\S]*?</script>"#,
             with: "",
@@ -254,29 +312,22 @@ public enum PromptTemplates {
             options: .regularExpression
         )
 
-        // Decode common HTML entities
-        result = result.replacingOccurrences(of: "&amp;", with: "&")
-        result = result.replacingOccurrences(of: "&lt;", with: "<")
-        result = result.replacingOccurrences(of: "&gt;", with: ">")
-        result = result.replacingOccurrences(of: "&quot;", with: "\"")
-        result = result.replacingOccurrences(of: "&#39;", with: "'")
-        result = result.replacingOccurrences(of: "&nbsp;", with: " ")
-
-        // Remove control characters except newlines and tabs
+        // 4. Remove control characters except newlines and tabs.
+        //    Also exclude C1 control characters (0x80-0x9F) per P2-2.
         result = result.unicodeScalars.filter { scalar in
             scalar == "\n" || scalar == "\t" || scalar == "\r" ||
             (scalar.value >= 0x20 && scalar.value < 0x7F) ||
-            scalar.value >= 0x80
+            scalar.value >= 0xA0  // Allow non-ASCII but exclude C1 controls (0x80-0x9F)
         }.map { String($0) }.joined()
 
-        // Collapse multiple whitespace/newlines
+        // 5. Collapse multiple whitespace/newlines
         result = result.replacingOccurrences(
             of: #"\s{3,}"#,
             with: "\n",
             options: .regularExpression
         )
 
-        // Truncate
+        // 6. Truncate
         result = result.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.count > maxLength {
             result = String(result.prefix(maxLength)) + "…"

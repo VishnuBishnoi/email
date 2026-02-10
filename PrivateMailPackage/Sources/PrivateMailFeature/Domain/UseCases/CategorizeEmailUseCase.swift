@@ -92,14 +92,16 @@ public final class CategorizeEmailUseCase: CategorizeEmailUseCaseProtocol {
 
     // MARK: - Helpers
 
-    /// Build classification input text from email fields.
+    /// Build sanitized classification input text from email fields.
+    ///
+    /// All fields are sanitized via `PromptTemplates.sanitize()` to prevent
+    /// prompt injection via malicious email content (P1-3).
     private func buildClassificationText(for email: Email) -> String {
-        var text = "Subject: \(email.subject)\n"
-        text += "From: \(email.fromName ?? email.fromAddress)\n"
-        if let body = email.bodyPlain ?? email.snippet {
-            text += "Body: \(String(body.prefix(300)))"
-        }
-        return text
+        PromptTemplates.buildSanitizedClassificationText(
+            subject: email.subject,
+            sender: email.fromName ?? email.fromAddress,
+            body: email.bodyPlain ?? email.snippet ?? ""
+        )
     }
 
     /// Update thread category based on the latest email's category.

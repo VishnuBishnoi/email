@@ -226,7 +226,7 @@ struct ThreadListView: View {
                 ComposerView(
                     composeEmail: composeEmail,
                     queryContacts: queryContacts,
-                    smartReply: SmartReplyUseCase(aiRepository: StubAIRepository()),
+                    smartReply: SmartReplyUseCase(aiRepository: AIRepositoryImpl(engineResolver: AIEngineResolver(modelManager: modelManager))),
                     mode: mode,
                     accounts: accounts,
                     onDismiss: { result in

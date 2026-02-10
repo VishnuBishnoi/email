@@ -86,20 +86,28 @@ public actor LlamaEngine: AIEngineProtocol {
             return AsyncStream { $0.finish() }
         }
 
-        return AsyncStream { continuation in
-            do {
-                try self.streamGenerateSync(
-                    model: model,
-                    ctx: ctx,
-                    sampler: samplerChain,
-                    prompt: prompt,
-                    maxTokens: maxTokens,
-                    continuation: continuation
-                )
-            } catch {
-                continuation.finish()
-            }
+        // Generate all tokens within the actor's isolation, then
+        // emit them via AsyncStream (no actor-crossing of C pointers).
+        var tokens: [String] = []
+        do {
+            tokens = try self.generateAllTokens(
+                model: model,
+                ctx: ctx,
+                sampler: samplerChain,
+                prompt: prompt,
+                maxTokens: maxTokens
+            )
+        } catch {
+            // Return empty stream on failure
         }
+
+        let capturedTokens = tokens
+        let (stream, continuation) = AsyncStream.makeStream(of: String.self)
+        for token in capturedTokens {
+            continuation.yield(token)
+        }
+        continuation.finish()
+        return stream
     }
 
     public func classify(text: String, categories: [String]) async throws -> String {
@@ -126,7 +134,12 @@ public actor LlamaEngine: AIEngineProtocol {
         }
 
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return categories.first { trimmed.contains($0.lowercased()) } ?? categories[0]
+        // Return matched category, or throw if LLM response doesn't match any (P2-1).
+        // Avoids defaulting to categories[0] which would introduce bias.
+        if let match = categories.first(where: { trimmed.contains($0.lowercased()) }) {
+            return match
+        }
+        throw AIEngineError.classificationFailed(response: result)
     }
 
     public func embed(text: String) async throws -> [Float] {
@@ -187,16 +200,19 @@ public actor LlamaEngine: AIEngineProtocol {
         _modelPath
     }
 
-    // MARK: - Private: Streaming Generation
+    // MARK: - Private: Token Generation
 
-    private func streamGenerateSync(
+    /// Generate all tokens synchronously within the actor's isolation.
+    ///
+    /// Returns an array of string tokens. This runs entirely on the actor,
+    /// ensuring safe access to model/context/sampler C pointers.
+    private func generateAllTokens(
         model: OpaquePointer,
         ctx: OpaquePointer,
         sampler: UnsafeMutablePointer<llama_sampler>,
         prompt: String,
-        maxTokens: Int,
-        continuation: AsyncStream<String>.Continuation
-    ) throws {
+        maxTokens: Int
+    ) throws -> [String] {
         let vocab = llama_model_get_vocab(model)
 
         // Tokenize the prompt
@@ -224,6 +240,7 @@ public actor LlamaEngine: AIEngineProtocol {
         }
 
         let eosToken = llama_vocab_eos(vocab)
+        var result: [String] = []
 
         // Auto-regressive generation loop
         for _ in 0..<maxTokens {
@@ -240,7 +257,7 @@ public actor LlamaEngine: AIEngineProtocol {
             // Convert token to string
             let piece = tokenToPiece(token: newToken, vocab: vocab)
             if !piece.isEmpty {
-                continuation.yield(piece)
+                result.append(piece)
             }
 
             // Prepare and decode next token
@@ -252,7 +269,7 @@ public actor LlamaEngine: AIEngineProtocol {
             }
         }
 
-        continuation.finish()
+        return result
     }
 
     // MARK: - Private: Tokenization
