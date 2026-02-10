@@ -273,7 +273,9 @@ struct ThreadListView: View {
             Task { await reloadThreads() }
         }
         .onChange(of: selectedFolder?.id) {
-            // Restart IDLE when folder changes
+            // Restart IDLE when user changes folder — but NOT during initial sync,
+            // where the sync task starts IDLE after completion.
+            guard !isSyncing else { return }
             startIDLEMonitor()
         }
         .onDisappear {
@@ -689,7 +691,7 @@ struct ThreadListView: View {
                         syncTask = nil
                         isSyncing = false
                         syncElapsedSeconds = 0
-                        errorBannerMessage = "Sync cancelled. Pull to refresh to try again."
+                        viewState = .error("Sync cancelled. Pull to refresh to try again.")
                     }
                     .buttonStyle(.bordered)
                     .tint(.secondary)
@@ -745,7 +747,7 @@ struct ThreadListView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
             Button("Retry") {
-                Task { await reloadThreads() }
+                Task { await initialLoad() }
             }
             .buttonStyle(.borderedProminent)
         }
@@ -860,22 +862,20 @@ struct ThreadListView: View {
                 } catch {
                     guard !Task.isCancelled else { return }
                     NSLog("[UI] Background sync FAILED: \(error)")
-                    errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+                    if threads.isEmpty {
+                        // No cached data — show full-screen error with retry
+                        viewState = .error("Sync failed: \(error.localizedDescription)")
+                    } else {
+                        // Have cached threads — show inline banner
+                        errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+                    }
                 }
             }
 
-            // Schedule a timeout that cancels the sync after 90 seconds
-            Task {
-                try? await Task.sleep(for: .seconds(90))
-                if isSyncing {
-                    NSLog("[UI] Sync timeout after 90 seconds, cancelling")
-                    syncTask?.cancel()
-                    syncTask = nil
-                    isSyncing = false
-                    syncElapsedSeconds = 0
-                    errorBannerMessage = "Sync timed out. Pull to refresh to try again."
-                }
-            }
+            // No hard timeout — the IMAP layer has per-operation timeouts,
+            // and the user can cancel via the "Cancel Sync" button that appears
+            // after 15 seconds. A hard timeout caused premature cancellation on
+            // accounts with many folders during initial sync.
         } catch {
             viewState = .error(error.localizedDescription)
         }

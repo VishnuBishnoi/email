@@ -277,7 +277,7 @@ struct HTMLSanitizerTests {
         #expect(wrapped.contains("overflow-wrap:break-word"))
         #expect(wrapped.contains("-webkit-text-size-adjust:none"))
         #expect(wrapped.contains("overflow-x:hidden"))
-        #expect(wrapped.contains("img{max-width:100%;height:auto;}"))
+        #expect(wrapped.contains("img{max-width:100%!important;height:auto!important;}"))
         #expect(wrapped.contains("img-src data:;"))
         #expect(wrapped.contains("<body><p>Hello World</p></body>"))
     }
@@ -514,8 +514,9 @@ struct HTMLSanitizerTests {
     func cssConstrainsWidthElements() {
         let html = "<img src=\"data:image/png;base64,abc\"><table><tr><td>Wide content</td></tr></table>"
         let wrapped = HTMLSanitizer.injectDynamicTypeCSS(html, fontSizePoints: 16)
-        #expect(wrapped.contains("img{max-width:100%;height:auto;}"))
-        #expect(wrapped.contains("table{max-width:100%;"))
+        #expect(wrapped.contains("img{max-width:100%!important;height:auto!important;}"))
+        #expect(wrapped.contains("table{border-collapse:collapse;}"))
+        #expect(wrapped.contains("max-width:100%!important;width:100%!important;min-width:0!important;"))
         #expect(wrapped.contains("overflow-x:hidden"))
     }
 
@@ -563,5 +564,92 @@ struct HTMLSanitizerTests {
         let text = "BODY[1] {100}\nSome content"
         let cleaned = HTMLSanitizer.stripIMAPFraming(text)
         #expect(cleaned == text)
+    }
+
+    // MARK: - MIME Multipart Stripping (Phase 0b)
+
+    @Test("Sanitize strips MIME multipart framing and extracts HTML content")
+    func sanitizeStripsMIMEMultipart() {
+        let html = """
+        This is a multi-part message in MIME format.
+        --boundary123
+        Content-Type: text/plain; charset="utf-8"
+        Content-Transfer-Encoding: 7bit
+
+        Plain text version
+        --boundary123
+        Content-Type: text/html; charset="utf-8"
+        Content-Transfer-Encoding: 7bit
+
+        <p>Dear Customer, your account has been credited.</p>
+        --boundary123--
+        """
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("Dear Customer"))
+        #expect(!result.html.contains("multi-part message"))
+        #expect(!result.html.contains("boundary123"))
+        #expect(!result.html.contains("Content-Type"))
+    }
+
+    @Test("Sanitize passes through normal HTML unchanged by MIME phase")
+    func sanitizePreservesNormalHTML() {
+        let html = "<p>Normal email content</p>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("Normal email content"))
+    }
+
+    // MARK: - Fixed Width Attribute Neutralization
+
+    @Test("Strips large fixed-width HTML attributes from tables")
+    func stripsLargeFixedWidthFromTables() {
+        let html = "<table width=\"600\"><tr><td>Content</td></tr></table>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("width=\"600\""))
+        #expect(result.html.contains("Content"))
+    }
+
+    @Test("Preserves small width attributes on images")
+    func preservesSmallWidthOnImages() {
+        let html = "<img src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7\" width=\"24\">"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("width=\"24\""))
+    }
+
+    @Test("Strips large fixed-width from nested table/div elements")
+    func stripsLargeFixedWidthNested() {
+        let html = "<div width=\"640\"><table width=\"580\"><tr><td width=\"300\">Col1</td><td width=\"280\">Col2</td></tr></table></div>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("width=\"640\""))
+        #expect(!result.html.contains("width=\"580\""))
+        #expect(!result.html.contains("width=\"300\""))
+        #expect(!result.html.contains("width=\"280\""))
+        #expect(result.html.contains("Col1"))
+        #expect(result.html.contains("Col2"))
+    }
+
+    // MARK: - Inline Style Width Neutralization
+
+    @Test("Strips inline style width:600px from elements")
+    func stripsInlineStyleWidth() {
+        let html = "<table style=\"width:600px;border:1px solid #ccc\"><tr><td>Content</td></tr></table>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("width:600px"))
+        #expect(result.html.contains("border:1px solid #ccc"))
+        #expect(result.html.contains("Content"))
+    }
+
+    @Test("Strips inline min-width from elements")
+    func stripsInlineMinWidth() {
+        let html = "<div style=\"min-width:600px;padding:10px\">Content</div>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("min-width:600px"))
+        #expect(result.html.contains("padding:10px"))
+    }
+
+    @Test("Preserves inline percentage widths")
+    func preservesInlinePercentWidths() {
+        let html = "<div style=\"width:100%;padding:5px\">Content</div>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("width:100%"))
     }
 }

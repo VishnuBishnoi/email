@@ -99,6 +99,12 @@ struct HTMLEmailView: UIViewRepresentable {
         var lastLoadedHTML: String?
         private var contentHeight: Binding<CGFloat>
 
+        /// Tracks how many remeasure passes have been done to avoid infinite loops.
+        private var remeasureCount = 0
+
+        /// Maximum number of remeasure passes after the initial measurement.
+        private static let maxRemeasurePasses = 4
+
         init(
             onLinkTapped: ((URL) -> Void)?,
             contentHeight: Binding<CGFloat>
@@ -138,47 +144,78 @@ struct HTMLEmailView: UIViewRepresentable {
         // MARK: Size-to-Content
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            remeasureCount = 0
             measureContentHeight(webView)
         }
 
+        /// JavaScript snippet that measures the true document content height.
+        ///
+        /// Checks both body and documentElement to handle varied email layouts
+        /// (some banking emails set height on html, not body).
+        private let heightMeasurementJS = """
+        (function() {
+            var body = document.body;
+            var html = document.documentElement;
+            return Math.max(
+                body.scrollHeight, body.offsetHeight, body.clientHeight,
+                html.scrollHeight, html.offsetHeight, html.clientHeight
+            );
+        })()
+        """
+
         /// Measure the actual rendered content height via JavaScript.
         ///
-        /// Uses `document.body.scrollHeight` which is more reliable than
+        /// Uses multiple measurement sources which is more reliable than
         /// `scrollView.contentSize.height` as it waits for the layout pass.
-        /// A short delay ensures images and CSS have been fully applied.
+        /// Schedules follow-up remeasurements to catch late layout reflows
+        /// from CSS, table rendering, and image loads.
         private func measureContentHeight(_ webView: WKWebView) {
-            let js = "Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.scrollHeight)"
-            webView.evaluateJavaScript(js) { [weak self] result, _ in
+            webView.evaluateJavaScript(heightMeasurementJS) { [weak self] result, _ in
                 guard let self,
                       let height = result as? CGFloat,
                       height > 0 else {
                     return
                 }
                 // Add a small buffer to prevent clipping at the bottom
-                let finalHeight = height + 2
+                let finalHeight = height + 8
                 if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
                     self.contentHeight.wrappedValue = finalHeight
                 }
 
-                // Re-measure after a brief delay to catch late-loading content
-                // (e.g. data: images rendering, CSS reflow).
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.remeasureContentHeight(webView)
-                }
+                // Schedule progressive remeasurements for late-reflowing content:
+                // Pass 1: 200ms — early CSS reflow
+                // Pass 2: 500ms — table & image layout
+                // Pass 3: 1.0s  — complex email final layout
+                // Pass 4: 2.0s  — safety catch-all
+                self.scheduleRemeasure(webView)
+            }
+        }
+
+        private func scheduleRemeasure(_ webView: WKWebView) {
+            guard remeasureCount < Self.maxRemeasurePasses else { return }
+            remeasureCount += 1
+
+            let delays: [Double] = [0.2, 0.5, 1.0, 2.0]
+            let delay = delays[min(remeasureCount - 1, delays.count - 1)]
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.remeasureContentHeight(webView)
             }
         }
 
         private func remeasureContentHeight(_ webView: WKWebView) {
-            let js = "Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.scrollHeight)"
-            webView.evaluateJavaScript(js) { [weak self] result, _ in
+            webView.evaluateJavaScript(heightMeasurementJS) { [weak self] result, _ in
                 guard let self,
                       let height = result as? CGFloat,
                       height > 0 else {
                     return
                 }
-                let finalHeight = height + 2
+                let finalHeight = height + 8
                 if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
                     self.contentHeight.wrappedValue = finalHeight
+                    // Height changed — schedule another remeasure in case of
+                    // cascading layout changes
+                    self.scheduleRemeasure(webView)
                 }
             }
         }

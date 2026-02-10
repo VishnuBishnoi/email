@@ -43,11 +43,17 @@ public enum HTMLSanitizer {
 
         var result = html
 
-        // --- Phase 0: Strip leaked IMAP protocol framing ---
+        // --- Phase 0a: Strip leaked IMAP protocol framing ---
         // Older synced emails may contain raw IMAP framing (e.g.
         // "BODY[1] {8609} ...") appended to the body due to a parser
         // bug that didn't respect literal length prefixes.
         result = stripIMAPFraming(result)
+
+        // --- Phase 0b: Strip raw MIME multipart framing ---
+        // Some emails stored as raw BODY[TEXT] contain unprocessed
+        // MIME multipart content (boundaries, headers, quoted-printable).
+        // Extract the actual HTML content before sanitizing.
+        result = MIMEDecoder.stripMIMEFramingForHTML(result)
 
         // --- Phase 1: Strip tags WITH their content ---
         result = stripTagsWithContent(result, tags: ["script", "noscript"])
@@ -70,6 +76,13 @@ public enum HTMLSanitizer {
         result = stripEventHandlerAttributes(result)
         result = stripSourceSetAttributes(result)
         result = stripStyleAttributesWithPotentialRemoteLoads(result)
+
+        // --- Phase 5b: Neutralize fixed-width attributes and inline styles ---
+        // Banking/marketing emails use fixed-width attributes (e.g. width="600")
+        // and inline styles (e.g. style="width:600px;min-width:600px") that cause
+        // horizontal overflow. Remove them so CSS can control layout.
+        result = neutralizeFixedWidthAttributes(result)
+        result = neutralizeInlineStyleWidths(result)
 
         // --- Phase 6: Neutralize dangerous URI schemes ---
         result = neutralizeJavaScriptURIs(result)
@@ -120,11 +133,14 @@ public enum HTMLSanitizer {
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src \(imgSourcePolicy);">\
         <style>\
-        *{box-sizing:border-box;}\
+        *{box-sizing:border-box;max-width:100vw!important;}\
         html,body{\
         margin:0;padding:0;\
-        width:100%;\
+        width:100%!important;\
+        max-width:100%!important;\
+        min-width:0!important;\
         -webkit-text-size-adjust:none;\
+        overflow-x:hidden;\
         }\
         body{\
         font-size:\(sizeString)pt;\
@@ -133,13 +149,14 @@ public enum HTMLSanitizer {
         color:#1a1a1a;\
         word-wrap:break-word;\
         overflow-wrap:break-word;\
-        overflow-x:hidden;\
         padding:0 2px;\
         }\
-        img{max-width:100%;height:auto;}\
-        table{max-width:100%;border-collapse:collapse;}\
-        td,th{word-break:break-word;}\
-        pre,code{white-space:pre-wrap;word-wrap:break-word;max-width:100%;overflow-x:auto;}\
+        img{max-width:100%!important;height:auto!important;}\
+        table,tbody,thead,tfoot,tr{max-width:100%!important;width:100%!important;min-width:0!important;}\
+        table{border-collapse:collapse;}\
+        td,th{word-break:break-word;overflow-wrap:break-word;max-width:100vw!important;min-width:0!important;}\
+        div,span,section,article,header,footer,main,aside,nav,center{max-width:100%!important;min-width:0!important;}\
+        pre,code{white-space:pre-wrap;word-wrap:break-word;max-width:100%!important;overflow-x:auto;}\
         blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #ddd;}\
         a{color:#007AFF;}\
         .pm-quoted-text{border-left:3px solid #ccc;padding-left:10px;margin:8px 0;color:#666;}\
@@ -364,6 +381,93 @@ public enum HTMLSanitizer {
                 result.removeSubrange(fullRange)
             }
         }
+        return result
+    }
+
+    /// Removes fixed `width` HTML attributes that cause horizontal overflow.
+    ///
+    /// Banking and marketing emails commonly include `width="600"` or similar
+    /// fixed pixel widths on `<table>`, `<td>`, `<div>`, and `<img>` elements.
+    /// These values break responsive rendering in a mobile WebView. We strip
+    /// the attribute entirely so CSS `max-width: 100%` can control the layout.
+    ///
+    /// We preserve percentage-based widths (e.g. `width="100%"`) as they are
+    /// already responsive, and keep `width` on `<img>` if it's small (to avoid
+    /// stretching tiny icons/spacers).
+    private static func neutralizeFixedWidthAttributes(_ html: String) -> String {
+        // Match width="NNN" or width='NNN' (pixel values without unit or with px)
+        // Capture the numeric value to check if it's large enough to cause overflow
+        let pattern = "\\s+width\\s*=\\s*[\"']?(\\d+)(?:px)?[\"']?"
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: .caseInsensitive
+        ) else {
+            return html
+        }
+
+        let nsHTML = html as NSString
+        let matches = regex.matches(
+            in: html,
+            range: NSRange(location: 0, length: nsHTML.length)
+        )
+        guard !matches.isEmpty else { return html }
+
+        var result = html
+        // Process in reverse to preserve ranges
+        for match in matches.reversed() {
+            guard let fullRange = Range(match.range, in: result) else { continue }
+
+            // Get the numeric width value
+            let valueRange = match.range(at: 1)
+            guard valueRange.location != NSNotFound else { continue }
+            let widthStr = nsHTML.substring(with: valueRange)
+            guard let widthVal = Int(widthStr) else { continue }
+
+            // Only strip widths > 100px (small widths may be for icons/spacers)
+            if widthVal > 100 {
+                result.removeSubrange(fullRange)
+            }
+        }
+
+        return result
+    }
+
+    /// Removes fixed-width CSS properties from inline `style` attributes
+    /// that cause horizontal overflow in mobile email rendering.
+    ///
+    /// Uses a simple two-pass approach:
+    /// 1. Strip `width:NNNpx` (pixel values only, not percentages) from inline styles
+    /// 2. Strip `min-width:NNNpx` from inline styles
+    ///
+    /// Preserves percentage-based values and other CSS properties.
+    private static func neutralizeInlineStyleWidths(_ html: String) -> String {
+        var result = html
+
+        // Pattern 1: Remove "width: NNNpx" but NOT "width: NN%" from inline styles
+        // Matches: width:600px, width: 580px, width:640px !important
+        // Skips: width:100%, width:auto, max-width (handled separately)
+        // The negative lookbehind (?<!-) prevents matching min-width or max-width here
+        result = result.replacingOccurrences(
+            of: "(?<![-a-z])width\\s*:\\s*\\d+(?:\\.\\d+)?px[^;\"']*;?",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Pattern 2: Remove "min-width: NNNpx" from inline styles
+        result = result.replacingOccurrences(
+            of: "min-width\\s*:\\s*\\d+(?:\\.\\d+)?px[^;\"']*;?",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Pattern 3: Remove "max-width: NNNpx" when it's a fixed large value
+        // (we want our CSS max-width:100% to take over)
+        result = result.replacingOccurrences(
+            of: "max-width\\s*:\\s*\\d+(?:\\.\\d+)?px[^;\"']*;?",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
         return result
     }
 

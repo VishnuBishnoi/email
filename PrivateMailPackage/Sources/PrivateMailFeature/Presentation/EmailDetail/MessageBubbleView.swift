@@ -170,7 +170,7 @@ struct MessageBubbleView: View {
             .clipped()
             .animation(.easeInOut(duration: 0.15), value: htmlContentHeight)
         } else if let plainText = email.bodyPlain, !plainText.isEmpty {
-            Text(HTMLSanitizer.stripIMAPFraming(plainText))
+            Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
                 .textSelection(.enabled)
         } else {
@@ -178,7 +178,7 @@ struct MessageBubbleView: View {
         }
         #else
         if let plainText = email.bodyPlain, !plainText.isEmpty {
-            Text(HTMLSanitizer.stripIMAPFraming(plainText))
+            Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
                 .textSelection(.enabled)
         } else if let html = processedHTML, !html.isEmpty {
@@ -300,7 +300,20 @@ struct MessageBubbleView: View {
         // Reset height so the WebView remeasures fresh content
         htmlContentHeight = 44
 
-        if let htmlBody = email.bodyHTML, !htmlBody.isEmpty {
+        // Determine HTML source: prefer bodyHTML, but also check bodyPlain
+        // for raw MIME multipart content that may contain an HTML part
+        // (happens when BODYSTRUCTURE parsing failed during sync).
+        var htmlSource = email.bodyHTML
+
+        if (htmlSource == nil || htmlSource?.isEmpty == true),
+           let plainBody = email.bodyPlain,
+           MIMEDecoder.isMultipartContent(plainBody),
+           let multipart = MIMEDecoder.parseMultipartBody(plainBody),
+           let mimeHTML = multipart.htmlText, !mimeHTML.isEmpty {
+            htmlSource = mimeHTML
+        }
+
+        if let htmlBody = htmlSource, !htmlBody.isEmpty {
             // Step 1: Sanitize
             let sanitized = HTMLSanitizer.sanitize(
                 htmlBody,
