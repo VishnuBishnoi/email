@@ -178,14 +178,14 @@ struct AIChatView: View {
         messages.append(assistantMessage)
         let assistantIndex = messages.count - 1
 
-        generationTask = Task {
-            defer { isGenerating = false }
-
+        generationTask = Task { @MainActor in
             let engine = await engineResolver.resolveGenerativeEngine()
 
-            guard await engine.isAvailable() else {
-                messages[assistantIndex].text = "AI model not available. Please download a model in Settings."
+            let available = await engine.isAvailable()
+            guard available else {
+                messages[assistantIndex].text = "AI model not available. Please download a model in Settings → AI Features."
                 engineAvailable = false
+                isGenerating = false
                 return
             }
 
@@ -210,6 +210,8 @@ struct AIChatView: View {
             if messages[assistantIndex].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 messages[assistantIndex].text = "I couldn't generate a response. Please try again."
             }
+
+            isGenerating = false
         }
     }
 
@@ -249,15 +251,32 @@ struct ChatMessage: Identifiable, Equatable {
 private struct ChatBubble: View {
     let message: ChatMessage
 
+    private var isEmptyAssistant: Bool {
+        message.role == .assistant && message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         HStack {
             if message.role == .user { Spacer(minLength: 60) }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                Text(message.text)
-                    .font(.body)
-                    .foregroundStyle(message.role == .user ? .white : .primary)
-                    .textSelection(.enabled)
+                if isEmptyAssistant {
+                    // Typing indicator while waiting for tokens
+                    HStack(spacing: 4) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Circle()
+                                .fill(Color.secondary.opacity(0.5))
+                                .frame(width: 6, height: 6)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityLabel("AI is thinking")
+                } else {
+                    Text(message.text)
+                        .font(.body)
+                        .foregroundStyle(message.role == .user ? .white : .primary)
+                        .textSelection(.enabled)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -271,6 +290,6 @@ private struct ChatBubble: View {
             if message.role == .assistant { Spacer(minLength: 60) }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(message.role == .user ? "You" : "AI"): \(message.text)")
+        .accessibilityLabel("\(message.role == .user ? "You" : "AI"): \(isEmptyAssistant ? "Thinking" : message.text)")
     }
 }
