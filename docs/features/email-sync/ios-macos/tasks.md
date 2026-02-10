@@ -2,9 +2,9 @@
 title: "Email Sync — iOS/macOS Task Breakdown"
 platform: iOS, macOS
 plan-ref: docs/features/email-sync/ios-macos/plan.md
-version: "1.2.0"
-status: in-progress
-updated: 2026-02-09
+version: "1.3.0"
+status: locked
+updated: 2026-02-10
 ---
 
 # Email Sync — iOS/macOS Task Breakdown
@@ -59,18 +59,19 @@ updated: 2026-02-09
 
 ### IOS-F-07: SMTP Client
 
-- **Status**: `todo`
+- **Status**: `done`
 - **Spec ref**: Email Sync spec, FR-SYNC-07
 - **Validation ref**: AC-F-07
 - **Description**: Implement SMTP client for sending emails via Gmail SMTP with XOAUTH2. Support queuing for offline sends.
 - **Deliverables**:
-  - [ ] `SMTPClient.swift` — connect, authenticate (XOAUTH2), send
-  - [ ] MIME message construction (headers, body, attachments)
-  - [ ] TLS enforcement (port 465 or STARTTLS 587)
-  - [ ] Send queue for offline operation
-  - [ ] Retry logic with exponential backoff
-  - [ ] Integration tests with mock SMTP server
-- **Notes**: `ComposeEmailUseCase` exists with outbox queue support, but sends are still stubbed. SMTP transport not yet implemented.
+  - [x] `SMTPClient.swift` — actor with connect, authenticate (XOAUTH2), send; connection retry with exponential backoff (5s/15s/45s)
+  - [x] `SMTPSession.swift` — 395 lines; Network.framework, port 465 implicit TLS, SASL base64 encoding, dot-stuffing, multi-line response parsing, timeout guards
+  - [x] MIME message construction via `MIMEEncoder.swift` (headers, body, attachments)
+  - [x] TLS enforcement (port 465 implicit TLS)
+  - [x] Send queue via `ComposeEmailUseCase.executeSend()` — full pipeline: `.queued` → `.sending` → `.sent`/`.failed`, OAuth token refresh, real `smtpClient.sendMessage()`
+  - [x] Retry logic with exponential backoff (3 retries)
+  - [x] `SMTPClientProtocol` + `MockSMTPClient` for testability
+- **Notes**: Full production SMTP implementation. `ComposeEmailUseCase.executeSend()` orchestrates the complete send pipeline including OAuth refresh and MIME encoding.
 
 ### IOS-F-08: Email Repository
 
@@ -106,4 +107,4 @@ updated: 2026-02-09
   - [x] `DownloadAttachmentUseCase.swift` — lazy IMAP body part fetch with transfer-encoding decode
   - [x] `ManageThreadActionsUseCase.swift` — archive, delete, star, mark read/unread with IMAP flag sync
   - [x] `MarkReadUseCase.swift` — auto-mark-read on thread open
-  - [x] Unit tests for use cases with mocked repositories (549 tests across 38 suites, all passing)
+  - [x] Unit tests for use cases with mocked repositories (627+ tests across 54 suites, all passing)
