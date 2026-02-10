@@ -2,9 +2,9 @@
 title: "Foundation — iOS/macOS Task Breakdown"
 platform: iOS, macOS
 plan-ref: docs/features/foundation/ios-macos/plan.md
-version: "1.1.0"
-status: draft
-updated: 2026-02-07
+version: "1.2.0"
+status: locked
+updated: 2026-02-10
 ---
 
 # Foundation — iOS/macOS Task Breakdown

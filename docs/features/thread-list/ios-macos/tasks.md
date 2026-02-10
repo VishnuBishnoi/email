@@ -2,9 +2,9 @@
 title: "Thread List — iOS/macOS Task Breakdown"
 platform: iOS, macOS
 plan-ref: docs/features/thread-list/ios-macos/plan.md
-version: "2.0.0"
-status: approved
-updated: 2026-02-08
+version: "2.1.0"
+status: locked
+updated: 2026-02-10
 ---
 
 # Thread List — iOS/macOS Task Breakdown
