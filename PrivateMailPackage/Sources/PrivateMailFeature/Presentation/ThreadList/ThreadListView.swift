@@ -95,6 +95,9 @@ struct ThreadListView: View {
     // Inline error banner (Comment 3: show banner when threads already loaded)
     @State private var errorBannerMessage: String? = nil
 
+    // Background sync progress feedback
+    @State private var isSyncing = false
+
     // Outbox emails (Comment 6: display outbox with OutboxRowView)
     @State private var outboxEmails: [Email] = []
 
@@ -432,6 +435,7 @@ struct ThreadListView: View {
     @ViewBuilder
     private var threadListContent: some View {
         List {
+            syncProgressRow
             errorBannerRow
             threadOrOutboxRows
             paginationRow
@@ -452,6 +456,22 @@ struct ThreadListView: View {
             runAIClassification(for: syncedEmails)
         }
         .accessibilityLabel("Email threads")
+    }
+
+    @ViewBuilder
+    private var syncProgressRow: some View {
+        if isSyncing && !threads.isEmpty {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Syncing…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+            .listRowBackground(Color.accentColor.opacity(0.05))
+            .accessibilityLabel("Syncing mailbox")
+        }
     }
 
     @ViewBuilder
@@ -621,18 +641,28 @@ struct ThreadListView: View {
 
     private var emptyStateView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "tray")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No emails yet")
-                .font(.title3.bold())
-            Text("Emails you receive will appear here")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if isSyncing {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Syncing your mailbox…")
+                    .font(.title3.bold())
+                Text("This may take a moment on first login")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "tray")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.secondary)
+                Text("No emails yet")
+                    .font(.title3.bold())
+                Text("Emails you receive will appear here")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("No emails. Emails you receive will appear here.")
+        .accessibilityLabel(isSyncing ? "Syncing your mailbox" : "No emails. Emails you receive will appear here.")
     }
 
     private var emptyFilteredView: some View {
@@ -732,7 +762,9 @@ struct ThreadListView: View {
 
             // Phase 2: Sync from IMAP in the background, then refresh the view
             NSLog("[UI] Starting background sync for account: \(firstAccount.id)")
+            isSyncing = true
             Task {
+                defer { isSyncing = false }
                 do {
                     let syncedEmails = try await syncEmails.syncAccount(accountId: firstAccount.id)
                     NSLog("[UI] Background sync succeeded, reloading threads...")
