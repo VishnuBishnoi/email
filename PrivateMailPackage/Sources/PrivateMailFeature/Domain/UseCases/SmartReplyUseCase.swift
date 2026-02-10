@@ -9,6 +9,9 @@ import Foundation
 /// Generation is asynchronous and non-blocking — if unavailable,
 /// the suggestion area is hidden entirely (no error shown).
 ///
+/// Results are cached on the `Email.aiSmartReplies` field (JSON-encoded)
+/// so subsequent views of the same email don't re-run inference.
+///
 /// Spec ref: Email Detail FR-ED-02, Email Composer FR-COMP-03
 @MainActor
 public protocol SmartReplyUseCaseProtocol {
@@ -27,8 +30,26 @@ public final class SmartReplyUseCase: SmartReplyUseCaseProtocol {
     }
 
     public func generateReplies(for email: Email) async -> [String] {
+        // Check SwiftData cache first — avoid re-running LLM inference
+        if let cached = email.aiSmartReplies,
+           let data = cached.data(using: .utf8),
+           let replies = try? JSONDecoder().decode([String].self, from: data),
+           !replies.isEmpty {
+            return replies
+        }
+
+        // Generate fresh suggestions
         do {
-            return try await aiRepository.smartReply(email: email)
+            let replies = try await aiRepository.smartReply(email: email)
+            guard !replies.isEmpty else { return [] }
+
+            // Persist to SwiftData for future loads
+            if let jsonData = try? JSONEncoder().encode(replies),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                email.aiSmartReplies = jsonString
+            }
+
+            return replies
         } catch {
             return []  // Graceful hiding per FR-ED-02
         }

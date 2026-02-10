@@ -113,4 +113,48 @@ struct SmartReplyUseCaseTests {
         #expect(result == ["Thanks!", "Got it", "Will do"])
         #expect(repo.smartReplyCallCount == 1)
     }
+
+    @Test("caches replies on Email.aiSmartReplies after first generation")
+    func cachesRepliesAfterGeneration() async {
+        let (sut, repo) = Self.makeSUT()
+        repo.smartReplyResult = ["Great!", "No thanks", "Tell me more"]
+
+        let email = Email(
+            accountId: "a",
+            threadId: "t",
+            messageId: "m",
+            fromAddress: "sender@example.com",
+            subject: "Hi"
+        )
+
+        // First call — generates and caches
+        let result1 = await sut.generateReplies(for: email)
+        #expect(result1 == ["Great!", "No thanks", "Tell me more"])
+        #expect(repo.smartReplyCallCount == 1)
+        #expect(email.aiSmartReplies != nil)
+
+        // Second call — returns from cache, does NOT call AI again
+        let result2 = await sut.generateReplies(for: email)
+        #expect(result2 == ["Great!", "No thanks", "Tell me more"])
+        #expect(repo.smartReplyCallCount == 1) // Still 1, not 2
+    }
+
+    @Test("returns cached replies without calling AI when aiSmartReplies is set")
+    func returnsCachedReplies() async {
+        let (sut, repo) = Self.makeSUT()
+
+        let email = Email(
+            accountId: "a",
+            threadId: "t",
+            messageId: "m",
+            fromAddress: "sender@example.com",
+            subject: "Hi"
+        )
+        // Pre-populate cache
+        email.aiSmartReplies = #"["Cached A","Cached B"]"#
+
+        let result = await sut.generateReplies(for: email)
+        #expect(result == ["Cached A", "Cached B"])
+        #expect(repo.smartReplyCallCount == 0) // No AI call at all
+    }
 }

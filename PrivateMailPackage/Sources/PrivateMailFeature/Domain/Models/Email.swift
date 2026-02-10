@@ -56,6 +56,9 @@ public final class Email {
     public var aiCategory: String?
     /// AI-generated summary
     public var aiSummary: String?
+    /// Cached AI smart reply suggestions (JSON-encoded string array).
+    /// Populated on first generation, avoids re-running inference for the same email.
+    public var aiSmartReplies: String?
     /// Whether this email is flagged as spam/phishing by AI detection.
     /// Never auto-deleted; displayed as visual warning only. User can override.
     /// Spec ref: FR-AI-06
@@ -111,6 +114,7 @@ public final class Email {
         isDeleted: Bool = false,
         aiCategory: String? = AICategory.uncategorized.rawValue,
         aiSummary: String? = nil,
+        aiSmartReplies: String? = nil,
         isSpam: Bool = false,
         authenticationResults: String? = nil,
         sizeBytes: Int = 0,
@@ -141,6 +145,7 @@ public final class Email {
         self.isDeleted = isDeleted
         self.aiCategory = aiCategory
         self.aiSummary = aiSummary
+        self.aiSmartReplies = aiSmartReplies
         self.isSpam = isSpam
         self.authenticationResults = authenticationResults
         self.sizeBytes = sizeBytes

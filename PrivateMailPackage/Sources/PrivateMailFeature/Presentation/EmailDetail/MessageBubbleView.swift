@@ -37,6 +37,13 @@ struct MessageBubbleView: View {
     @State private var remoteImageCount = 0
     @State private var htmlContentHeight: CGFloat = 44
 
+    /// Intermediate cache: sanitized + tracking-stripped + quoted-text-detected HTML.
+    /// This avoids re-running the expensive 20+ regex pipeline when only
+    /// `showQuotedText` or `dynamicTypeSize` changes.
+    @State private var baseProcessedHTML: String?
+    /// Cache key tracking which email + remote-image state produced `baseProcessedHTML`.
+    @State private var baseCacheKey: String?
+
     // MARK: - Environment
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -128,9 +135,10 @@ struct MessageBubbleView: View {
                     .padding(.horizontal, 12)
             }
 
-            // Body content
+            // Body content — minimal horizontal padding so HTML renders
+            // closer to edge-to-edge within the bubble card.
             bodyContent
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 4)
 
             // Quoted text expander
             if hasQuotedText && !showQuotedText {
@@ -300,21 +308,39 @@ struct MessageBubbleView: View {
         // Reset height so the WebView remeasures fresh content
         htmlContentHeight = 44
 
-        // Determine HTML source: prefer bodyHTML, but also check bodyPlain
-        // for raw MIME multipart content that may contain an HTML part
-        // (happens when BODYSTRUCTURE parsing failed during sync).
-        var htmlSource = email.bodyHTML
+        // Cache key for the expensive steps (sanitize + tracking + quoted detection).
+        // Only re-run these when the email content or remote-image preference changes.
+        // Quoted text toggle and Dynamic Type changes only need the cheap CSS step.
+        let currentCacheKey = "\(email.id)-\(shouldLoadRemote)"
 
-        if (htmlSource == nil || htmlSource?.isEmpty == true),
-           let plainBody = email.bodyPlain,
-           MIMEDecoder.isMultipartContent(plainBody),
-           let multipart = MIMEDecoder.parseMultipartBody(plainBody),
-           let mimeHTML = multipart.htmlText, !mimeHTML.isEmpty {
-            htmlSource = mimeHTML
-        }
+        if baseCacheKey != currentCacheKey {
+            // Cache miss — run the full expensive pipeline
 
-        if let htmlBody = htmlSource, !htmlBody.isEmpty {
-            // Step 1: Sanitize
+            // Determine HTML source: prefer bodyHTML, but also check bodyPlain
+            // for raw MIME multipart content that may contain an HTML part
+            // (happens when BODYSTRUCTURE parsing failed during sync).
+            var htmlSource = email.bodyHTML
+
+            if (htmlSource == nil || htmlSource?.isEmpty == true),
+               let plainBody = email.bodyPlain,
+               MIMEDecoder.isMultipartContent(plainBody),
+               let multipart = MIMEDecoder.parseMultipartBody(plainBody),
+               let mimeHTML = multipart.htmlText, !mimeHTML.isEmpty {
+                htmlSource = mimeHTML
+            }
+
+            guard let htmlBody = htmlSource, !htmlBody.isEmpty else {
+                processedHTML = nil
+                baseProcessedHTML = nil
+                baseCacheKey = nil
+                hasBlockedRemoteContent = false
+                remoteImageCount = 0
+                trackerCount = 0
+                hasQuotedText = false
+                return
+            }
+
+            // Step 1: Sanitize (uses HTMLSanitizer's own internal cache)
             let sanitized = HTMLSanitizer.sanitize(
                 htmlBody,
                 loadRemoteImages: shouldLoadRemote
@@ -330,35 +356,37 @@ struct MessageBubbleView: View {
             let quoted = QuotedTextDetector.detectInHTML(tracked.sanitizedHTML)
             hasQuotedText = quoted.hasQuotedText
 
-            // Step 4: Apply quoted text visibility
-            var finalHTML = quoted.processedHTML
-
-            if !showQuotedText && hasQuotedText {
-                // Hide quoted text sections via CSS
-                finalHTML = """
-                <style>.pm-quoted-text { display: none; } .pm-quote-toggle { display: none; }</style>
-                \(finalHTML)
-                """
-            }
-
-            // Step 5: Inject Dynamic Type CSS
-            #if os(iOS)
-            let fontSize = UIFont.preferredFont(forTextStyle: .body).pointSize
-            #else
-            let fontSize: CGFloat = 16
-            #endif
-            processedHTML = HTMLSanitizer.injectDynamicTypeCSS(
-                finalHTML,
-                fontSizePoints: fontSize,
-                allowRemoteImages: shouldLoadRemote
-            )
-        } else {
-            processedHTML = nil
-            hasBlockedRemoteContent = false
-            remoteImageCount = 0
-            trackerCount = 0
-            hasQuotedText = false
+            // Cache the base result — quoted text CSS & Dynamic Type are cheap to apply
+            baseProcessedHTML = quoted.processedHTML
+            baseCacheKey = currentCacheKey
         }
+
+        // Steps 4–5 run on every call (cheap string operations)
+        guard let base = baseProcessedHTML else {
+            processedHTML = nil
+            return
+        }
+
+        // Step 4: Apply quoted text visibility via CSS
+        var finalHTML = base
+        if !showQuotedText && hasQuotedText {
+            finalHTML = """
+            <style>.pm-quoted-text { display: none; } .pm-quote-toggle { display: none; }</style>
+            \(finalHTML)
+            """
+        }
+
+        // Step 5: Inject Dynamic Type CSS
+        #if os(iOS)
+        let fontSize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        #else
+        let fontSize: CGFloat = 16
+        #endif
+        processedHTML = HTMLSanitizer.injectDynamicTypeCSS(
+            finalHTML,
+            fontSizePoints: fontSize,
+            allowRemoteImages: loadRemoteImages || isTrustedSender
+        )
     }
 
     // MARK: - Helpers

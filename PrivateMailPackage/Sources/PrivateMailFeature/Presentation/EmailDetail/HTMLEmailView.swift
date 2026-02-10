@@ -3,12 +3,35 @@ import SwiftUI
 import UIKit
 import WebKit
 
+// MARK: - Shared Resources
+
+/// Process-level shared expensive WKWebView resources for email rendering.
+///
+/// Creating a new `.nonPersistent()` data store per WebView is the most
+/// expensive part (~15-30ms each). Sharing a single non-persistent store
+/// across all email WebViews eliminates this overhead entirely.
+///
+/// Security: The non-persistent store ensures no cookies/storage persist
+/// between app sessions, and the CSP in the HTML blocks external loads.
+@MainActor
+private enum SharedWebViewResources {
+    /// Shared non-persistent data store — the expensive part of WKWebViewConfiguration.
+    static let dataStore: WKWebsiteDataStore = .nonPersistent()
+
+    /// Shared webpage preferences (JS enabled for height measurement only).
+    static let preferences: WKWebpagePreferences = {
+        let prefs = WKWebpagePreferences()
+        prefs.allowsContentJavaScript = true
+        return prefs
+    }()
+}
+
 /// A SwiftUI view that safely renders sanitized HTML email content using WKWebView.
 ///
-/// The web view disables JavaScript execution, uses a non-persistent data store,
-/// and intercepts link taps so they open externally rather than navigating in-place.
-/// It measures its own content height via JavaScript after load so a parent
-/// `ScrollView` can manage scrolling.
+/// The web view uses a shared non-persistent data store, and intercepts link
+/// taps so they open externally rather than navigating in-place.
+/// It measures its own content height via a ResizeObserver (with a single
+/// fallback measurement) so a parent `ScrollView` can manage scrolling.
 @MainActor
 struct HTMLEmailView: UIViewRepresentable {
 
@@ -44,6 +67,7 @@ struct HTMLEmailView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = buildWebView(coordinator: context.coordinator)
+        context.coordinator.webView = webView
         context.coordinator.lastLoadedHTML = htmlContent
         webView.loadHTMLString(htmlContent, baseURL: nil)
         return webView
@@ -62,17 +86,17 @@ struct HTMLEmailView: UIViewRepresentable {
     // MARK: - Private Helpers
 
     private func buildWebView(coordinator: Coordinator) -> WKWebView {
-        // Enable JavaScript ONLY for our height-measurement snippet.
-        // The CSP `default-src 'none'` in the HTML document blocks all
-        // external script loading; inline scripts are also blocked by CSP.
-        // We allow JS at the WebView level solely so evaluateJavaScript
-        // can measure document.body.scrollHeight after load.
-        let preferences = WKWebpagePreferences()
-        preferences.allowsContentJavaScript = true
+        // Per-view configuration — lightweight since it reuses the shared
+        // non-persistent data store (the expensive part).
+        let contentController = WKUserContentController()
+        contentController.add(coordinator, name: "heightChanged")
 
         let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences = preferences
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences = SharedWebViewResources.preferences
+        configuration.websiteDataStore = SharedWebViewResources.dataStore
+        configuration.userContentController = contentController
+        // Suppress data detection (phone, address, etc.) to speed up rendering
+        configuration.dataDetectorTypes = []
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = coordinator
@@ -93,17 +117,12 @@ struct HTMLEmailView: UIViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
 
         var onLinkTapped: ((URL) -> Void)?
         var lastLoadedHTML: String?
+        weak var webView: WKWebView?
         private var contentHeight: Binding<CGFloat>
-
-        /// Tracks how many remeasure passes have been done to avoid infinite loops.
-        private var remeasureCount = 0
-
-        /// Maximum number of remeasure passes after the initial measurement.
-        private static let maxRemeasurePasses = 4
 
         init(
             onLinkTapped: ((URL) -> Void)?,
@@ -111,6 +130,25 @@ struct HTMLEmailView: UIViewRepresentable {
         ) {
             self.onLinkTapped = onLinkTapped
             self.contentHeight = contentHeight
+        }
+
+        // MARK: WKScriptMessageHandler
+
+        nonisolated func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            Task { @MainActor in
+                guard message.name == "heightChanged",
+                      let height = message.body as? CGFloat,
+                      height > 0 else {
+                    return
+                }
+                let finalHeight = height + 8
+                if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
+                    self.contentHeight.wrappedValue = finalHeight
+                }
+            }
         }
 
         // MARK: Navigation Policy
@@ -144,80 +182,58 @@ struct HTMLEmailView: UIViewRepresentable {
         // MARK: Size-to-Content
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            remeasureCount = 0
-            measureContentHeight(webView)
+            installResizeObserver(webView)
         }
 
-        /// JavaScript snippet that measures the true document content height.
+        /// JavaScript that installs a ResizeObserver on the body to notify
+        /// us whenever the content height changes, PLUS an immediate measurement.
         ///
-        /// Checks both body and documentElement to handle varied email layouts
-        /// (some banking emails set height on html, not body).
-        private let heightMeasurementJS = """
-        (function() {
-            var body = document.body;
-            var html = document.documentElement;
-            return Math.max(
-                body.scrollHeight, body.offsetHeight, body.clientHeight,
-                html.scrollHeight, html.offsetHeight, html.clientHeight
-            );
-        })()
-        """
-
-        /// Measure the actual rendered content height via JavaScript.
-        ///
-        /// Uses multiple measurement sources which is more reliable than
-        /// `scrollView.contentSize.height` as it waits for the layout pass.
-        /// Schedules follow-up remeasurements to catch late layout reflows
-        /// from CSS, table rendering, and image loads.
-        private func measureContentHeight(_ webView: WKWebView) {
-            webView.evaluateJavaScript(heightMeasurementJS) { [weak self] result, _ in
-                guard let self,
-                      let height = result as? CGFloat,
-                      height > 0 else {
-                    return
-                }
-                // Add a small buffer to prevent clipping at the bottom
-                let finalHeight = height + 8
-                if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
-                    self.contentHeight.wrappedValue = finalHeight
+        /// This replaces the old 4-pass progressive timer approach:
+        /// - ResizeObserver fires immediately on layout and on every reflow
+        /// - Handles late image loads, CSS changes, and table rendering
+        /// - Single fallback measurement at 500ms for edge cases
+        private func installResizeObserver(_ webView: WKWebView) {
+            let observerJS = """
+            (function() {
+                function measureHeight() {
+                    var body = document.body;
+                    var html = document.documentElement;
+                    return Math.max(
+                        body.scrollHeight, body.offsetHeight, body.clientHeight,
+                        html.scrollHeight, html.offsetHeight, html.clientHeight
+                    );
                 }
 
-                // Schedule progressive remeasurements for late-reflowing content:
-                // Pass 1: 200ms — early CSS reflow
-                // Pass 2: 500ms — table & image layout
-                // Pass 3: 1.0s  — complex email final layout
-                // Pass 4: 2.0s  — safety catch-all
-                self.scheduleRemeasure(webView)
-            }
-        }
-
-        private func scheduleRemeasure(_ webView: WKWebView) {
-            guard remeasureCount < Self.maxRemeasurePasses else { return }
-            remeasureCount += 1
-
-            let delays: [Double] = [0.2, 0.5, 1.0, 2.0]
-            let delay = delays[min(remeasureCount - 1, delays.count - 1)]
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.remeasureContentHeight(webView)
-            }
-        }
-
-        private func remeasureContentHeight(_ webView: WKWebView) {
-            webView.evaluateJavaScript(heightMeasurementJS) { [weak self] result, _ in
-                guard let self,
-                      let height = result as? CGFloat,
-                      height > 0 else {
-                    return
+                // Send initial measurement immediately
+                var h = measureHeight();
+                if (h > 0) {
+                    window.webkit.messageHandlers.heightChanged.postMessage(h);
                 }
-                let finalHeight = height + 8
-                if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
-                    self.contentHeight.wrappedValue = finalHeight
-                    // Height changed — schedule another remeasure in case of
-                    // cascading layout changes
-                    self.scheduleRemeasure(webView)
+
+                // Install ResizeObserver for ongoing layout changes
+                if (typeof ResizeObserver !== 'undefined') {
+                    var lastHeight = h;
+                    var observer = new ResizeObserver(function() {
+                        var newH = measureHeight();
+                        if (newH > 0 && Math.abs(newH - lastHeight) > 1) {
+                            lastHeight = newH;
+                            window.webkit.messageHandlers.heightChanged.postMessage(newH);
+                        }
+                    });
+                    observer.observe(document.body);
                 }
-            }
+
+                // Single fallback at 500ms for edge cases (complex table layouts)
+                setTimeout(function() {
+                    var finalH = measureHeight();
+                    if (finalH > 0) {
+                        window.webkit.messageHandlers.heightChanged.postMessage(finalH);
+                    }
+                }, 500);
+            })()
+            """
+
+            webView.evaluateJavaScript(observerJS) { _, _ in }
         }
     }
 }

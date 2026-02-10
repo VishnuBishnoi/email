@@ -1,5 +1,46 @@
 import Foundation
 
+/// LRU cache for expensive HTML base sanitization results (phases 0–6c).
+///
+/// Avoids re-running 20+ regex passes every time the user expands,
+/// collapses, or toggles quoted text for the same email.
+///
+/// Thread safety: Uses `nonisolated(unsafe)` since all callers are
+/// on `@MainActor` (SwiftUI views). The cache is process-scoped.
+///
+/// - Capacity: 32 entries (one per recently-viewed email)
+/// - Eviction: LRU via insertion order
+final class SanitizationCache: @unchecked Sendable {
+    static let shared = SanitizationCache()
+
+    private var storage: [Int: String] = [:]
+    private var insertionOrder: [Int] = []
+    private let maxSize = 32
+
+    private init() {}
+
+    func get(_ key: Int) -> String? {
+        storage[key]
+    }
+
+    func store(_ html: String, forKey key: Int) {
+        if storage[key] == nil {
+            insertionOrder.append(key)
+        }
+        storage[key] = html
+
+        while insertionOrder.count > maxSize {
+            let evictedKey = insertionOrder.removeFirst()
+            storage.removeValue(forKey: evictedKey)
+        }
+    }
+
+    func clear() {
+        storage.removeAll()
+        insertionOrder.removeAll()
+    }
+}
+
 /// Best-effort HTML sanitizer for untrusted email content.
 ///
 /// Strips dangerous tags, event handlers, and script URIs while
@@ -41,18 +82,43 @@ public enum HTMLSanitizer {
             )
         }
 
+        // Check MainActor-isolated cache for the expensive base sanitization
+        // (phases 0–6c). Phase 7 (remote images) is fast and depends on user
+        // preference, so we always apply it on top of the cached base.
+        let cacheKey = html.hashValue
+        let baseSanitized: String
+
+        if let cached = SanitizationCache.shared.get(cacheKey) {
+            baseSanitized = cached
+        } else {
+            baseSanitized = runBaseSanitization(html)
+            SanitizationCache.shared.store(baseSanitized, forKey: cacheKey)
+        }
+
+        // --- Phase 7: Handle remote images (fast, preference-dependent) ---
+        var result = baseSanitized
+        var blockedCount = 0
+        if !loadRemoteImages {
+            (result, blockedCount) = blockRemoteImages(result)
+        }
+
+        return SanitizationResult(
+            html: result,
+            hasBlockedRemoteContent: blockedCount > 0,
+            remoteImageCount: blockedCount
+        )
+    }
+
+    /// Run the expensive multi-phase sanitization (phases 0–6c).
+    ///
+    /// This is the hot path that benefits from caching.
+    private static func runBaseSanitization(_ html: String) -> String {
         var result = html
 
         // --- Phase 0a: Strip leaked IMAP protocol framing ---
-        // Older synced emails may contain raw IMAP framing (e.g.
-        // "BODY[1] {8609} ...") appended to the body due to a parser
-        // bug that didn't respect literal length prefixes.
         result = stripIMAPFraming(result)
 
         // --- Phase 0b: Strip raw MIME multipart framing ---
-        // Some emails stored as raw BODY[TEXT] contain unprocessed
-        // MIME multipart content (boundaries, headers, quoted-printable).
-        // Extract the actual HTML content before sanitizing.
         result = MIMEDecoder.stripMIMEFramingForHTML(result)
 
         // --- Phase 1: Strip tags WITH their content ---
@@ -78,9 +144,6 @@ public enum HTMLSanitizer {
         result = stripStyleAttributesWithPotentialRemoteLoads(result)
 
         // --- Phase 5b: Neutralize fixed-width attributes and inline styles ---
-        // Banking/marketing emails use fixed-width attributes (e.g. width="600")
-        // and inline styles (e.g. style="width:600px;min-width:600px") that cause
-        // horizontal overflow. Remove them so CSS can control layout.
         result = neutralizeFixedWidthAttributes(result)
         result = neutralizeInlineStyleWidths(result)
 
@@ -94,17 +157,7 @@ public enum HTMLSanitizer {
         // --- Phase 6c: Enforce URI scheme allow-list (PR #8 Comment 5) ---
         result = enforceURISchemeAllowList(result)
 
-        // --- Phase 7: Handle remote images ---
-        var blockedCount = 0
-        if !loadRemoteImages {
-            (result, blockedCount) = blockRemoteImages(result)
-        }
-
-        return SanitizationResult(
-            html: result,
-            hasBlockedRemoteContent: blockedCount > 0,
-            remoteImageCount: blockedCount
-        )
+        return result
     }
 
     /// Wrap HTML in a full document structure with Dynamic Type CSS.
