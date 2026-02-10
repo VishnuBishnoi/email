@@ -36,9 +36,6 @@ struct AISummaryView: View {
         }
         .buttonStyle(.bordered)
         .tint(.accentColor)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .accessibilityLabel("Summarize this conversation with AI")
         .accessibilityHint("Double tap to generate an AI summary")
     }
