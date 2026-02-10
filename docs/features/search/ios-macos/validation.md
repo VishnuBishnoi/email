@@ -5,7 +5,7 @@ plan-refs:
   - docs/features/search/ios-macos/plan.md
   - docs/features/search/ios-macos/tasks.md
 version: "2.0.0"
-status: draft
+status: locked
 last-validated: null
 ---
 

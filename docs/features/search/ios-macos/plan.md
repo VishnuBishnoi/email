@@ -3,7 +3,7 @@ title: "Search — iOS/macOS Implementation Plan"
 platform: iOS
 spec-ref: docs/features/search/spec.md
 version: "2.0.0"
-status: draft
+status: locked
 assignees:
   - Core Team
 target-milestone: V1.0

@@ -3,7 +3,7 @@ title: "Search — iOS/macOS Task Breakdown"
 platform: iOS
 plan-ref: docs/features/search/ios-macos/plan.md
 version: "2.0.0"
-status: draft
+status: locked
 updated: 2026-02-10
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: "Search — Specification"
 version: "2.0.0"
-status: draft
+status: locked
 created: 2025-02-07
 updated: 2026-02-10
 authors:
