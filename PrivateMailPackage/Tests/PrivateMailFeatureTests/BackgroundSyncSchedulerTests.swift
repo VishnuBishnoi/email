@@ -26,6 +26,15 @@ struct BackgroundSyncSchedulerTests {
         }
 
         @discardableResult
+        func syncAccountInboxFirst(
+            accountId: String,
+            onInboxSynced: @MainActor (_ inboxEmails: [Email]) async -> Void
+        ) async throws -> [Email] {
+            // Delegates to syncAccount for tests — inbox-first is a UI optimization
+            try await syncAccount(accountId: accountId)
+        }
+
+        @discardableResult
         func syncFolder(accountId: String, folderId: String) async throws -> [Email] {
             syncFolderCallCount += 1
             if shouldThrow {

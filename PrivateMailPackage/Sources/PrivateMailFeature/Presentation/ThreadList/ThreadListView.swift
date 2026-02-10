@@ -805,13 +805,13 @@ struct ThreadListView: View {
             // Show cached threads immediately (may be empty on first launch)
             await loadThreadsAndCounts()
 
-            // Phase 2: Sync from IMAP in the background, then refresh the view
+            // Phase 2: Sync from IMAP — inbox first, then remaining folders.
+            // The onInboxSynced callback refreshes the UI as soon as inbox is ready,
+            // so the user sees their emails without waiting for all folders.
             NSLog("[UI] Starting background sync for account: \(firstAccount.id)")
             isSyncing = true
             syncElapsedSeconds = 0
 
-            // Store the sync task so it can be cancelled on timeout or view disappear.
-            // A separate timeout task cancels this one after 90 seconds.
             let accountId = firstAccount.id
             syncTask = Task {
                 defer {
@@ -820,22 +820,40 @@ struct ThreadListView: View {
                     syncTask = nil
                 }
                 do {
-                    let syncedEmails = try await syncEmails.syncAccount(accountId: accountId)
+                    let syncedEmails = try await syncEmails.syncAccountInboxFirst(
+                        accountId: accountId,
+                        onInboxSynced: { _ in
+                            // Inbox synced — reload folders and re-select inbox immediately
+                            NSLog("[UI] Inbox synced, refreshing folder list and threads...")
+                            if let freshFolders = try? await fetchThreads.fetchFolders(accountId: accountId) {
+                                folders = freshFolders
+                                let inboxType = FolderType.inbox.rawValue
+                                selectedFolder = freshFolders.first(where: { $0.folderType == inboxType }) ?? freshFolders.first
+                            }
+                            await loadThreadsAndCounts()
+                            NSLog("[UI] Inbox threads loaded, count: \(threads.count)")
+                        }
+                    )
                     guard !Task.isCancelled else { return }
-                    NSLog("[UI] Background sync succeeded, reloading threads...")
-                    // Sync succeeded — reload folders and threads with fresh data
+                    NSLog("[UI] Full sync completed, final reload...")
+
+                    // Final reload to pick up emails from all folders
                     folders = try await fetchThreads.fetchFolders(accountId: accountId)
-                    if selectedFolder == nil {
+                    // Always re-select folder (SwiftData objects may have changed)
+                    let currentFolderType = selectedFolder?.folderType
+                    if let currentType = currentFolderType {
+                        selectedFolder = folders.first(where: { $0.folderType == currentType }) ?? folders.first
+                    } else {
                         let inboxType = FolderType.inbox.rawValue
                         selectedFolder = folders.first(where: { $0.folderType == inboxType }) ?? folders.first
                     }
                     await loadThreadsAndCounts()
                     NSLog("[UI] Threads reloaded, count: \(threads.count)")
 
-                    // Phase 2.5: Run AI classification on ALL synced emails
+                    // Run AI classification on ALL synced emails
                     runAIClassification(for: syncedEmails)
 
-                    // Phase 3: Start IMAP IDLE for real-time inbox updates (FR-SYNC-03)
+                    // Start IMAP IDLE for real-time inbox updates (FR-SYNC-03)
                     startIDLEMonitor()
                 } catch is CancellationError {
                     NSLog("[UI] Background sync cancelled")
