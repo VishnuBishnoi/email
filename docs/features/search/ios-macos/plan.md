@@ -1,6 +1,6 @@
 ---
 title: "Search — iOS/macOS Implementation Plan"
-platform: iOS, macOS
+platform: iOS
 spec-ref: docs/features/search/spec.md
 version: "2.0.0"
 status: draft
@@ -63,7 +63,7 @@ Refer to Foundation plan Section 2. Search is fully local (no server-side IMAP S
 | File | Layer | Purpose |
 |------|-------|---------|
 | `all-MiniLM-L6-v2.mlpackage` | Resources | CoreML embedding model (384-dim, 50MB, bundled) |
-| `CoreMLClassifier.swift` | Data/AI | CoreML wrapper per AI spec Section 7.1 — implements embed() for search; classify()/detectSpam() stubbed for Phase 6 |
+| `CoreMLClassifier.swift` | Data/AI | CoreML wrapper per AI spec Section 7.1 — search scope implements embed() (MiniLM); classify()/detectSpam() (DistilBERT) are separate deliverables under AI classification tasks |
 
 ### Existing Files to Modify
 
@@ -94,7 +94,7 @@ Refer to Foundation plan Section 2. Search is fully local (no server-side IMAP S
 | Task | Description | Dependencies |
 |------|-------------|-------------|
 | IOS-A-01b | Bundle all-MiniLM-L6-v2 CoreML model (.mlpackage) in SPM resources | None |
-| IOS-A-16a | `CoreMLClassifier` (embed() method per AI spec Section 7.1) — load MiniLM model, tokenize text, run inference, return 384-dim Float32 | IOS-A-01b |
+| IOS-A-16a | `CoreMLClassifier` — implement embed() method per AI spec Section 7.1: load MiniLM model, tokenize text, run inference, return 384-dim Float32. classify()/detectSpam() are separate deliverables under AI classification tasks | IOS-A-01b |
 | IOS-A-16b | `GenerateEmbeddingUseCase` — single query + batch embedding with CoreML → nil (FTS5-only fallback) | IOS-A-16a |
 | IOS-A-16c | Unit tests for embedding generation (model loaded, output dimensions, normalization) | IOS-A-16b |
 

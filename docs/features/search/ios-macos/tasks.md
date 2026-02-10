@@ -1,6 +1,6 @@
 ---
 title: "Search — iOS/macOS Task Breakdown"
-platform: iOS, macOS
+platform: iOS
 plan-ref: docs/features/search/ios-macos/plan.md
 version: "2.0.0"
 status: draft
@@ -60,7 +60,7 @@ updated: 2026-02-10
 - **Status**: `todo`
 - **Spec ref**: FR-SEARCH-07, Search spec Section 3.2
 - **Validation ref**: AC-S-06
-- **Description**: Bundle all-MiniLM-L6-v2 CoreML model (.mlpackage) as SPM resource for 384-dim embedding generation. ~50MB bundled model. DistilBERT is NOT in scope (classification works via LLM fallback).
+- **Description**: Bundle all-MiniLM-L6-v2 CoreML model (.mlpackage) as SPM resource for 384-dim embedding generation. ~50MB bundled model. DistilBERT model bundling is defined by AI spec Section 5.4 and tracked under AI classification tasks.
 - **Deliverables**:
   - [ ] Convert all-MiniLM-L6-v2 to CoreML format (.mlpackage)
   - [ ] Add to SPM package resources
@@ -76,7 +76,7 @@ updated: 2026-02-10
 - **Validation ref**: AC-S-06, AC-S-08
 - **Description**: `CoreMLClassifier` wrapper (AI spec Section 7.1) + domain use case for generating query and batch embeddings. Returns nil when CoreML model is unavailable; search falls back to FTS5-only per AI spec Section 7.2.
 - **Deliverables**:
-  - [ ] `CoreMLClassifier.swift` — per AI spec Section 7.1: load MiniLM model for `embed()`, return 384-dim Float32 array. `classify()` and `detectSpam()` stubbed for Phase 6.
+  - [ ] `CoreMLClassifier.swift` — per AI spec Section 7.1: load MiniLM model for `embed()`, return 384-dim Float32 array. `classify()` and `detectSpam()` (DistilBERT) are separate deliverables under AI classification tasks.
   - [ ] `GenerateEmbeddingUseCase.swift` — domain use case
     - Single query embedding (for search)
     - Batch embedding (for indexing during sync)
