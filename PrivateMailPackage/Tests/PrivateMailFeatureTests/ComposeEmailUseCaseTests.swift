@@ -287,6 +287,31 @@ struct ComposeEmailUseCaseTests {
         #expect(email?.bodyPlain == "Test Body")
     }
 
+    @Test("saveDraft populates thread participants from recipients")
+    func saveDraftPopulatesThreadParticipants() async throws {
+        let (useCase, repo) = Self.makeSUT()
+
+        _ = try await useCase.saveDraft(
+            draftId: nil,
+            accountId: "acc1",
+            threadId: nil,
+            toAddresses: ["alice@example.com", "bob@example.com"],
+            ccAddresses: [],
+            bccAddresses: [],
+            subject: "Test Subject",
+            bodyPlain: "Body",
+            inReplyTo: nil,
+            references: nil,
+            attachments: []
+        )
+
+        let thread = try #require(repo.threads.first)
+        let participants = Participant.decode(from: thread.participants)
+        #expect(participants.count == 2)
+        #expect(participants.contains { $0.email == "alice@example.com" })
+        #expect(participants.contains { $0.email == "bob@example.com" })
+    }
+
     @Test("saveDraft updates existing draft")
     func saveDraftUpdatesExisting() async throws {
         let (useCase, repo) = Self.makeSUT()

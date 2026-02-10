@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Use case for email composition lifecycle: drafts, sending, and undo.
 ///
@@ -125,6 +126,13 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
                 existingEmail.dateSent = Date()
                 try await repository.saveEmail(existingEmail)
 
+                try await updateThreadMetadata(
+                    threadId: existingEmail.threadId,
+                    subject: subject,
+                    bodyPlain: bodyPlain,
+                    recipients: toAddresses
+                )
+
                 // Sync attachments: remove old, add current
                 try await syncAttachments(attachments, for: existingEmail)
 
@@ -133,10 +141,13 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
 
             // Create new draft
             let resolvedThreadId = threadId ?? UUID().uuidString
+            let messageId = "<\(UUID().uuidString)@privatemail.local>"
+            let localEmailId = stableId(accountId: accountId, messageId: messageId)
             let email = Email(
+                id: localEmailId,
                 accountId: accountId,
                 threadId: resolvedThreadId,
-                messageId: "<\(UUID().uuidString)@privatemail.local>",
+                messageId: messageId,
                 inReplyTo: inReplyTo,
                 references: references,
                 fromAddress: "",  // Will be set from account on send
@@ -160,7 +171,9 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
                     latestDate: Date(),
                     messageCount: 1,
                     unreadCount: 0,
-                    isStarred: false
+                    isStarred: false,
+                    snippet: makeSnippet(from: bodyPlain),
+                    participants: Participant.encode(recipientsAsParticipants(toAddresses))
                 )
                 try await repository.saveThread(thread)
             }
@@ -432,6 +445,9 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
             // Update thread
             if let thread = email.thread {
                 thread.latestDate = email.dateSent
+                thread.subject = email.subject
+                thread.snippet = makeSnippet(from: email.bodyPlain ?? "")
+                thread.participants = Participant.encode(recipientsAsParticipants(toAddresses))
                 try await repository.saveThread(thread)
             }
 
@@ -596,5 +612,41 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
             return []
         }
         return addresses
+    }
+
+    private func updateThreadMetadata(
+        threadId: String,
+        subject: String,
+        bodyPlain: String,
+        recipients: [String]
+    ) async throws {
+        guard let thread = try await repository.getThread(id: threadId) else { return }
+        thread.subject = subject
+        thread.snippet = makeSnippet(from: bodyPlain)
+        thread.participants = Participant.encode(recipientsAsParticipants(recipients))
+        try await repository.saveThread(thread)
+    }
+
+    private func recipientsAsParticipants(_ recipients: [String]) -> [Participant] {
+        recipients.compactMap { raw in
+            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { return nil }
+            return Participant(name: nil, email: value)
+        }
+    }
+
+    private func makeSnippet(from text: String) -> String? {
+        let cleaned = text
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        return String(cleaned.prefix(150))
+    }
+
+    private func stableId(accountId: String, messageId: String) -> String {
+        let input = "\(accountId)_\(messageId)"
+        let hash = SHA256.hash(data: Data(input.utf8))
+        return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 }

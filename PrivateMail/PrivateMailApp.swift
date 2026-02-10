@@ -23,7 +23,8 @@ struct PrivateMailApp: App {
     let aiProcessingQueue: AIProcessingQueue
     let summarizeThread: SummarizeThreadUseCase
     let smartReply: SmartReplyUseCase
-
+    
+    /// <#Description#>
     init() {
         do {
             modelContainer = try ModelContainerFactory.create()

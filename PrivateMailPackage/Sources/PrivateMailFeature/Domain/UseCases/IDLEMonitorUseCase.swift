@@ -62,6 +62,8 @@ public final class IDLEMonitorUseCase: IDLEMonitorUseCaseProtocol {
 
         return AsyncStream { continuation in
             let task = Task { @MainActor in
+                var checkedOutClient: (any IMAPClientProtocol)?
+                var checkedOutAccountId: String?
                 do {
                     // 1. Resolve account credentials
                     let accounts = try await accountRepo.getAccounts()
@@ -87,14 +89,8 @@ public final class IDLEMonitorUseCase: IDLEMonitorUseCaseProtocol {
                         email: account.email,
                         accessToken: token.accessToken
                     )
-
-                    // Always return the connection to the pool, even if
-                    // selectFolder or startIDLE throws.
-                    defer {
-                        Task {
-                            await provider.checkinConnection(client, accountId: account.id)
-                        }
-                    }
+                    checkedOutClient = client
+                    checkedOutAccountId = account.id
 
                     // 3. Select the folder for IDLE
                     _ = try await client.selectFolder(folderImapPath)
@@ -109,14 +105,23 @@ public final class IDLEMonitorUseCase: IDLEMonitorUseCaseProtocol {
                         try await Task.sleep(for: .seconds(1))
                     }
 
-                    // Cleanup: stop IDLE (checkin handled by defer)
+                    // Cleanup: stop IDLE (connection check-in is handled after do/catch).
                     try? await client.stopIDLE()
 
                 } catch {
                     NSLog("[IDLE] Monitor error for \(accountId): \(error)")
+
+                    // Ensure stale/broken sockets do not get reused from the pool.
+                    // This prevents retry loops with IMAPError.connectionFailed("Not connected").
+                    if let client = checkedOutClient {
+                        try? await client.disconnect()
+                    }
                     continuation.yield(.disconnected)
                 }
 
+                if let client = checkedOutClient {
+                    await provider.checkinConnection(client, accountId: checkedOutAccountId ?? accountId)
+                }
                 continuation.finish()
             }
 

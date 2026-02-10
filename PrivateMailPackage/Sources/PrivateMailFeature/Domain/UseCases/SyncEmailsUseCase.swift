@@ -87,6 +87,30 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
 
     @discardableResult
     public func syncAccount(accountId: String) async throws -> [Email] {
+        do {
+            return try await syncAccountOnce(accountId: accountId)
+        } catch {
+            guard shouldResetConnection(after: error) else { throw error }
+            NSLog("[Sync] Retrying syncAccount after connection reset for \(accountId)")
+            return try await syncAccountOnce(accountId: accountId)
+        }
+    }
+
+    @discardableResult
+    public func syncFolder(accountId: String, folderId: String) async throws -> [Email] {
+        do {
+            return try await syncFolderOnce(accountId: accountId, folderId: folderId)
+        } catch {
+            guard shouldResetConnection(after: error) else { throw error }
+            NSLog("[Sync] Retrying syncFolder after connection reset for \(accountId):\(folderId)")
+            return try await syncFolderOnce(accountId: accountId, folderId: folderId)
+        }
+    }
+
+    // MARK: - Internal Sync Runs
+
+    @discardableResult
+    private func syncAccountOnce(accountId: String) async throws -> [Email] {
         NSLog("[Sync] syncAccount started for \(accountId)")
         let account = try await findAccount(id: accountId)
         NSLog("[Sync] Found account: \(account.email), host: \(account.imapHost):\(account.imapPort)")
@@ -145,6 +169,9 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             await connectionProvider.checkinConnection(client, accountId: account.id)
             return allSyncedEmails
         } catch {
+            if shouldResetConnection(after: error) {
+                try? await client.disconnect()
+            }
             NSLog("[Sync] syncAccount ERROR: \(error)")
             await connectionProvider.checkinConnection(client, accountId: account.id)
             throw error
@@ -152,7 +179,7 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     }
 
     @discardableResult
-    public func syncFolder(accountId: String, folderId: String) async throws -> [Email] {
+    private func syncFolderOnce(accountId: String, folderId: String) async throws -> [Email] {
         let account = try await findAccount(id: accountId)
         let token = try await getAccessToken(for: account)
 
@@ -183,6 +210,9 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             await connectionProvider.checkinConnection(client, accountId: account.id)
             return newEmails
         } catch {
+            if shouldResetConnection(after: error) {
+                try? await client.disconnect()
+            }
             await connectionProvider.checkinConnection(client, accountId: account.id)
             throw error
         }
@@ -221,6 +251,13 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             }
             throw SyncError.tokenRefreshFailed(error.localizedDescription)
         }
+    }
+
+    private func shouldResetConnection(after error: Error) -> Bool {
+        if case IMAPError.connectionFailed = error {
+            return true
+        }
+        return false
     }
 
     // MARK: - Folder Sync
@@ -360,12 +397,22 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 )
 
                 // Map to Email model
-                let email = mapToEmail(
+                let mappedEmail = mapToEmail(
                     header: header,
                     body: body,
                     accountId: account.id,
                     threadId: threadId
                 )
+                let email: Email
+                if let existing = try await emailRepository.getEmailByMessageId(
+                    mappedEmail.messageId,
+                    accountId: account.id
+                ) {
+                    applyServerFields(from: mappedEmail, to: existing)
+                    email = existing
+                } else {
+                    email = mappedEmail
+                }
                 try await emailRepository.saveEmail(email)
 
                 // Create EmailFolder join
@@ -605,6 +652,33 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             authenticationResults: header.authenticationResults,
             sizeBytes: Int(header.size)
         )
+    }
+
+    /// Merge server truth into an existing local email model (same Message-ID).
+    /// Keeps local identity while preventing duplicate sent records.
+    private func applyServerFields(from source: Email, to target: Email) {
+        target.accountId = source.accountId
+        target.messageId = source.messageId
+        target.inReplyTo = source.inReplyTo
+        target.references = source.references
+        target.fromAddress = source.fromAddress
+        target.fromName = source.fromName
+        target.toAddresses = source.toAddresses
+        target.ccAddresses = source.ccAddresses
+        target.bccAddresses = source.bccAddresses
+        target.subject = source.subject
+        target.bodyPlain = source.bodyPlain
+        target.bodyHTML = source.bodyHTML
+        target.snippet = source.snippet
+        target.dateReceived = source.dateReceived
+        target.dateSent = source.dateSent
+        target.isRead = source.isRead
+        target.isStarred = source.isStarred
+        target.isDraft = source.isDraft
+        target.isDeleted = source.isDeleted
+        target.aiCategory = source.aiCategory
+        target.authenticationResults = source.authenticationResults
+        target.sizeBytes = source.sizeBytes
     }
 
     /// Map IMAP attachment info to an Attachment model.

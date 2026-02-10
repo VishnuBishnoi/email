@@ -199,7 +199,8 @@ struct IDLEMonitorUseCaseTests {
         #expect(events == [.disconnected])
         #expect(provider.checkoutCount == 1)
         // Connection must be returned even though selectFolder threw
-        // Give the deferred Task a moment to execute
+        #expect(failingClient.disconnectCallCount == 1)
+        // Give async check-in a moment to execute
         try await Task.sleep(for: .milliseconds(100))
         #expect(provider.checkinCount == 1)
     }

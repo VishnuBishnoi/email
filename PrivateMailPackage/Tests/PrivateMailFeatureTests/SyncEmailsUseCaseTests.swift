@@ -311,6 +311,77 @@ struct SyncEmailsUseCaseTests {
         #expect(newlySaved == 1)
     }
 
+    @Test("syncAccount merges server copy into existing local email by Message-ID")
+    func syncAccountMergesExistingEmailByMessageId() async throws {
+        let account = createAccount()
+        try await addAccountToRepo(account)
+
+        let localThread = PrivateMailFeature.Thread(
+            id: "local-thread",
+            accountId: account.id,
+            subject: "Hello",
+            latestDate: Date(),
+            messageCount: 1,
+            unreadCount: 0,
+            isStarred: false
+        )
+        emailRepo.threads.append(localThread)
+
+        let localEmail = Email(
+            id: "local-email-id",
+            accountId: account.id,
+            threadId: localThread.id,
+            messageId: "<same-message-id@gmail.com>",
+            fromAddress: "",
+            toAddresses: "[\"friend@example.com\"]",
+            subject: "Hello",
+            bodyPlain: "Local draft body",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.sent.rawValue
+        )
+        localEmail.thread = localThread
+        emailRepo.emails.append(localEmail)
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Sent Mail",
+                imapPath: "[Gmail]/Sent Mail",
+                attributes: ["\\Sent"],
+                uidValidity: 1,
+                messageCount: 1
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 1))
+        mockIMAPClient.searchUIDsResult = .success([777])
+        mockIMAPClient.fetchHeadersResult = .success([
+            IMAPEmailHeader(
+                uid: 777,
+                messageId: "<same-message-id@gmail.com>",
+                inReplyTo: nil,
+                references: nil,
+                from: "Me <test@gmail.com>",
+                to: ["friend@example.com"],
+                subject: "Hello",
+                date: Date(),
+                flags: ["\\Seen"]
+            )
+        ])
+        mockIMAPClient.fetchBodiesResult = .success([
+            IMAPEmailBody(uid: 777, plainText: "Server body", htmlText: nil)
+        ])
+
+        let useCase = sut
+        try await useCase.syncAccount(accountId: account.id)
+
+        #expect(emailRepo.emails.count == 1)
+        let merged = try #require(emailRepo.emails.first)
+        #expect(merged.id == "local-email-id")
+        #expect(merged.fromAddress == "test@gmail.com")
+        #expect(merged.bodyPlain == "Server body")
+    }
+
     // MARK: - Threading
 
     @Test("threading groups emails by inReplyTo")
@@ -591,6 +662,30 @@ struct SyncEmailsUseCaseTests {
 
         // Only 1 upsert because alice@example.com appears in both From and To
         #expect(emailRepo.upsertContactCallCount == 1)
+    }
+
+    @Test("syncAccount disconnects broken IMAP client on connectionFailed")
+    func syncAccountDisconnectsBrokenClient() async throws {
+        let account = createAccount()
+        try await addAccountToRepo(account)
+
+        mockIMAPClient.listFoldersResult = .failure(.connectionFailed("Not connected"))
+
+        let provider = connectionProvider
+        let useCase = SyncEmailsUseCase(
+            accountRepository: accountRepo,
+            emailRepository: emailRepo,
+            keychainManager: keychainManager,
+            connectionPool: provider
+        )
+
+        await #expect(throws: IMAPError.self) {
+            _ = try await useCase.syncAccount(accountId: account.id)
+        }
+
+        // Two attempts: initial failure + one automatic retry.
+        #expect(mockIMAPClient.disconnectCallCount == 2)
+        #expect(provider.checkinCount == 2)
     }
 
     // MARK: - syncFolder
