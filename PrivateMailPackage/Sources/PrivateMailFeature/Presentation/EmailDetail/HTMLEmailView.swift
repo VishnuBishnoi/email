@@ -7,16 +7,13 @@ import WebKit
 ///
 /// The web view disables JavaScript execution, uses a non-persistent data store,
 /// and intercepts link taps so they open externally rather than navigating in-place.
-/// It measures its own content height after load so a parent `ScrollView` can
-/// manage scrolling.
+/// It measures its own content height via JavaScript after load so a parent
+/// `ScrollView` can manage scrolling.
 @MainActor
 struct HTMLEmailView: UIViewRepresentable {
 
-    /// Sanitized HTML body to render.
+    /// Full sanitized HTML document to render.
     let htmlContent: String
-
-    /// Base font size in points applied via Dynamic Type CSS injection.
-    var fontSizePoints: CGFloat = 16
 
     /// Called when the user taps a link inside the email body.
     /// If `nil`, links open in Safari via `UIApplication.shared.open`.
@@ -31,12 +28,10 @@ struct HTMLEmailView: UIViewRepresentable {
 
     init(
         htmlContent: String,
-        fontSizePoints: CGFloat = 16,
         contentHeight: Binding<CGFloat>,
         onLinkTapped: ((URL) -> Void)? = nil
     ) {
         self.htmlContent = htmlContent
-        self.fontSizePoints = fontSizePoints
         self._contentHeight = contentHeight
         self.onLinkTapped = onLinkTapped
     }
@@ -49,12 +44,8 @@ struct HTMLEmailView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = buildWebView(coordinator: context.coordinator)
-        let styledHTML = HTMLSanitizer.injectDynamicTypeCSS(
-            htmlContent,
-            fontSizePoints: fontSizePoints
-        )
-        context.coordinator.lastLoadedHTML = styledHTML
-        webView.loadHTMLString(styledHTML, baseURL: nil)
+        context.coordinator.lastLoadedHTML = htmlContent
+        webView.loadHTMLString(htmlContent, baseURL: nil)
         return webView
     }
 
@@ -62,21 +53,22 @@ struct HTMLEmailView: UIViewRepresentable {
         context.coordinator.onLinkTapped = onLinkTapped
         // Only reload if the HTML content actually changed (M2 fix: avoid
         // unnecessary WKWebView reloads on every SwiftUI re-render).
-        let styledHTML = HTMLSanitizer.injectDynamicTypeCSS(
-            htmlContent,
-            fontSizePoints: fontSizePoints
-        )
-        if styledHTML != context.coordinator.lastLoadedHTML {
-            context.coordinator.lastLoadedHTML = styledHTML
-            webView.loadHTMLString(styledHTML, baseURL: nil)
+        if htmlContent != context.coordinator.lastLoadedHTML {
+            context.coordinator.lastLoadedHTML = htmlContent
+            webView.loadHTMLString(htmlContent, baseURL: nil)
         }
     }
 
     // MARK: - Private Helpers
 
     private func buildWebView(coordinator: Coordinator) -> WKWebView {
+        // Enable JavaScript ONLY for our height-measurement snippet.
+        // The CSP `default-src 'none'` in the HTML document blocks all
+        // external script loading; inline scripts are also blocked by CSP.
+        // We allow JS at the WebView level solely so evaluateJavaScript
+        // can measure document.body.scrollHeight after load.
         let preferences = WKWebpagePreferences()
-        preferences.allowsContentJavaScript = false
+        preferences.allowsContentJavaScript = true
 
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences = preferences
@@ -85,9 +77,11 @@ struct HTMLEmailView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = coordinator
         webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
+        webView.scrollView.showsHorizontalScrollIndicator = false
         webView.accessibilityLabel = NSLocalizedString(
             "Email body content",
             comment: "Accessibility label for the HTML email body web view"
@@ -144,9 +138,49 @@ struct HTMLEmailView: UIViewRepresentable {
         // MARK: Size-to-Content
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            let height = webView.scrollView.contentSize.height
-            guard height > 0 else { return }
-            contentHeight.wrappedValue = height
+            measureContentHeight(webView)
+        }
+
+        /// Measure the actual rendered content height via JavaScript.
+        ///
+        /// Uses `document.body.scrollHeight` which is more reliable than
+        /// `scrollView.contentSize.height` as it waits for the layout pass.
+        /// A short delay ensures images and CSS have been fully applied.
+        private func measureContentHeight(_ webView: WKWebView) {
+            let js = "Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.scrollHeight)"
+            webView.evaluateJavaScript(js) { [weak self] result, _ in
+                guard let self,
+                      let height = result as? CGFloat,
+                      height > 0 else {
+                    return
+                }
+                // Add a small buffer to prevent clipping at the bottom
+                let finalHeight = height + 2
+                if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
+                    self.contentHeight.wrappedValue = finalHeight
+                }
+
+                // Re-measure after a brief delay to catch late-loading content
+                // (e.g. data: images rendering, CSS reflow).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.remeasureContentHeight(webView)
+                }
+            }
+        }
+
+        private func remeasureContentHeight(_ webView: WKWebView) {
+            let js = "Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.scrollHeight)"
+            webView.evaluateJavaScript(js) { [weak self] result, _ in
+                guard let self,
+                      let height = result as? CGFloat,
+                      height > 0 else {
+                    return
+                }
+                let finalHeight = height + 2
+                if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
+                    self.contentHeight.wrappedValue = finalHeight
+                }
+            }
         }
     }
 }

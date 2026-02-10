@@ -43,10 +43,17 @@ public enum HTMLSanitizer {
 
         var result = html
 
+        // --- Phase 0: Strip leaked IMAP protocol framing ---
+        // Older synced emails may contain raw IMAP framing (e.g.
+        // "BODY[1] {8609} ...") appended to the body due to a parser
+        // bug that didn't respect literal length prefixes.
+        result = stripIMAPFraming(result)
+
         // --- Phase 1: Strip tags WITH their content ---
         result = stripTagsWithContent(result, tags: ["script", "noscript"])
         result = stripTagsWithContent(result, tags: ["style"])
         result = stripTagsWithContent(result, tags: ["object", "embed", "applet"])
+        result = stripTagsWithContent(result, tags: ["svg", "math", "template"])
 
         // --- Phase 2: Strip specific tags keeping text content ---
         result = stripTagsKeepingContent(result, tags: ["iframe", "frame", "frameset"])
@@ -61,6 +68,8 @@ public enum HTMLSanitizer {
 
         // --- Phase 5: Clean attributes ---
         result = stripEventHandlerAttributes(result)
+        result = stripSourceSetAttributes(result)
+        result = stripStyleAttributesWithPotentialRemoteLoads(result)
 
         // --- Phase 6: Neutralize dangerous URI schemes ---
         result = neutralizeJavaScriptURIs(result)
@@ -93,26 +102,121 @@ public enum HTMLSanitizer {
     /// - Returns: Complete HTML document string.
     public static func injectDynamicTypeCSS(
         _ html: String,
-        fontSizePoints: CGFloat
+        fontSizePoints: CGFloat,
+        allowRemoteImages: Bool = false
     ) -> String {
         let sizeString = String(format: "%.0f", fontSizePoints)
+        let imgSourcePolicy = allowRemoteImages ? "http: https: data:" : "data:"
+
+        // Strip any existing <html>, <head>, <body> wrappers from the email
+        // to avoid nested document structures that confuse rendering.
+        let bodyContent = extractBodyContent(html)
+
         return """
+        <!DOCTYPE html>\
         <html>\
         <head>\
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">\
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src https: data:;">\
+        <meta charset="utf-8">\
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src \(imgSourcePolicy);">\
         <style>\
-        body{\
-        font-size:\(sizeString)pt;\
-        word-wrap:break-word;\
-        overflow-wrap:break-word;\
+        *{box-sizing:border-box;}\
+        html,body{\
+        margin:0;padding:0;\
+        width:100%;\
         -webkit-text-size-adjust:none;\
         }\
+        body{\
+        font-size:\(sizeString)pt;\
+        font-family:-apple-system,system-ui,sans-serif;\
+        line-height:1.5;\
+        color:#1a1a1a;\
+        word-wrap:break-word;\
+        overflow-wrap:break-word;\
+        overflow-x:hidden;\
+        padding:0 2px;\
+        }\
+        img{max-width:100%;height:auto;}\
+        table{max-width:100%;border-collapse:collapse;}\
+        td,th{word-break:break-word;}\
+        pre,code{white-space:pre-wrap;word-wrap:break-word;max-width:100%;overflow-x:auto;}\
+        blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #ddd;}\
+        a{color:#007AFF;}\
+        .pm-quoted-text{border-left:3px solid #ccc;padding-left:10px;margin:8px 0;color:#666;}\
         </style>\
         </head>\
-        <body>\(html)</body>\
+        <body>\(bodyContent)</body>\
         </html>
         """
+    }
+
+    /// Extract the inner body content from HTML, stripping any existing
+    /// document wrappers (`<html>`, `<head>`, `<body>` tags) to prevent
+    /// nested document structures.
+    private static func extractBodyContent(_ html: String) -> String {
+        var result = html
+
+        // Remove DOCTYPE
+        result = result.replacingOccurrences(
+            of: "<!DOCTYPE[^>]*>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Remove <html> and </html>
+        result = result.replacingOccurrences(
+            of: "</?html[^>]*>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Remove <head>...</head> (content already stripped by sanitizer phases)
+        result = result.replacingOccurrences(
+            of: "<head[^>]*>[\\s\\S]*?</head\\s*>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        // Remove orphan <head> tags
+        result = result.replacingOccurrences(
+            of: "</?head[^>]*>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        // Remove <body> and </body> tags (keep content)
+        result = result.replacingOccurrences(
+            of: "</?body[^>]*>",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - IMAP Framing Cleanup
+
+    /// Strips leaked IMAP protocol framing from stored email bodies.
+    ///
+    /// A previous parser bug failed to respect IMAP literal length prefixes,
+    /// causing raw protocol data like `BODY[1] {8609} ...content...` to be
+    /// appended to the email body. This method removes such framing so
+    /// already-synced emails render correctly.
+    ///
+    /// Also exposed as a public API so plain-text bodies can be cleaned too.
+    public static func stripIMAPFraming(_ text: String) -> String {
+        // Match "BODY[" (case-insensitive) followed by anything — this is always
+        // IMAP protocol framing and never legitimate email content.
+        // Truncate everything from the first occurrence of BODY[ onward.
+        guard let range = text.range(
+            of: "BODY\\[",
+            options: [.regularExpression, .caseInsensitive]
+        ) else {
+            return text
+        }
+
+        let cleaned = String(text[..<range.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? text : cleaned
     }
 
     // MARK: - Private Helpers
@@ -214,6 +318,53 @@ public enum HTMLSanitizer {
             with: "",
             options: [.regularExpression, .caseInsensitive]
         )
+    }
+
+    /// Remove `srcset` attributes to avoid remote fetch paths outside `img[src]`.
+    private static func stripSourceSetAttributes(_ html: String) -> String {
+        let pattern = "\\s+srcset\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)"
+        return html.replacingOccurrences(
+            of: pattern,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
+
+    /// Drop inline styles that can trigger remote fetches (`url(...)`, `@import`).
+    private static func stripStyleAttributesWithPotentialRemoteLoads(_ html: String) -> String {
+        let pattern = "\\s+style\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')"
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: .caseInsensitive
+        ) else {
+            return html
+        }
+
+        let nsHTML = html as NSString
+        let matches = regex.matches(
+            in: html,
+            range: NSRange(location: 0, length: nsHTML.length)
+        )
+        guard !matches.isEmpty else { return html }
+
+        var result = html
+        for match in matches.reversed() {
+            guard let fullRange = Range(match.range, in: result) else { continue }
+
+            let valueRange = match.range(at: 1).location != NSNotFound
+                ? match.range(at: 1)
+                : match.range(at: 2)
+            guard valueRange.location != NSNotFound,
+                  let resolvedValueRange = Range(valueRange, in: result) else {
+                continue
+            }
+
+            let styleValue = String(result[resolvedValueRange]).lowercased()
+            if styleValue.contains("url(") || styleValue.contains("@import") {
+                result.removeSubrange(fullRange)
+            }
+        }
+        return result
     }
 
     /// Replace `javascript:` URIs in href, src, action attributes with `#`.
@@ -353,8 +504,8 @@ public enum HTMLSanitizer {
         attribute: String,
         isAllowed: (String) -> Bool
     ) -> String {
-        // Pattern: attr = "value" or attr = 'value'
-        let pattern = "(\(attribute)\\s*=\\s*)([\"'])([^\"']*?)\\2"
+        // Pattern: attr = "value" or attr = 'value' or attr = bareValue
+        let pattern = "(\\b\(attribute)\\s*=\\s*)(?:([\"'])([^\"']*?)\\2|([^\\s>]+))"
         guard let regex = try? NSRegularExpression(
             pattern: pattern,
             options: .caseInsensitive
@@ -373,20 +524,117 @@ public enum HTMLSanitizer {
         var result = html
         // Replace in reverse order so ranges stay valid.
         for match in matches.reversed() {
-            guard match.numberOfRanges >= 4,
+            guard match.numberOfRanges >= 5,
                   let fullRange = Range(match.range, in: result),
-                  let prefixRange = Range(match.range(at: 1), in: result),
-                  let quoteRange = Range(match.range(at: 2), in: result),
-                  let valueRange = Range(match.range(at: 3), in: result) else {
+                  let prefixRange = Range(match.range(at: 1), in: result) else {
                 continue
             }
             let prefix = String(result[prefixRange])
-            let quote = String(result[quoteRange])
-            let value = String(result[valueRange])
+            let quoteRange = match.range(at: 2)
+            let quotedValueRange = match.range(at: 3)
+            let unquotedValueRange = match.range(at: 4)
 
-            if !isAllowed(value) {
+            let quote = quoteRange.location == NSNotFound
+                ? "\""
+                : String(result[Range(quoteRange, in: result)!])
+            let rawValue: String
+            if quotedValueRange.location != NSNotFound,
+               let range = Range(quotedValueRange, in: result) {
+                rawValue = String(result[range])
+            } else if unquotedValueRange.location != NSNotFound,
+                      let range = Range(unquotedValueRange, in: result) {
+                rawValue = String(result[range])
+            } else {
+                continue
+            }
+
+            let canonical = canonicalizedURIForValidation(rawValue)
+            if !isAllowed(canonical) {
                 result.replaceSubrange(fullRange, with: "\(prefix)\(quote)#\(quote)")
             }
+        }
+        return result
+    }
+
+    /// Normalize URI attribute values before allow-list checks.
+    ///
+    /// Handles entity-obfuscated schemes (e.g. `jav&#x61;script:`) and strips
+    /// control/whitespace characters sometimes used to evade prefix checks.
+    private static func canonicalizedURIForValidation(_ value: String) -> String {
+        let decoded = decodeHTMLEntities(value)
+        let filteredScalars = decoded.unicodeScalars.filter { scalar in
+            !(CharacterSet.controlCharacters.contains(scalar) || CharacterSet.whitespacesAndNewlines.contains(scalar))
+        }
+        return String(String.UnicodeScalarView(filteredScalars)).lowercased()
+    }
+
+    private static func decodeHTMLEntities(_ value: String) -> String {
+        var decoded = value
+
+        // Numeric entities (decimal): &#106;
+        if let decimalRegex = try? NSRegularExpression(pattern: "&#([0-9]{1,7});?", options: []) {
+            decoded = replaceMatches(in: decoded, with: decimalRegex) { groups in
+                guard let number = Int(groups[0]),
+                      let scalar = UnicodeScalar(number) else {
+                    return ""
+                }
+                return String(Character(scalar))
+            }
+        }
+
+        // Numeric entities (hex): &#x6a;
+        if let hexRegex = try? NSRegularExpression(pattern: "&#x([0-9a-fA-F]{1,6});?", options: []) {
+            decoded = replaceMatches(in: decoded, with: hexRegex) { groups in
+                guard let number = Int(groups[0], radix: 16),
+                      let scalar = UnicodeScalar(number) else {
+                    return ""
+                }
+                return String(Character(scalar))
+            }
+        }
+
+        let namedEntityMap: [String: String] = [
+            "&colon;": ":",
+            "&tab;": "\t",
+            "&newline;": "\n",
+            "&nbsp;": " ",
+            "&amp;": "&",
+            "&quot;": "\"",
+            "&#39;": "'"
+        ]
+        for (entity, replacement) in namedEntityMap {
+            decoded = decoded.replacingOccurrences(
+                of: entity,
+                with: replacement,
+                options: .caseInsensitive
+            )
+        }
+
+        return decoded
+    }
+
+    private static func replaceMatches(
+        in value: String,
+        with regex: NSRegularExpression,
+        replacement: ([String]) -> String
+    ) -> String {
+        let nsValue = value as NSString
+        let matches = regex.matches(
+            in: value,
+            range: NSRange(location: 0, length: nsValue.length)
+        )
+        guard !matches.isEmpty else { return value }
+
+        var result = value
+        for match in matches.reversed() {
+            guard match.numberOfRanges >= 2,
+                  let fullRange = Range(match.range, in: result),
+                  let groupRange = Range(match.range(at: 1), in: result) else {
+                continue
+            }
+            let group = String(result[groupRange])
+            let replaced = replacement([group])
+            result.replaceSubrange(fullRange, with: replaced)
         }
         return result
     }
