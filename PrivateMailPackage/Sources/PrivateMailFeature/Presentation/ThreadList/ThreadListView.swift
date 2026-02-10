@@ -36,6 +36,7 @@ struct ThreadListView: View {
     var aiProcessingQueue: AIProcessingQueue?
     var summarizeThread: SummarizeThreadUseCaseProtocol?
     var smartReply: SmartReplyUseCaseProtocol?
+    var searchUseCase: SearchEmailsUseCase?
 
     @Environment(UndoSendManager.self) private var undoSendManager
 
@@ -112,9 +113,21 @@ struct ThreadListView: View {
     // Programmatic navigation for bottom tab bar
     @State private var navigationPath = NavigationPath()
 
+    // Inline search (Apple Mail style — FR-SEARCH-01)
+    @State private var isSearchActive = false
+    @State private var searchText = ""
+    @State private var searchResults: [SearchResult] = []
+    @State private var searchThreads: [PrivateMailFeature.Thread] = []
+    @State private var searchViewState: SearchViewState = .idle
+    @State private var searchFilters = SearchFilters()
+    @State private var isCurrentFolderScope = false
+    @State private var recentSearches: [String] = []
+
+    private let recentSearchesKey = "recentSearches"
+    private let maxRecentSearches = 10
+
     /// Destinations triggered from the bottom tab bar.
     enum TabDestination: Hashable {
-        case search
         case settings
         case aiChat
     }
@@ -162,8 +175,8 @@ struct ThreadListView: View {
         NavigationStack(path: $navigationPath) {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
-                    // Category tab bar
-                    if showCategoryTabs {
+                    // Category tab bar (hidden during search)
+                    if showCategoryTabs && !isSearchActive {
                         CategoryTabBar(
                             selectedCategory: $selectedCategory,
                             unreadCounts: unreadCounts
@@ -191,12 +204,12 @@ struct ThreadListView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                if !isMultiSelectMode {
+                if !isMultiSelectMode && !isSearchActive {
                     BottomTabBar(
                         folders: folders,
                         onSelectFolder: { folder in selectFolder(folder) },
                         onAccountTap: { showAccountSwitcher = true },
-                        onSearchTap: { navigationPath.append(TabDestination.search) },
+                        onSearchTap: { isSearchActive = true },
                         onComposeTap: {
                             let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
                             composerMode = .new(accountId: accountId)
@@ -206,9 +219,9 @@ struct ThreadListView: View {
                     )
                 }
             }
-            .navigationTitle(navigationTitle)
+            .navigationTitle(isSearchActive ? "" : navigationTitle)
             #if os(iOS)
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(isSearchActive ? .inline : .large)
             #endif
             .toolbar {
                 if isMultiSelectMode {
@@ -222,6 +235,20 @@ struct ThreadListView: View {
             }
             .navigationDestination(for: TabDestination.self) { destination in
                 tabDestinationView(for: destination)
+            }
+            .navigationDestination(for: String.self) { threadId in
+                EmailDetailView(
+                    threadId: threadId,
+                    fetchEmailDetail: fetchEmailDetail,
+                    markRead: markRead,
+                    manageThreadActions: manageThreadActions,
+                    downloadAttachment: downloadAttachment,
+                    summarizeThread: summarizeThread,
+                    smartReply: smartReply,
+                    composeEmail: composeEmail,
+                    queryContacts: queryContacts,
+                    accounts: accounts
+                )
             }
             .sheet(item: $composerMode) { mode in
                 composerSheet(for: mode)
@@ -243,6 +270,26 @@ struct ThreadListView: View {
         .onDisappear {
             stopIDLEMonitor()
         }
+        .task(id: SearchDebounceTrigger(text: searchText, filters: searchFilters, isCurrentFolderScope: isCurrentFolderScope)) {
+            guard isSearchActive else { return }
+            // 300ms debounce via task cancellation (FR-SEARCH-01)
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await performSearch()
+        }
+        .onChange(of: isSearchActive) { _, newValue in
+            if !newValue {
+                // Reset search state when dismissed
+                searchText = ""
+                searchResults = []
+                searchThreads = []
+                searchViewState = .idle
+                searchFilters = SearchFilters()
+                isCurrentFolderScope = false
+            } else {
+                loadRecentSearches()
+            }
+        }
     }
 
     // MARK: - Extracted Sheets & Destinations
@@ -250,8 +297,6 @@ struct ThreadListView: View {
     @ViewBuilder
     private func tabDestinationView(for destination: TabDestination) -> some View {
         switch destination {
-        case .search:
-            SearchPlaceholder()
         case .settings:
             SettingsView(manageAccounts: manageAccounts, modelManager: modelManager, aiEngineResolver: aiEngineResolver)
         case .aiChat:
@@ -306,6 +351,34 @@ struct ThreadListView: View {
 
     @ViewBuilder
     private var contentView: some View {
+        if isSearchActive {
+            SearchContentView(
+                searchText: $searchText,
+                viewState: searchViewState,
+                filters: $searchFilters,
+                isCurrentFolderScope: $isCurrentFolderScope,
+                currentFolderName: selectedFolder?.name,
+                threads: searchThreads,
+                searchResults: searchResults,
+                recentSearches: recentSearches,
+                onSelectRecentSearch: { query in
+                    searchText = query
+                },
+                onClearRecentSearches: {
+                    recentSearches = []
+                    UserDefaults.standard.removeObject(forKey: recentSearchesKey)
+                },
+                onDismiss: {
+                    isSearchActive = false
+                }
+            )
+        } else {
+            threadListContentView
+        }
+    }
+
+    @ViewBuilder
+    private var threadListContentView: some View {
         switch viewState {
         case .loading:
             loadingView
@@ -377,20 +450,6 @@ struct ThreadListView: View {
             }
             await reloadThreads()
             runAIClassification(for: syncedEmails)
-        }
-        .navigationDestination(for: String.self) { threadId in
-            EmailDetailView(
-                threadId: threadId,
-                fetchEmailDetail: fetchEmailDetail,
-                markRead: markRead,
-                manageThreadActions: manageThreadActions,
-                downloadAttachment: downloadAttachment,
-                summarizeThread: summarizeThread,
-                smartReply: smartReply,
-                composeEmail: composeEmail,
-                queryContacts: queryContacts,
-                accounts: accounts
-            )
         }
         .accessibilityLabel("Email threads")
     }
@@ -1047,6 +1106,119 @@ struct ThreadListView: View {
         queue.enqueue(emails: sorted)
     }
 
+    // MARK: - Inline Search (FR-SEARCH-01..03)
+
+    /// Execute hybrid search with the current query and filters.
+    private func performSearch() async {
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+
+        // Return to idle when query and filters are empty
+        if trimmed.isEmpty && !searchFilters.hasActiveFilters {
+            searchViewState = .idle
+            searchResults = []
+            return
+        }
+
+        searchViewState = .searching
+
+        guard let searchUseCase else {
+            searchViewState = .empty
+            return
+        }
+
+        // Build scope from current selection
+        let scope: SearchScope
+        if isCurrentFolderScope, let folderId = selectedFolder?.id {
+            scope = .currentFolder(folderId: folderId)
+        } else {
+            scope = .allMail
+        }
+
+        // Parse natural language query
+        var query = SearchQueryParser.parse(trimmed, scope: scope)
+        // Merge manual filter chips with NL-parsed filters
+        query.filters = mergeSearchFilters(parsed: query.filters, manual: searchFilters)
+
+        // Resolve AI engine for semantic search (nil-safe graceful degradation)
+        let engine: (any AIEngineProtocol)?
+        if let resolver = aiEngineResolver {
+            engine = await resolver.resolveGenerativeEngine()
+        } else {
+            engine = nil
+        }
+
+        // Execute hybrid search
+        let results = await searchUseCase.execute(query: query, engine: engine)
+
+        guard !Task.isCancelled else { return }
+
+        searchResults = results
+
+        // Deduplicate thread IDs preserving first (highest-scored) occurrence (P2 fix)
+        var seenThreadIds = Set<String>()
+        var uniqueThreadIds: [String] = []
+        for result in results {
+            if seenThreadIds.insert(result.threadId).inserted {
+                uniqueThreadIds.append(result.threadId)
+            }
+        }
+
+        // Fetch full Thread objects from SwiftData for unified ThreadRowView display
+        let fetchedThreads = fetchThreadsForSearch(ids: uniqueThreadIds)
+        // Preserve search ranking order
+        let threadMap = Dictionary(uniqueKeysWithValues: fetchedThreads.map { ($0.id, $0) })
+        searchThreads = uniqueThreadIds.compactMap { threadMap[$0] }
+
+        searchViewState = searchThreads.isEmpty ? .empty : .results
+
+        // Save to recent searches
+        if !trimmed.isEmpty {
+            saveRecentSearch(trimmed)
+        }
+    }
+
+    /// Fetch Thread objects from SwiftData matching the given IDs.
+    private func fetchThreadsForSearch(ids: [String]) -> [PrivateMailFeature.Thread] {
+        guard !ids.isEmpty else { return [] }
+        let idSet = Set(ids)
+        let descriptor = FetchDescriptor<PrivateMailFeature.Thread>(
+            predicate: #Predicate<PrivateMailFeature.Thread> { thread in
+                idSet.contains(thread.id)
+            }
+        )
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    /// Merges manually-applied filter chips with filters extracted from NL parsing.
+    /// Manual filters take priority over parsed ones.
+    private func mergeSearchFilters(parsed: SearchFilters, manual: SearchFilters) -> SearchFilters {
+        SearchFilters(
+            sender: manual.sender ?? parsed.sender,
+            dateRange: manual.dateRange ?? parsed.dateRange,
+            hasAttachment: manual.hasAttachment ?? parsed.hasAttachment,
+            folder: manual.folder ?? parsed.folder,
+            category: manual.category ?? parsed.category,
+            isRead: manual.isRead ?? parsed.isRead
+        )
+    }
+
+    // MARK: - Recent Searches Persistence
+
+    private func loadRecentSearches() {
+        recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
+    }
+
+    private func saveRecentSearch(_ query: String) {
+        var searches = recentSearches
+        searches.removeAll { $0 == query }
+        searches.insert(query, at: 0)
+        if searches.count > maxRecentSearches {
+            searches = Array(searches.prefix(maxRecentSearches))
+        }
+        recentSearches = searches
+        UserDefaults.standard.set(searches, forKey: recentSearchesKey)
+    }
+
     // MARK: - Helpers
 
     /// Icon for a folder based on its type.
@@ -1065,4 +1237,14 @@ struct ThreadListView: View {
         case .custom: return "folder"
         }
     }
+}
+
+// MARK: - Search Debounce Trigger
+
+/// Equatable trigger for .task(id:) — changes to text or filters cancel the
+/// previous task and start a new debounced search.
+private struct SearchDebounceTrigger: Equatable {
+    let text: String
+    let filters: SearchFilters
+    let isCurrentFolderScope: Bool
 }

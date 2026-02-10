@@ -41,6 +41,7 @@ public struct ContentView: View {
     let aiProcessingQueue: AIProcessingQueue
     let summarizeThread: SummarizeThreadUseCaseProtocol
     let smartReply: SmartReplyUseCaseProtocol
+    let searchUseCase: SearchEmailsUseCase?
 
     @State private var accounts: [Account] = []
     @State private var hasLoaded = false
@@ -65,7 +66,8 @@ public struct ContentView: View {
             detectSpam: DetectSpamUseCase(engineResolver: AIEngineResolver(modelManager: ModelManager()))
         ),
         summarizeThread: SummarizeThreadUseCaseProtocol,
-        smartReply: SmartReplyUseCaseProtocol
+        smartReply: SmartReplyUseCaseProtocol,
+        searchUseCase: SearchEmailsUseCase? = nil
     ) {
         self.manageAccounts = manageAccounts
         self.fetchThreads = fetchThreads
@@ -83,6 +85,7 @@ public struct ContentView: View {
         self.aiProcessingQueue = aiProcessingQueue
         self.summarizeThread = summarizeThread
         self.smartReply = smartReply
+        self.searchUseCase = searchUseCase
     }
 
     public var body: some View {
@@ -147,7 +150,8 @@ public struct ContentView: View {
             aiEngineResolver: aiEngineResolver,
             aiProcessingQueue: aiProcessingQueue,
             summarizeThread: summarizeThread,
-            smartReply: smartReply
+            smartReply: smartReply,
+            searchUseCase: searchUseCase
         )
         .environment(undoSendManager)
         .preferredColorScheme(settings.colorScheme)

@@ -38,6 +38,8 @@ public final class AIProcessingQueue: Sendable {
     private let detectSpam: DetectSpamUseCaseProtocol
     private let aiRepository: AIRepositoryProtocol?
     private let modelContainer: ModelContainer?
+    private let searchIndexManager: SearchIndexManager?
+    private let aiEngineResolver: AIEngineResolver?
 
     /// Batch size for processing. 50 emails per batch with yields between.
     private let batchSize = 50
@@ -54,12 +56,16 @@ public final class AIProcessingQueue: Sendable {
         categorize: CategorizeEmailUseCaseProtocol,
         detectSpam: DetectSpamUseCaseProtocol,
         aiRepository: AIRepositoryProtocol? = nil,
-        modelContainer: ModelContainer? = nil
+        modelContainer: ModelContainer? = nil,
+        searchIndexManager: SearchIndexManager? = nil,
+        aiEngineResolver: AIEngineResolver? = nil
     ) {
         self.categorize = categorize
         self.detectSpam = detectSpam
         self.aiRepository = aiRepository
         self.modelContainer = modelContainer
+        self.searchIndexManager = searchIndexManager
+        self.aiEngineResolver = aiEngineResolver
     }
 
     // MARK: - Public API
@@ -152,23 +158,37 @@ public final class AIProcessingQueue: Sendable {
         }
     }
 
-    // MARK: - Embedding Generation & Indexing (FR-AI-05)
+    // MARK: - Embedding Generation & Indexing (FR-AI-05, FR-SEARCH-08)
 
-    /// Generate embeddings for a batch of emails and persist in SearchIndex.
+    /// Generate embeddings and index emails for search.
     ///
-    /// Each email gets a SearchIndex entry with its text content and (optionally)
-    /// an AI-generated embedding vector. If the engine doesn't support embeddings
-    /// (returns empty Data), the email is still indexed for keyword search.
+    /// Delegates to SearchIndexManager (single owner of search index mutations)
+    /// when available. Falls back to direct SearchIndex manipulation for
+    /// backward compatibility.
     ///
-    /// Uses `modelContainer` to create a background `ModelContext` for persistence.
-    /// Incrementally updates the semantic index per spec requirement.
-    ///
-    /// Spec ref: FR-AI-05, AC-A-07
+    /// Spec ref: FR-AI-05, FR-SEARCH-08
     private func generateEmbeddings(
         for emails: [Email],
         using repo: AIRepositoryProtocol,
         generation: Int
     ) async {
+        // Delegate to SearchIndexManager when available (FR-SEARCH-08: single owner)
+        if let indexManager = searchIndexManager {
+            // Resolve embedding engine (P0 fix: was passing nil, disabling semantic indexing)
+            let engine: (any AIEngineProtocol)?
+            if let resolver = aiEngineResolver {
+                engine = await resolver.resolveGenerativeEngine()
+            } else {
+                engine = nil
+            }
+            for email in emails {
+                guard !Task.isCancelled, self.generation == generation else { break }
+                await indexManager.indexEmail(email, engine: engine)
+            }
+            return
+        }
+
+        // Legacy fallback: direct SearchIndex manipulation
         guard let container = modelContainer else { return }
         let context = ModelContext(container)
 
@@ -180,18 +200,15 @@ public final class AIProcessingQueue: Sendable {
 
             let embedding = try? await repo.generateEmbedding(text: searchText)
 
-            // Upsert SearchIndex entry: update if exists, insert if new
             let emailId = email.id
             let descriptor = FetchDescriptor<SearchIndex>(
                 predicate: #Predicate { $0.emailId == emailId }
             )
 
             if let existing = try? context.fetch(descriptor).first {
-                // Update existing entry with new content and embedding
                 existing.content = searchText
                 existing.embedding = (embedding?.isEmpty == false) ? embedding : existing.embedding
             } else {
-                // Create new SearchIndex entry
                 let entry = SearchIndex(
                     emailId: email.id,
                     content: searchText,
@@ -201,7 +218,6 @@ public final class AIProcessingQueue: Sendable {
             }
         }
 
-        // Save batch — single write per batch for efficiency
         try? context.save()
     }
 }

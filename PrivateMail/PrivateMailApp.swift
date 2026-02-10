@@ -23,6 +23,10 @@ struct PrivateMailApp: App {
     let aiProcessingQueue: AIProcessingQueue
     let summarizeThread: SummarizeThreadUseCase
     let smartReply: SmartReplyUseCase
+    let fts5Manager: FTS5Manager
+    let vectorEngine: VectorSearchEngine
+    let searchIndexManager: SearchIndexManager
+    let searchUseCase: SearchEmailsUseCase
 
     init() {
         do {
@@ -105,11 +109,21 @@ struct PrivateMailApp: App {
         // AI summary + smart reply use cases
         let aiRepository = AIRepositoryImpl(engineResolver: aiEngineResolver)
 
+        // Search infrastructure (IOS-S-01..05)
+        let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        try? FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true)
+        fts5Manager = FTS5Manager(databaseDirectoryURL: appSupportDir)
+        vectorEngine = VectorSearchEngine()
+        searchIndexManager = SearchIndexManager(fts5Manager: fts5Manager, modelContainer: modelContainer)
+        searchUseCase = SearchEmailsUseCase(fts5Manager: fts5Manager, vectorEngine: vectorEngine, modelContainer: modelContainer)
+
         aiProcessingQueue = AIProcessingQueue(
             categorize: categorizeUseCase,
             detectSpam: detectSpamUseCase,
             aiRepository: aiRepository,
-            modelContainer: modelContainer
+            modelContainer: modelContainer,
+            searchIndexManager: searchIndexManager,
+            aiEngineResolver: aiEngineResolver
         )
         summarizeThread = SummarizeThreadUseCase(aiRepository: aiRepository)
         smartReply = SmartReplyUseCase(aiRepository: aiRepository)
@@ -133,9 +147,15 @@ struct PrivateMailApp: App {
                 aiEngineResolver: aiEngineResolver,
                 aiProcessingQueue: aiProcessingQueue,
                 summarizeThread: summarizeThread,
-                smartReply: smartReply
+                smartReply: smartReply,
+                searchUseCase: searchUseCase
             )
             .environment(settingsStore)
+            .task {
+                // Open FTS5 search database and backfill index on first launch
+                await searchIndexManager.openIndex()
+                await searchIndexManager.reindexIfNeeded()
+            }
         }
         .modelContainer(modelContainer)
 
