@@ -127,6 +127,22 @@ struct HTMLSanitizerTests {
         #expect(result.html.contains("Click me"))
     }
 
+    @Test("Neutralizes unquoted javascript: URIs in href")
+    func neutralizesUnquotedJavaScriptURIs() {
+        let html = "<a href=javascript:alert(1)>Click me</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.lowercased().contains("javascript:"))
+        #expect(result.html.contains("href=\"#\""))
+    }
+
+    @Test("Neutralizes entity-obfuscated javascript: URIs")
+    func neutralizesEntityObfuscatedJavaScriptURIs() {
+        let html = "<a href=\"jav&#x61;&#x73;cript&#58;alert(1)\">Click me</a>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.lowercased().contains("javascript:"))
+        #expect(result.html.contains("href=\"#\""))
+    }
+
     @Test("Neutralizes data: URIs in non-img attributes but preserves data: in img src")
     func handlesDataURIs() {
         let html = """
@@ -158,6 +174,23 @@ struct HTMLSanitizerTests {
         #expect(result.html.contains("<!-- remote-image-blocked -->"))
         // data: image should be preserved
         #expect(result.html.contains("data:image/png;base64,abc123"))
+    }
+
+    @Test("Strips srcset attributes to avoid alternate remote fetches")
+    func stripsSrcSetAttributes() {
+        let html = "<img src=\"data:image/gif;base64,AAA\" srcset=\"https://tracker.com/1x.png 1x, https://tracker.com/2x.png 2x\">"
+        let result = HTMLSanitizer.sanitize(html, loadRemoteImages: false)
+        #expect(!result.html.lowercased().contains("srcset"))
+        #expect(result.html.contains("data:image/gif;base64,AAA"))
+    }
+
+    @Test("Removes inline style attributes containing remote URL loads")
+    func removesInlineStyleAttributesWithURLLoads() {
+        let html = "<div style=\"background-image:url('https://tracker.com/bg.png');color:red\">Hello</div>"
+        let result = HTMLSanitizer.sanitize(html, loadRemoteImages: false)
+        #expect(!result.html.lowercased().contains("background-image"))
+        #expect(!result.html.lowercased().contains("style="))
+        #expect(result.html.contains("Hello"))
     }
 
     @Test("Allows remote images when loadRemoteImages is true")
@@ -238,12 +271,26 @@ struct HTMLSanitizerTests {
         #expect(wrapped.contains("<html>"))
         #expect(wrapped.contains("</html>"))
         #expect(wrapped.contains("<head>"))
-        #expect(wrapped.contains("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"))
+        #expect(wrapped.contains("width=device-width"))
         #expect(wrapped.contains("font-size:16pt"))
         #expect(wrapped.contains("word-wrap:break-word"))
         #expect(wrapped.contains("overflow-wrap:break-word"))
         #expect(wrapped.contains("-webkit-text-size-adjust:none"))
+        #expect(wrapped.contains("overflow-x:hidden"))
+        #expect(wrapped.contains("img{max-width:100%!important;height:auto!important;}"))
+        #expect(wrapped.contains("img-src data:;"))
         #expect(wrapped.contains("<body><p>Hello World</p></body>"))
+    }
+
+    @Test("Injects CSP that allows remote images when opted in")
+    func injectsDynamicTypeCSSAllowsRemoteImagesWhenOptedIn() {
+        let html = "<p>Hello World</p>"
+        let wrapped = HTMLSanitizer.injectDynamicTypeCSS(
+            html,
+            fontSizePoints: 16,
+            allowRemoteImages: true
+        )
+        #expect(wrapped.contains("img-src http: https: data:;"))
     }
 
     // MARK: - Complex Real-World Email
@@ -436,5 +483,173 @@ struct HTMLSanitizerTests {
         let result = HTMLSanitizer.sanitize(html)
         #expect(!result.html.contains("tel:"))
         #expect(result.html.contains("href='#'"))
+    }
+
+    // MARK: - Document Wrapper Stripping
+
+    @Test("injectDynamicTypeCSS strips existing html/head/body wrappers to prevent nesting")
+    func stripsExistingDocumentWrappers() {
+        let html = """
+        <!DOCTYPE html><html><head><meta charset="utf-8"></head><body><p>Content</p></body></html>
+        """
+        let wrapped = HTMLSanitizer.injectDynamicTypeCSS(html, fontSizePoints: 16)
+        // Should not contain nested <html> or <body> tags
+        let htmlTagCount = wrapped.components(separatedBy: "<html>").count - 1
+        let bodyTagCount = wrapped.components(separatedBy: "<body>").count - 1
+        #expect(htmlTagCount == 1)
+        #expect(bodyTagCount == 1)
+        #expect(wrapped.contains("<p>Content</p>"))
+    }
+
+    @Test("injectDynamicTypeCSS handles HTML with only body content")
+    func handlesBodyOnlyContent() {
+        let html = "<p>Simple paragraph</p><div>Another block</div>"
+        let wrapped = HTMLSanitizer.injectDynamicTypeCSS(html, fontSizePoints: 14)
+        #expect(wrapped.contains("<p>Simple paragraph</p>"))
+        #expect(wrapped.contains("<div>Another block</div>"))
+        #expect(wrapped.contains("font-size:14pt"))
+    }
+
+    @Test("CSS constrains image width and table overflow")
+    func cssConstrainsWidthElements() {
+        let html = "<img src=\"data:image/png;base64,abc\"><table><tr><td>Wide content</td></tr></table>"
+        let wrapped = HTMLSanitizer.injectDynamicTypeCSS(html, fontSizePoints: 16)
+        #expect(wrapped.contains("img{max-width:100%!important;height:auto!important;}"))
+        #expect(wrapped.contains("table{border-collapse:collapse;}"))
+        #expect(wrapped.contains("max-width:100%!important;width:100%!important;min-width:0!important;"))
+        #expect(wrapped.contains("overflow-x:hidden"))
+    }
+
+    // MARK: - IMAP Framing Cleanup
+
+    @Test("Sanitizer strips leaked IMAP BODY[] framing from stored HTML bodies")
+    func sanitizerStripsIMAPFraming() {
+        let html = """
+        <html><body><p>Patch Links:</p><ul><li><a href="https://github.com/joyfill/components/pull/506.patch">link</a></li></ul></body></html> BODY[1] {8609} You can view, comment on, or merge this pull request online at: https://github.com/joyfill/components/pull/506
+        """
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("BODY[1]"), "IMAP framing should be stripped")
+        #expect(!result.html.contains("{8609}"), "IMAP literal length should be stripped")
+        #expect(!result.html.contains("You can view, comment on"), "Leaked plain text should be stripped")
+        #expect(result.html.contains("Patch Links:"), "Legitimate content should be preserved")
+    }
+
+    @Test("stripIMAPFraming removes everything from BODY[ onwards")
+    func stripIMAPFramingDirectly() {
+        let text = "Hello world\nThis is normal content BODY[1] {500}\nThis is leaked IMAP data"
+        let cleaned = HTMLSanitizer.stripIMAPFraming(text)
+        #expect(cleaned == "Hello world\nThis is normal content")
+        #expect(!cleaned.contains("BODY[1]"))
+        #expect(!cleaned.contains("leaked IMAP"))
+    }
+
+    @Test("stripIMAPFraming preserves text with no IMAP framing")
+    func stripIMAPFramingNoFraming() {
+        let text = "Normal email body with no issues"
+        let cleaned = HTMLSanitizer.stripIMAPFraming(text)
+        #expect(cleaned == text)
+    }
+
+    @Test("stripIMAPFraming is case insensitive")
+    func stripIMAPFramingCaseInsensitive() {
+        let text = "Content here body[2] {100}\nLeaked data"
+        let cleaned = HTMLSanitizer.stripIMAPFraming(text)
+        #expect(cleaned == "Content here")
+    }
+
+    @Test("stripIMAPFraming returns original if everything before BODY[ is whitespace")
+    func stripIMAPFramingAllFraming() {
+        // If the entire content is IMAP framing (empty body before BODY[),
+        // return the original to avoid showing nothing
+        let text = "BODY[1] {100}\nSome content"
+        let cleaned = HTMLSanitizer.stripIMAPFraming(text)
+        #expect(cleaned == text)
+    }
+
+    // MARK: - MIME Multipart Stripping (Phase 0b)
+
+    @Test("Sanitize strips MIME multipart framing and extracts HTML content")
+    func sanitizeStripsMIMEMultipart() {
+        let html = """
+        This is a multi-part message in MIME format.
+        --boundary123
+        Content-Type: text/plain; charset="utf-8"
+        Content-Transfer-Encoding: 7bit
+
+        Plain text version
+        --boundary123
+        Content-Type: text/html; charset="utf-8"
+        Content-Transfer-Encoding: 7bit
+
+        <p>Dear Customer, your account has been credited.</p>
+        --boundary123--
+        """
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("Dear Customer"))
+        #expect(!result.html.contains("multi-part message"))
+        #expect(!result.html.contains("boundary123"))
+        #expect(!result.html.contains("Content-Type"))
+    }
+
+    @Test("Sanitize passes through normal HTML unchanged by MIME phase")
+    func sanitizePreservesNormalHTML() {
+        let html = "<p>Normal email content</p>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("Normal email content"))
+    }
+
+    // MARK: - Fixed Width Attribute Neutralization
+
+    @Test("Strips large fixed-width HTML attributes from tables")
+    func stripsLargeFixedWidthFromTables() {
+        let html = "<table width=\"600\"><tr><td>Content</td></tr></table>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("width=\"600\""))
+        #expect(result.html.contains("Content"))
+    }
+
+    @Test("Preserves small width attributes on images")
+    func preservesSmallWidthOnImages() {
+        let html = "<img src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7\" width=\"24\">"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("width=\"24\""))
+    }
+
+    @Test("Strips large fixed-width from nested table/div elements")
+    func stripsLargeFixedWidthNested() {
+        let html = "<div width=\"640\"><table width=\"580\"><tr><td width=\"300\">Col1</td><td width=\"280\">Col2</td></tr></table></div>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("width=\"640\""))
+        #expect(!result.html.contains("width=\"580\""))
+        #expect(!result.html.contains("width=\"300\""))
+        #expect(!result.html.contains("width=\"280\""))
+        #expect(result.html.contains("Col1"))
+        #expect(result.html.contains("Col2"))
+    }
+
+    // MARK: - Inline Style Width Neutralization
+
+    @Test("Strips inline style width:600px from elements")
+    func stripsInlineStyleWidth() {
+        let html = "<table style=\"width:600px;border:1px solid #ccc\"><tr><td>Content</td></tr></table>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("width:600px"))
+        #expect(result.html.contains("border:1px solid #ccc"))
+        #expect(result.html.contains("Content"))
+    }
+
+    @Test("Strips inline min-width from elements")
+    func stripsInlineMinWidth() {
+        let html = "<div style=\"min-width:600px;padding:10px\">Content</div>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(!result.html.contains("min-width:600px"))
+        #expect(result.html.contains("padding:10px"))
+    }
+
+    @Test("Preserves inline percentage widths")
+    func preservesInlinePercentWidths() {
+        let html = "<div style=\"width:100%;padding:5px\">Content</div>"
+        let result = HTMLSanitizer.sanitize(html)
+        #expect(result.html.contains("width:100%"))
     }
 }

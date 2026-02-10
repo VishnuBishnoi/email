@@ -62,12 +62,17 @@ public final class FoundationModelEngine: AIEngineProtocol, Sendable {
                 let session = LanguageModelSession()
                 let responseStream = session.streamResponse(to: capturedPrompt)
 
-                for try await partialText in responseStream {
+                // Each partial response's .content is cumulative (full text
+                // generated so far), so we yield only the new delta each time.
+                var previousContent = ""
+                for try await partialResponse in responseStream {
                     guard !Task.isCancelled else { break }
-                    let text = String(describing: partialText)
-                    if !text.isEmpty {
-                        continuation.yield(text)
+                    let fullText = partialResponse.content
+                    let delta = String(fullText.dropFirst(previousContent.count))
+                    if !delta.isEmpty {
+                        continuation.yield(delta)
                     }
+                    previousContent = fullText
                 }
             } catch {
                 // Generation failed — finish the stream silently.

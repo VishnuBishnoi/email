@@ -95,6 +95,9 @@ struct ThreadListView: View {
     // Inline error banner (Comment 3: show banner when threads already loaded)
     @State private var errorBannerMessage: String? = nil
 
+    // Background sync progress feedback
+    @State private var isSyncing = false
+
     // Outbox emails (Comment 6: display outbox with OutboxRowView)
     @State private var outboxEmails: [Email] = []
 
@@ -109,6 +112,12 @@ struct ThreadListView: View {
 
     // IMAP IDLE monitoring task (FR-SYNC-03 real-time updates)
     @State private var idleTask: Task<Void, Never>?
+
+    // Background sync task — stored so it can be cancelled on timeout or disappear
+    @State private var syncTask: Task<Void, Never>?
+
+    // Tracks elapsed sync time for showing "taking longer than expected" + cancel
+    @State private var syncElapsedSeconds: Int = 0
 
     // Programmatic navigation for bottom tab bar
     @State private var navigationPath = NavigationPath()
@@ -264,11 +273,24 @@ struct ThreadListView: View {
             Task { await reloadThreads() }
         }
         .onChange(of: selectedFolder?.id) {
-            // Restart IDLE when folder changes
+            // Restart IDLE when user changes folder — but NOT during initial sync,
+            // where the sync task starts IDLE after completion.
+            guard !isSyncing else { return }
             startIDLEMonitor()
         }
         .onDisappear {
             stopIDLEMonitor()
+            syncTask?.cancel()
+            syncTask = nil
+        }
+        .task(id: isSyncing) {
+            // Tick elapsed seconds while sync is active (for progress feedback)
+            guard isSyncing else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                syncElapsedSeconds += 1
+            }
         }
         .task(id: SearchDebounceTrigger(text: searchText, filters: searchFilters, isCurrentFolderScope: isCurrentFolderScope)) {
             guard isSearchActive else { return }
@@ -317,6 +339,7 @@ struct ThreadListView: View {
             smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
             mode: mode,
             accounts: accounts,
+            initialBody: nil,
             onDismiss: { result in
                 composerMode = nil
                 handleComposerDismiss(result)
@@ -432,6 +455,7 @@ struct ThreadListView: View {
     @ViewBuilder
     private var threadListContent: some View {
         List {
+            syncProgressRow
             errorBannerRow
             threadOrOutboxRows
             paginationRow
@@ -452,6 +476,33 @@ struct ThreadListView: View {
             runAIClassification(for: syncedEmails)
         }
         .accessibilityLabel("Email threads")
+    }
+
+    @ViewBuilder
+    private var syncProgressRow: some View {
+        if isSyncing && !threads.isEmpty {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(syncElapsedSeconds >= 15 ? "Still syncing…" : "Syncing…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if syncElapsedSeconds >= 15 {
+                    Button("Cancel") {
+                        syncTask?.cancel()
+                        syncTask = nil
+                        isSyncing = false
+                        syncElapsedSeconds = 0
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+            .listRowBackground(Color.accentColor.opacity(0.05))
+            .accessibilityLabel("Syncing mailbox")
+        }
     }
 
     @ViewBuilder
@@ -621,18 +672,45 @@ struct ThreadListView: View {
 
     private var emptyStateView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "tray")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No emails yet")
-                .font(.title3.bold())
-            Text("Emails you receive will appear here")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if isSyncing {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Syncing your mailbox…")
+                    .font(.title3.bold())
+
+                if syncElapsedSeconds < 15 {
+                    Text("This may take a moment on first login")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Still syncing — this is taking longer than expected")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Button("Cancel Sync") {
+                        syncTask?.cancel()
+                        syncTask = nil
+                        isSyncing = false
+                        syncElapsedSeconds = 0
+                        viewState = .error("Sync cancelled. Pull to refresh to try again.")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.secondary)
+                }
+            } else {
+                Image(systemName: "tray")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.secondary)
+                Text("No emails yet")
+                    .font(.title3.bold())
+                Text("Emails you receive will appear here")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("No emails. Emails you receive will appear here.")
+        .accessibilityLabel(isSyncing ? "Syncing your mailbox" : "No emails. Emails you receive will appear here.")
     }
 
     private var emptyFilteredView: some View {
@@ -670,7 +748,7 @@ struct ThreadListView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
             Button("Retry") {
-                Task { await reloadThreads() }
+                Task { await initialLoad() }
             }
             .buttonStyle(.borderedProminent)
         }
@@ -730,31 +808,75 @@ struct ThreadListView: View {
             // Show cached threads immediately (may be empty on first launch)
             await loadThreadsAndCounts()
 
-            // Phase 2: Sync from IMAP in the background, then refresh the view
+            // Phase 2: Sync from IMAP — inbox first, then remaining folders.
+            // The onInboxSynced callback refreshes the UI as soon as inbox is ready,
+            // so the user sees their emails without waiting for all folders.
             NSLog("[UI] Starting background sync for account: \(firstAccount.id)")
-            Task {
+            isSyncing = true
+            syncElapsedSeconds = 0
+
+            let accountId = firstAccount.id
+            syncTask = Task {
+                defer {
+                    isSyncing = false
+                    syncElapsedSeconds = 0
+                    syncTask = nil
+                }
                 do {
-                    let syncedEmails = try await syncEmails.syncAccount(accountId: firstAccount.id)
-                    NSLog("[UI] Background sync succeeded, reloading threads...")
-                    // Sync succeeded — reload folders and threads with fresh data
-                    folders = try await fetchThreads.fetchFolders(accountId: firstAccount.id)
-                    if selectedFolder == nil {
+                    let syncedEmails = try await syncEmails.syncAccountInboxFirst(
+                        accountId: accountId,
+                        onInboxSynced: { _ in
+                            // Inbox synced — reload folders and re-select inbox immediately
+                            NSLog("[UI] Inbox synced, refreshing folder list and threads...")
+                            if let freshFolders = try? await fetchThreads.fetchFolders(accountId: accountId) {
+                                folders = freshFolders
+                                let inboxType = FolderType.inbox.rawValue
+                                selectedFolder = freshFolders.first(where: { $0.folderType == inboxType }) ?? freshFolders.first
+                            }
+                            await loadThreadsAndCounts()
+                            NSLog("[UI] Inbox threads loaded, count: \(threads.count)")
+                        }
+                    )
+                    guard !Task.isCancelled else { return }
+                    NSLog("[UI] Full sync completed, final reload...")
+
+                    // Final reload to pick up emails from all folders
+                    folders = try await fetchThreads.fetchFolders(accountId: accountId)
+                    // Always re-select folder (SwiftData objects may have changed)
+                    let currentFolderType = selectedFolder?.folderType
+                    if let currentType = currentFolderType {
+                        selectedFolder = folders.first(where: { $0.folderType == currentType }) ?? folders.first
+                    } else {
                         let inboxType = FolderType.inbox.rawValue
                         selectedFolder = folders.first(where: { $0.folderType == inboxType }) ?? folders.first
                     }
                     await loadThreadsAndCounts()
                     NSLog("[UI] Threads reloaded, count: \(threads.count)")
 
-                    // Phase 2.5: Run AI classification on ALL synced emails
+                    // Run AI classification on ALL synced emails
                     runAIClassification(for: syncedEmails)
 
-                    // Phase 3: Start IMAP IDLE for real-time inbox updates (FR-SYNC-03)
+                    // Start IMAP IDLE for real-time inbox updates (FR-SYNC-03)
                     startIDLEMonitor()
+                } catch is CancellationError {
+                    NSLog("[UI] Background sync cancelled")
                 } catch {
+                    guard !Task.isCancelled else { return }
                     NSLog("[UI] Background sync FAILED: \(error)")
-                    errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+                    if threads.isEmpty {
+                        // No cached data — show full-screen error with retry
+                        viewState = .error("Sync failed: \(error.localizedDescription)")
+                    } else {
+                        // Have cached threads — show inline banner
+                        errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+                    }
                 }
             }
+
+            // No hard timeout — the IMAP layer has per-operation timeouts,
+            // and the user can cancel via the "Cancel Sync" button that appears
+            // after 15 seconds. A hard timeout caused premature cancellation on
+            // accounts with many folders during initial sync.
         } catch {
             viewState = .error(error.localizedDescription)
         }

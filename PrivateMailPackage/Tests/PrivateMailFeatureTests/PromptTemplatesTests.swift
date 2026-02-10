@@ -173,6 +173,49 @@ struct PromptTemplatesTests {
         #expect(replies.count == 3)
     }
 
+    @Test("parseSmartReplyResponse handles markdown code-fenced JSON")
+    func parseSmartReplyMarkdownFence() {
+        let response = """
+        ```json
+        ["Thank you for the update!", "I'll review and get back to you.", "When is the deadline?"]
+        ```
+        """
+        let replies = PromptTemplates.parseSmartReplyResponse(response)
+        #expect(replies.count == 3)
+        #expect(replies[0] == "Thank you for the update!")
+        #expect(replies[1] == "I'll review and get back to you.")
+        #expect(replies[2] == "When is the deadline?")
+    }
+
+    @Test("parseSmartReplyResponse handles markdown code fence without language tag")
+    func parseSmartReplyMarkdownFenceNoLang() {
+        let response = """
+        ```
+        ["Sounds good!", "Not right now.", "Could you clarify?"]
+        ```
+        """
+        let replies = PromptTemplates.parseSmartReplyResponse(response)
+        #expect(replies.count == 3)
+        #expect(replies[0] == "Sounds good!")
+    }
+
+    @Test("parseSmartReplyResponse handles multiline JSON in code fence")
+    func parseSmartReplyMultilineJSON() {
+        let response = """
+        ```json
+        [
+          "Thank you",
+          "I'm not available",
+          "What time works for you?"
+        ]
+        ```
+        """
+        let replies = PromptTemplates.parseSmartReplyResponse(response)
+        #expect(replies.count == 3)
+        #expect(replies[0] == "Thank you")
+        #expect(replies[2] == "What time works for you?")
+    }
+
     // MARK: - Summarization
 
     @Test("summarize prompt contains thread info and messages")

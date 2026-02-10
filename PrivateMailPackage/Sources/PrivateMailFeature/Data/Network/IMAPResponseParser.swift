@@ -291,6 +291,10 @@ enum IMAPResponseParser {
     /// by the raw section number so callers with BODYSTRUCTURE metadata can
     /// accurately determine content types themselves.
     ///
+    /// Properly respects IMAP literal length prefixes `{NNN}` to extract
+    /// exactly the declared number of bytes, preventing protocol framing
+    /// from leaking into body content.
+    ///
     /// Example: `"* 1 FETCH (UID 101 BODY[1] {5}\nHello)"` → `["1": "Hello"]`
     static func extractBodyPartsBySection(from response: String) -> [String: String] {
         var parts: [String: String] = [:]
@@ -311,9 +315,12 @@ enum IMAPResponseParser {
             // Skip HEADER.FIELDS sections (those are headers, not body)
             if section.contains("HEADER") { continue }
 
+            let afterBodyStart = match.range.upperBound
+            guard afterBodyStart < scanner.length else { continue }
+
             let afterBodyRange = NSRange(
-                location: match.range.upperBound,
-                length: scanner.length - match.range.upperBound
+                location: afterBodyStart,
+                length: scanner.length - afterBodyStart
             )
             let afterBody = scanner.substring(with: afterBodyRange)
 
@@ -321,14 +328,115 @@ enum IMAPResponseParser {
                 continue
             }
 
-            if let newlineIdx = afterBody.firstIndex(of: "\n") {
-                let content = String(afterBody[afterBody.index(after: newlineIdx)...])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let content = extractLiteralContent(from: afterBody) {
                 parts[section] = content
             }
         }
 
         return parts
+    }
+
+    // MARK: - IMAP Literal Extraction
+
+    /// Extracts the content of an IMAP literal `{NNN}\r\n<content>` from the
+    /// text following a `BODY[section]` marker.
+    ///
+    /// IMAP servers send body content as synchronizing literals with a length
+    /// prefix. For example:
+    /// ```
+    /// BODY[1] {250}
+    /// This is the plain text body...
+    /// ```
+    ///
+    /// This method:
+    /// 1. Parses the `{NNN}` length prefix
+    /// 2. Reads exactly `NNN` bytes of content after the newline
+    /// 3. Falls back to reading until the next `BODY[` marker or closing `)` if
+    ///    no length prefix is found (tolerance for unusual server responses)
+    ///
+    /// - Parameter afterBody: The string after `BODY[section]` in the response
+    /// - Returns: The extracted content, or `nil` if nothing could be parsed
+    private static func extractLiteralContent(from afterBody: String) -> String? {
+        let trimmed = afterBody.trimmingCharacters(in: .whitespaces)
+
+        // Try to parse IMAP literal: {NNN}\r\n or {NNN}\n
+        if trimmed.hasPrefix("{") {
+            // Extract the byte count from {NNN}
+            guard let closeBrace = trimmed.firstIndex(of: "}") else {
+                return extractFallbackContent(from: afterBody)
+            }
+
+            let countStr = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closeBrace])
+            guard let byteCount = Int(countStr), byteCount > 0 else {
+                return extractFallbackContent(from: afterBody)
+            }
+
+            // Find start of content (after the newline following })
+            let afterBrace = trimmed[trimmed.index(after: closeBrace)...]
+            // Skip \r\n or \n
+            var contentStart = afterBrace.startIndex
+            if contentStart < afterBrace.endIndex && afterBrace[contentStart] == "\r" {
+                contentStart = afterBrace.index(after: contentStart)
+            }
+            if contentStart < afterBrace.endIndex && afterBrace[contentStart] == "\n" {
+                contentStart = afterBrace.index(after: contentStart)
+            }
+
+            // Extract exactly byteCount characters from the UTF-8 content.
+            // IMAP literal length is in bytes (octets), but since we're working
+            // with a String that was already decoded from the socket, we use
+            // UTF-8 byte counting for accuracy.
+            let contentSubstring = trimmed[contentStart...]
+            let utf8View = contentSubstring.utf8
+            let endOffset = min(byteCount, utf8View.count)
+            let endIndex = utf8View.index(utf8View.startIndex, offsetBy: endOffset)
+
+            // Convert the UTF-8 index back to a String index
+            guard let stringEndIndex = endIndex.samePosition(in: trimmed) else {
+                // If the byte boundary falls in the middle of a character,
+                // find the nearest valid character boundary
+                let content = String(contentSubstring.prefix(byteCount))
+                return content.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            let content = String(trimmed[contentStart..<stringEndIndex])
+            return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // No literal prefix — fall back to heuristic extraction
+        return extractFallbackContent(from: afterBody)
+    }
+
+    /// Fallback content extraction when no `{NNN}` literal prefix is found.
+    ///
+    /// Extracts content from after the first newline until the next `BODY[`
+    /// marker, closing `)`, or end of string.
+    private static func extractFallbackContent(from afterBody: String) -> String? {
+        guard let newlineIdx = afterBody.firstIndex(of: "\n") else {
+            return nil
+        }
+
+        let contentStart = afterBody.index(after: newlineIdx)
+        let remaining = String(afterBody[contentStart...])
+
+        // Find the boundary: next BODY[ marker or trailing )
+        var content = remaining
+        if let nextBodyRange = remaining.range(
+            of: "BODY\\[",
+            options: [.regularExpression, .caseInsensitive]
+        ) {
+            content = String(remaining[..<nextBodyRange.lowerBound])
+        }
+
+        // Also check for trailing ) that closes the FETCH response
+        // Look for ) at the end, possibly preceded by whitespace
+        content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if content.hasSuffix(")") {
+            content = String(content.dropLast())
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return content.isEmpty ? nil : content
     }
 
     // MARK: - Extraction Helpers
@@ -428,14 +536,15 @@ enum IMAPResponseParser {
 
     /// Extracts body content from FETCH response literal data.
     ///
-    /// Handles `BODY[<partId>]` sections.
+    /// Handles `BODY[<partId>]` sections with proper IMAP literal
+    /// length parsing to avoid including protocol framing in content.
     private static func extractBodyParts(from response: String) -> [String: String] {
         var parts: [String: String] = [:]
 
         // Find BODY[...] sections with their literal content
         // Pattern: BODY[1] {NNN}\n<content>
         let scanner = response as NSString
-        var searchRange = NSRange(location: 0, length: scanner.length)
+        let searchRange = NSRange(location: 0, length: scanner.length)
 
         // Look for BODY[<section>] patterns
         let pattern = "BODY\\[([^\\]]+)\\]"
@@ -453,9 +562,12 @@ enum IMAPResponseParser {
             if section.contains("HEADER") { continue }
 
             // Find the literal content after this BODY section
+            let afterBodyStart = match.range.upperBound
+            guard afterBodyStart < scanner.length else { continue }
+
             let afterBodyRange = NSRange(
-                location: match.range.upperBound,
-                length: scanner.length - match.range.upperBound
+                location: afterBodyStart,
+                length: scanner.length - afterBodyStart
             )
 
             // Look for {NNN}\n<content> or NIL
@@ -465,11 +577,7 @@ enum IMAPResponseParser {
                 continue
             }
 
-            // Extract literal content after \n
-            if let newlineIdx = afterBody.firstIndex(of: "\n") {
-                let content = String(afterBody[afterBody.index(after: newlineIdx)...])
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-
+            if let content = extractLiteralContent(from: afterBody) {
                 // Determine content type from section number
                 let contentType = determineContentType(section: section, fullResponse: response)
                 parts[contentType] = content

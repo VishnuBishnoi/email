@@ -21,6 +21,14 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         self.modelContainer = modelContainer
     }
 
+    // MARK: - Batch Flush
+
+    public func flushChanges() async throws {
+        if context.hasChanges {
+            try context.save()
+        }
+    }
+
     // MARK: - Folders
 
     public func getFolders(accountId: String) async throws -> [Folder] {
@@ -81,7 +89,8 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         return emailFolders.compactMap { $0.email }
     }
 
-    public func saveEmail(_ email: Email) async throws {
+    @discardableResult
+    public func saveEmail(_ email: Email) async throws -> Email {
 
         let emailId = email.id
         var descriptor = FetchDescriptor<Email>(
@@ -111,10 +120,13 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             existing.sendState = email.sendState
             existing.sendRetryCount = email.sendRetryCount
             existing.sendQueuedDate = email.sendQueuedDate
+            return existing
         } else {
             context.insert(email)
+            return email
         }
-        try context.save()
+        // No explicit save — callers use flushChanges() for batch persistence,
+        // or SwiftData auto-saves at the end of the run loop cycle.
     }
 
     public func deleteEmail(id: String) async throws {
@@ -171,7 +183,11 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         } else {
             context.insert(thread)
         }
-        try context.save()
+        // No explicit save — callers use flushChanges() for batch persistence,
+        // or SwiftData auto-saves at the end of the run loop cycle.
+        // Calling context.save() here caused "store went missing" crashes when
+        // Thread objects reference Emails with temporary persistent identifiers
+        // that were inserted in the same sync batch.
     }
 
     // MARK: - Thread List Queries (FR-TL-01, FR-TL-02)
@@ -616,7 +632,8 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         } else {
             context.insert(emailFolder)
         }
-        try context.save()
+        // No explicit save — callers use flushChanges() for batch persistence,
+        // or SwiftData auto-saves at the end of the run loop cycle.
     }
 
     public func saveAttachment(_ attachment: Attachment) async throws {
@@ -636,7 +653,8 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         } else {
             context.insert(attachment)
         }
-        try context.save()
+        // No explicit save — callers use flushChanges() for batch persistence,
+        // or SwiftData auto-saves at the end of the run loop cycle.
     }
 
     // MARK: - Trusted Senders (FR-ED-04)
@@ -725,7 +743,8 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             entry.emailAddress = entry.emailAddress.lowercased()
             context.insert(entry)
         }
-        try context.save()
+        // No explicit save — callers use flushChanges() for batch persistence,
+        // or SwiftData auto-saves at the end of the run loop cycle.
     }
 
     public func deleteContactsForAccount(accountId: String) async throws {

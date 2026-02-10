@@ -16,6 +16,8 @@ public enum SyncError: Error, Sendable, Equatable, LocalizedError {
     case connectionFailed(String)
     /// General sync failure wrapping an underlying error description.
     case syncFailed(String)
+    /// Sync exceeded the maximum allowed duration.
+    case timeout
 
     public var errorDescription: String? {
         switch self {
@@ -31,6 +33,8 @@ public enum SyncError: Error, Sendable, Equatable, LocalizedError {
             return "Connection failed: \(reason)"
         case .syncFailed(let reason):
             return "Sync failed: \(reason)"
+        case .timeout:
+            return "Sync timed out. Please try again."
         }
     }
 }

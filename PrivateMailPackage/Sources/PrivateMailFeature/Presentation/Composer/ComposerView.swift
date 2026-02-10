@@ -18,6 +18,7 @@ public struct ComposerView: View {
     let smartReply: SmartReplyUseCaseProtocol
     let mode: ComposerMode
     let accounts: [Account]
+    let initialBody: String?
     let onDismiss: @MainActor (ComposerDismissResult) -> Void
 
     @Environment(SettingsStore.self) private var settings
@@ -373,7 +374,18 @@ public struct ComposerView: View {
             RecipientToken(email: $0, isValid: RecipientFieldView.isValidEmail($0))
         }
         subject = prefill.subject
-        bodyText = prefill.bodyPrefix
+
+        // If a smart reply suggestion was selected from EmailDetailView,
+        // prepend it before the quoted text from the prefill.
+        if let initial = initialBody, !initial.isEmpty {
+            if prefill.bodyPrefix.isEmpty {
+                bodyText = initial
+            } else {
+                bodyText = initial + "\n\n" + prefill.bodyPrefix
+            }
+        } else {
+            bodyText = prefill.bodyPrefix
+        }
 
         // Show CC/BCC if prefilled
         if !ccRecipients.isEmpty { showCC = true }
@@ -581,6 +593,7 @@ public struct ComposerView: View {
         smartReply: PreviewSmartReplyUseCase(),
         mode: .new(accountId: "preview-acc"),
         accounts: [Account(id: "preview-acc", email: "user@gmail.com", displayName: "Preview User")],
+        initialBody: nil,
         onDismiss: { _ in }
     )
     .environment(SettingsStore())

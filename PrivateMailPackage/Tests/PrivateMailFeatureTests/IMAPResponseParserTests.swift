@@ -772,4 +772,67 @@ struct IMAPResponseParserTests {
         let flags = IMAPResponseParser.parseFlagResponses(responses)
         #expect(flags.isEmpty) // UID 0 is filtered out
     }
+
+    // MARK: - IMAP Literal Length Parsing
+
+    @Test("extractBodyPartsBySection respects literal length and does not include trailing data")
+    func extractBodyPartsRespectsLiteralLength() {
+        // Simulates a multi-part FETCH response where BODY[1] and BODY[2] are
+        // adjacent. The parser must use {NNN} to extract exactly N bytes for
+        // section 1, not everything to end of string.
+        let response = "* 1 FETCH (UID 101 BODY[1] {11}\nPlain text. BODY[2] {27}\n<html><b>Bold</b></html>)"
+
+        let parts = IMAPResponseParser.extractBodyPartsBySection(from: response)
+
+        #expect(parts["1"] != nil)
+        #expect(parts["2"] != nil)
+
+        // Section 1 should contain ONLY the plain text, not the BODY[2] data
+        if let plainContent = parts["1"] {
+            #expect(!plainContent.contains("BODY[2]"), "Section 1 should not contain BODY[2] framing")
+            #expect(!plainContent.contains("<html>"), "Section 1 should not contain HTML from section 2")
+            #expect(plainContent.contains("Plain text"), "Section 1 should contain the plain text content")
+        }
+
+        // Section 2 should contain the HTML content
+        if let htmlContent = parts["2"] {
+            #expect(htmlContent.contains("<html>"), "Section 2 should contain HTML")
+            #expect(htmlContent.contains("Bold"), "Section 2 should contain Bold text")
+        }
+    }
+
+    @Test("extractBodyPartsBySection handles response with BODY[1] followed by protocol framing")
+    func extractBodyPartsDoesNotIncludeProtocolFraming() {
+        // This simulates the exact bug: raw IMAP framing like "BODY[1] {8609}"
+        // appearing in the rendered email body
+        let plainText = "Hello, this is a test email."
+        let response = "* 1 FETCH (UID 200 BODY[1] {\(plainText.utf8.count)}\n\(plainText))"
+
+        let parts = IMAPResponseParser.extractBodyPartsBySection(from: response)
+
+        #expect(parts["1"] == plainText)
+    }
+
+    @Test("extractBodyPartsBySection handles zero-length literal")
+    func extractBodyPartsZeroLengthLiteral() {
+        let response = "* 1 FETCH (UID 101 BODY[1] {0}\n)"
+
+        let parts = IMAPResponseParser.extractBodyPartsBySection(from: response)
+        // Zero-length content should result in nil or empty
+        #expect(parts["1"] == nil || parts["1"]?.isEmpty == true)
+    }
+
+    @Test("Fallback extraction stops at next BODY[ marker when no literal length")
+    func fallbackExtractionStopsAtNextBody() {
+        // Some servers might not use literal length format;
+        // the fallback should still stop at the next BODY[ marker
+        let response = "* 1 FETCH (UID 101 BODY[1] \nPlain content here\n BODY[2] \n<html>HTML</html>)"
+
+        let parts = IMAPResponseParser.extractBodyPartsBySection(from: response)
+
+        if let plain = parts["1"] {
+            #expect(!plain.contains("<html>"), "Fallback extraction should stop at BODY[2]")
+            #expect(plain.contains("Plain content"), "Should contain the plain text")
+        }
+    }
 }

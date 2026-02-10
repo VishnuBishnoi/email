@@ -84,13 +84,16 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         return emails
     }
 
-    func saveEmail(_ email: Email) async throws {
+    @discardableResult
+    func saveEmail(_ email: Email) async throws -> Email {
         saveEmailCallCount += 1
         if let error = errorToThrow { throw error }
         if let index = emails.firstIndex(where: { $0.id == email.id }) {
             emails[index] = email
+            return emails[index]
         } else {
             emails.append(email)
+            return email
         }
     }
 
@@ -125,6 +128,13 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     }
 
     // MARK: - Sync Support
+
+    var flushChangesCallCount = 0
+
+    func flushChanges() async throws {
+        flushChangesCallCount += 1
+        if let error = errorToThrow { throw error }
+    }
 
     var getEmailByMessageIdCallCount = 0
     var getFolderByImapPathCallCount = 0

@@ -118,13 +118,18 @@ public enum PromptTemplates {
 
     /// Parse a smart reply response from the LLM into an array of suggestions.
     ///
-    /// Handles JSON array format `["reply1", "reply2", "reply3"]`.
+    /// Handles JSON array format `["reply1", "reply2", "reply3"]`, including
+    /// when wrapped in markdown code fences (`` ```json ... ``` ``).
     /// Falls back to line-by-line parsing if JSON parsing fails.
     ///
     /// - Parameter response: Raw LLM output text.
     /// - Returns: Array of reply suggestion strings (up to 3).
     public static func parseSmartReplyResponse(_ response: String) -> [String] {
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Strip markdown code fences (```json ... ``` or ``` ... ```)
+        // Some LLMs wrap their JSON response in markdown formatting.
+        trimmed = stripMarkdownCodeFence(trimmed)
 
         // Try JSON array parsing first
         if let data = trimmed.data(using: .utf8),
@@ -162,6 +167,31 @@ public enum PromptTemplates {
             .filter { !$0.isEmpty }
 
         return Array(lines.prefix(3))
+    }
+
+    /// Strip markdown code fences from LLM output.
+    ///
+    /// Handles patterns like:
+    /// - `` ```json\n...\n``` ``
+    /// - `` ```\n...\n``` ``
+    /// - Multiple code fences (takes first block)
+    private static func stripMarkdownCodeFence(_ text: String) -> String {
+        var result = text
+
+        // Pattern: ```json\n...\n``` or ```\n...\n```
+        // Use regex to find and extract content between fences
+        let fencePattern = #"```(?:\w+)?\s*\n([\s\S]*?)```"#
+        if let regex = try? NSRegularExpression(pattern: fencePattern),
+           let match = regex.firstMatch(
+               in: result,
+               range: NSRange(result.startIndex..., in: result)
+           ),
+           let contentRange = Range(match.range(at: 1), in: result) {
+            result = String(result[contentRange])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return result
     }
 
     // MARK: - Thread Summarization (Section 12.3)

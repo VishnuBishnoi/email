@@ -14,6 +14,17 @@ public protocol SyncEmailsUseCaseProtocol {
     @discardableResult
     func syncAccount(accountId: String) async throws -> [Email]
 
+    /// Full sync with inbox-first priority for fast initial load.
+    ///
+    /// Syncs folders first, then inbox, then calls `onInboxSynced` so the UI
+    /// can refresh immediately. Remaining folders sync after.
+    /// Returns all newly synced emails (inbox + remaining).
+    @discardableResult
+    func syncAccountInboxFirst(
+        accountId: String,
+        onInboxSynced: @MainActor (_ inboxEmails: [Email]) async -> Void
+    ) async throws -> [Email]
+
     /// Incremental sync for a single folder.
     /// Returns newly synced emails so callers can enqueue them for AI processing.
     @discardableResult
@@ -152,6 +163,97 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     }
 
     @discardableResult
+    public func syncAccountInboxFirst(
+        accountId: String,
+        onInboxSynced: @MainActor (_ inboxEmails: [Email]) async -> Void
+    ) async throws -> [Email] {
+        NSLog("[Sync] syncAccountInboxFirst started for \(accountId)")
+        let account = try await findAccount(id: accountId)
+        let token = try await getAccessToken(for: account)
+
+        let client = try await connectionProvider.checkoutConnection(
+            accountId: account.id,
+            host: account.imapHost,
+            port: account.imapPort,
+            email: account.email,
+            accessToken: token
+        )
+        NSLog("[Sync] IMAP connection established")
+
+        do {
+            // 1. Sync folder list (single LIST command — fast)
+            let imapFolders = try await client.listFolders()
+            let syncableFolders = try await syncFolders(
+                imapFolders: imapFolders,
+                account: account
+            )
+            NSLog("[Sync] \(syncableFolders.count) syncable folders discovered")
+
+            let existingEmails = try await emailRepository.getEmailsByAccount(accountId: account.id)
+            var emailLookup = buildMessageIdLookup(from: existingEmails)
+            var allSyncedEmails: [Email] = []
+
+            // 2. Sync INBOX first for fast initial load
+            let inboxType = FolderType.inbox.rawValue
+            let inboxFolder = syncableFolders.first { $0.folderType == inboxType }
+
+            if let inbox = inboxFolder {
+                NSLog("[Sync] Priority: syncing Inbox first (\(inbox.imapPath))")
+                let inboxEmails = try await syncFolderEmails(
+                    client: client,
+                    account: account,
+                    folder: inbox,
+                    emailLookup: emailLookup
+                )
+                NSLog("[Sync] Inbox synced: \(inboxEmails.count) new emails")
+                for email in inboxEmails {
+                    emailLookup[email.messageId] = email
+                }
+                allSyncedEmails.append(contentsOf: inboxEmails)
+
+                // Notify UI immediately — inbox is ready to display
+                await onInboxSynced(inboxEmails)
+            }
+
+            // 3. Sync remaining folders
+            guard !Task.isCancelled else {
+                await connectionProvider.checkinConnection(client, accountId: account.id)
+                return allSyncedEmails
+            }
+
+            let remainingFolders = syncableFolders.filter { $0.folderType != inboxType }
+            for folder in remainingFolders {
+                guard !Task.isCancelled else { break }
+                NSLog("[Sync] Syncing folder: \(folder.name) (\(folder.imapPath)) [headers-only]")
+                let newEmails = try await syncFolderEmails(
+                    client: client,
+                    account: account,
+                    folder: folder,
+                    emailLookup: emailLookup,
+                    headersOnly: true
+                )
+                NSLog("[Sync] Synced \(newEmails.count) new emails from \(folder.name)")
+                for email in newEmails {
+                    emailLookup[email.messageId] = email
+                }
+                allSyncedEmails.append(contentsOf: newEmails)
+            }
+
+            // 4. Update account sync date
+            account.lastSyncDate = Date()
+            try await accountRepository.updateAccount(account)
+            NSLog("[Sync] syncAccountInboxFirst completed (\(allSyncedEmails.count) total new emails)")
+
+            await connectionProvider.checkinConnection(client, accountId: account.id)
+            return allSyncedEmails
+        } catch {
+            NSLog("[Sync] syncAccountInboxFirst ERROR: \(error)")
+            await connectionProvider.checkinConnection(client, accountId: account.id)
+            throw error
+        }
+    }
+
+    @discardableResult
     public func syncFolder(accountId: String, folderId: String) async throws -> [Email] {
         let account = try await findAccount(id: accountId)
         let token = try await getAccessToken(for: account)
@@ -276,12 +378,17 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     // MARK: - Per-Folder Email Sync
 
     /// Syncs emails for a single folder. Returns the newly created Email objects.
+    ///
+    /// - Parameter headersOnly: When `true`, skips body fetch (plain text, HTML, attachments).
+    ///   Used for non-inbox folders during initial sync to minimize IMAP round trips.
+    ///   Bodies are fetched lazily when the user opens an email.
     @discardableResult
     private func syncFolderEmails(
         client: any IMAPClientProtocol,
         account: Account,
         folder: Folder,
-        emailLookup: [String: Email]
+        emailLookup: [String: Email],
+        headersOnly: Bool = false
     ) async throws -> [Email] {
         // SELECT folder
         let (serverUidValidity, messageCount) = try await client.selectFolder(folder.imapPath)
@@ -346,7 +453,12 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             let batch = Array(newUIDs[batchStart..<batchEnd])
 
             let headers = try await client.fetchHeaders(uids: batch)
-            let bodies = try await client.fetchBodies(uids: batch)
+            let bodies: [IMAPEmailBody]
+            if headersOnly {
+                bodies = []
+            } else {
+                bodies = try await client.fetchBodies(uids: batch)
+            }
             let bodyMap = Dictionary(uniqueKeysWithValues: bodies.map { ($0.uid, $0) })
 
             for header in headers {
@@ -360,13 +472,18 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 )
 
                 // Map to Email model
-                let email = mapToEmail(
+                let mappedEmail = mapToEmail(
                     header: header,
                     body: body,
                     accountId: account.id,
                     threadId: threadId
                 )
-                try await emailRepository.saveEmail(email)
+                // Use the managed object returned by saveEmail (may be an
+                // existing record when the email was already synced via
+                // another folder). Using the unmanaged local object would
+                // cause "Illegal attempt to relate PersistentIdentifier…
+                // to a model in another store" when setting email.thread.
+                let email = try await emailRepository.saveEmail(mappedEmail)
 
                 // Create EmailFolder join
                 let ef = EmailFolder(imapUID: Int(header.uid))
@@ -392,6 +509,9 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 mutableLookup[email.messageId] = email
                 allNewEmails.append(email)
             }
+
+            // Flush all inserts for this batch in a single save
+            try await emailRepository.flushChanges()
         }
 
         // Update thread aggregates for all affected threads
@@ -403,6 +523,9 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 emailLookup: mutableLookup
             )
         }
+
+        // Flush thread inserts/updates in a single save
+        try await emailRepository.flushChanges()
 
         // Update folder metadata
         let allFolderEmails = try await emailRepository.getEmails(folderId: folder.id)

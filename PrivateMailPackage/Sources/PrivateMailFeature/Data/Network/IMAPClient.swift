@@ -256,6 +256,19 @@ public actor IMAPClient: IMAPClientProtocol {
                 for (partId, mimeType, encoding, charset) in textInfoByUID[uid] ?? [] {
                     guard let rawContent = sectionContent[partId] else { continue }
                     let decoded = MIMEDecoder.decodeBody(rawContent, encoding: encoding, charset: charset)
+
+                    // When BODYSTRUCTURE returned no text parts and we fell back
+                    // to BODY[TEXT], multipart messages return raw MIME content
+                    // with boundaries, headers, and transfer-encoded parts.
+                    // Detect and parse this to extract actual email content.
+                    if partId == "TEXT" && MIMEDecoder.isMultipartContent(decoded) {
+                        if let multipart = MIMEDecoder.parseMultipartBody(decoded) {
+                            plain = multipart.plainText
+                            html = multipart.htmlText
+                            continue
+                        }
+                    }
+
                     if mimeType.contains("html") {
                         html = decoded
                     } else {

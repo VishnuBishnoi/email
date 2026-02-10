@@ -105,21 +105,9 @@ public struct OnboardingView: View {
         // Mark onboarding complete — do not re-display on subsequent launches
         settingsStore.isOnboardingComplete = true
 
-        // Trigger initial IMAP sync for all added accounts (FR-SYNC-01).
-        // Fires concurrently in the background — ThreadListView's initialLoad()
-        // will pick up data as it populates SwiftData.
-        let accountsToSync = addedAccounts
-        let sync = syncEmails
-        Task {
-            for account in accountsToSync {
-                do {
-                    try await sync.syncAccount(accountId: account.id)
-                    NSLog("[Onboarding] Initial sync completed for \(account.email)")
-                } catch {
-                    NSLog("[Onboarding] Initial sync failed for \(account.email): \(error)")
-                }
-            }
-        }
+        // Initial IMAP sync is handled by ThreadListView.initialLoad() — no need
+        // to duplicate here. ThreadListView uses syncAccountInboxFirst() which
+        // provides progressive UI feedback as inbox arrives first.
     }
 }
 

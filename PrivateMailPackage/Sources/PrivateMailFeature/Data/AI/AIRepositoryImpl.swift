@@ -31,10 +31,14 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
             .filter { $0 != .uncategorized }
             .map(\.rawValue)
 
+        // Clean MIME multipart framing before passing to the LLM
+        let rawBody = email.bodyPlain ?? email.snippet ?? ""
+        let cleanBody = MIMEDecoder.stripMIMEFraming(rawBody)
+
         let sanitizedText = PromptTemplates.buildSanitizedClassificationText(
             subject: email.subject,
             sender: email.fromName ?? email.fromAddress,
-            body: email.bodyPlain ?? email.snippet ?? ""
+            body: cleanBody
         )
 
         do {
@@ -50,7 +54,7 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
         let prompt = PromptTemplates.categorization(
             subject: email.subject,
             sender: email.fromName ?? email.fromAddress,
-            body: email.bodyPlain ?? email.snippet ?? ""
+            body: cleanBody
         )
 
         let stream = await engine.generate(prompt: prompt, maxTokens: 20)
@@ -88,10 +92,13 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
             } else {
                 dateStr = "Unknown date"
             }
+            // Clean MIME multipart framing before passing to the LLM
+            let rawBody = email.bodyPlain ?? email.snippet ?? ""
+            let cleanBody = MIMEDecoder.stripMIMEFraming(rawBody)
             return (
                 sender: email.fromName ?? email.fromAddress,
                 date: dateStr,
-                body: email.bodyPlain ?? email.snippet ?? ""
+                body: cleanBody
             )
         }
 
@@ -129,11 +136,17 @@ public final class AIRepositoryImpl: AIRepositoryProtocol {
             return []
         }
 
+        // Clean MIME multipart framing from bodyPlain before passing to the LLM.
+        // Banking emails may have raw MIME boundaries in bodyPlain when
+        // BODYSTRUCTURE parsing failed during sync.
+        let rawBody = email.bodyPlain ?? email.snippet ?? ""
+        let cleanBody = MIMEDecoder.stripMIMEFraming(rawBody)
+
         let prompt = PromptTemplates.smartReply(
             senderName: email.fromName ?? email.fromAddress,
             senderEmail: email.fromAddress,
             subject: email.subject,
-            body: email.bodyPlain ?? email.snippet ?? ""
+            body: cleanBody
         )
 
         // Enforce 8-second hard limit per spec FR-AI-03.

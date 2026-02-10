@@ -1,21 +1,43 @@
 import SwiftUI
 
-/// Card displaying an AI-generated summary of an email thread.
-/// Shows a loading state while the summary is being generated,
-/// the summary text once available, or hides entirely when idle.
+/// On-demand AI summary card for an email thread.
+///
+/// Displays a "Summarize" button that the user taps to generate the summary.
+/// Shows a loading spinner while generating, then the summary text.
+/// Only visible when an AI model is available (`isAvailable == true`).
+///
+/// Spec ref: FR-ED-02
 struct AISummaryView: View {
     let summary: String?
     let isLoading: Bool
+    let isAvailable: Bool
+    let onRequestSummary: () -> Void
 
     // MARK: - Body
 
     var body: some View {
-        if isLoading && summary == nil {
-            loadingCard
-        } else if let summary, !summary.isEmpty {
+        if let summary, !summary.isEmpty {
             summaryCard(summary)
                 .transition(.opacity)
+        } else if isLoading {
+            loadingCard
+        } else if isAvailable {
+            requestButton
         }
+    }
+
+    // MARK: - Request Button
+
+    private var requestButton: some View {
+        Button(action: onRequestSummary) {
+            Label("Summarize with AI", systemImage: "sparkles")
+                .font(.subheadline)
+                .fontWeight(.medium)
+        }
+        .buttonStyle(.bordered)
+        .tint(.accentColor)
+        .accessibilityLabel("Summarize this conversation with AI")
+        .accessibilityHint("Double tap to generate an AI summary")
     }
 
     // MARK: - Loading Card
@@ -23,13 +45,14 @@ struct AISummaryView: View {
     private var loadingCard: some View {
         HStack(spacing: 12) {
             ProgressView()
-            Text("Summarizing...")
+            Text("Summarizing…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityLabel("Generating AI summary")
     }
 
     // MARK: - Summary Card
@@ -57,41 +80,56 @@ struct AISummaryView: View {
 
 // MARK: - Previews
 
+#Preview("Request Button") {
+    AISummaryView(summary: nil, isLoading: false, isAvailable: true, onRequestSummary: {})
+        .padding()
+}
+
 #Preview("Loading") {
-    AISummaryView(summary: nil, isLoading: true)
+    AISummaryView(summary: nil, isLoading: true, isAvailable: true, onRequestSummary: {})
         .padding()
 }
 
 #Preview("Summary Available") {
     AISummaryView(
         summary: "This thread discusses the Q4 budget proposal. Key points include a 15% increase in marketing spend and a new hire for the engineering team.",
-        isLoading: false
+        isLoading: false,
+        isAvailable: true,
+        onRequestSummary: {}
     )
     .padding()
 }
 
-#Preview("Hidden - Idle") {
-    AISummaryView(summary: nil, isLoading: false)
+#Preview("Hidden - No AI") {
+    AISummaryView(summary: nil, isLoading: false, isAvailable: false, onRequestSummary: {})
         .padding()
 }
 
-#Preview("Animated Appearance") {
-    struct AnimatedPreview: View {
+#Preview("Interactive") {
+    struct InteractivePreview: View {
         @State private var summary: String?
+        @State private var isLoading = false
 
         var body: some View {
             VStack {
-                AISummaryView(summary: summary, isLoading: summary == nil)
-                    .animation(.easeIn(duration: 0.3), value: summary)
-
-                Button("Show Summary") {
-                    summary = "The team agreed to move forward with the revised timeline. Next steps include updating the project plan by Friday."
-                }
-                .padding(.top)
+                AISummaryView(
+                    summary: summary,
+                    isLoading: isLoading,
+                    isAvailable: true,
+                    onRequestSummary: {
+                        isLoading = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            summary = "The team agreed to move forward with the revised timeline."
+                            isLoading = false
+                        }
+                    }
+                )
+                .animation(.easeIn(duration: 0.3), value: summary)
             }
             .padding()
         }
     }
 
-    return AnimatedPreview()
+    return InteractivePreview()
 }

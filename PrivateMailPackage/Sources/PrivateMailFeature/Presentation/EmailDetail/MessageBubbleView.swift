@@ -35,7 +35,7 @@ struct MessageBubbleView: View {
     @State private var hasQuotedText = false
     @State private var hasBlockedRemoteContent = false
     @State private var remoteImageCount = 0
-    @State private var htmlContentHeight: CGFloat = 100
+    @State private var htmlContentHeight: CGFloat = 44
 
     // MARK: - Environment
 
@@ -166,9 +166,11 @@ struct MessageBubbleView: View {
                     UIApplication.shared.open(url)
                 }
             )
-            .frame(height: htmlContentHeight)
+            .frame(height: max(htmlContentHeight, 44))
+            .clipped()
+            .animation(.easeInOut(duration: 0.15), value: htmlContentHeight)
         } else if let plainText = email.bodyPlain, !plainText.isEmpty {
-            Text(plainText)
+            Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
                 .textSelection(.enabled)
         } else {
@@ -176,7 +178,7 @@ struct MessageBubbleView: View {
         }
         #else
         if let plainText = email.bodyPlain, !plainText.isEmpty {
-            Text(plainText)
+            Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
                 .textSelection(.enabled)
         } else if let html = processedHTML, !html.isEmpty {
@@ -295,7 +297,23 @@ struct MessageBubbleView: View {
     private func processEmailBody() async {
         let shouldLoadRemote = loadRemoteImages || isTrustedSender
 
-        if let htmlBody = email.bodyHTML, !htmlBody.isEmpty {
+        // Reset height so the WebView remeasures fresh content
+        htmlContentHeight = 44
+
+        // Determine HTML source: prefer bodyHTML, but also check bodyPlain
+        // for raw MIME multipart content that may contain an HTML part
+        // (happens when BODYSTRUCTURE parsing failed during sync).
+        var htmlSource = email.bodyHTML
+
+        if (htmlSource == nil || htmlSource?.isEmpty == true),
+           let plainBody = email.bodyPlain,
+           MIMEDecoder.isMultipartContent(plainBody),
+           let multipart = MIMEDecoder.parseMultipartBody(plainBody),
+           let mimeHTML = multipart.htmlText, !mimeHTML.isEmpty {
+            htmlSource = mimeHTML
+        }
+
+        if let htmlBody = htmlSource, !htmlBody.isEmpty {
             // Step 1: Sanitize
             let sanitized = HTMLSanitizer.sanitize(
                 htmlBody,
@@ -331,7 +349,8 @@ struct MessageBubbleView: View {
             #endif
             processedHTML = HTMLSanitizer.injectDynamicTypeCSS(
                 finalHTML,
-                fontSizePoints: fontSize
+                fontSizePoints: fontSize,
+                allowRemoteImages: shouldLoadRemote
             )
         } else {
             processedHTML = nil

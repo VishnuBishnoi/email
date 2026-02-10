@@ -73,6 +73,7 @@ public struct EmailDetailView: View {
     // MARK: - Composer State
 
     @State private var composerMode: ComposerMode?
+    @State private var composerInitialBody: String?
 
     // MARK: - Attachment Preview
 
@@ -126,7 +127,7 @@ public struct EmailDetailView: View {
         #endif
         .toolbar { toolbarContent }
         .task { await loadThread() }
-        .task(id: thread?.id) { await loadAIContent() }
+        .task(id: thread?.id) { await loadSmartReplies() }
         .overlay(alignment: .bottom) {
             if showUndoToast, let action = undoAction {
                 undoToastView(action: action)
@@ -154,7 +155,11 @@ public struct EmailDetailView: View {
                     smartReply: smartReply ?? SmartReplyUseCase(aiRepository: StubAIRepository()),
                     mode: mode,
                     accounts: accounts,
-                    onDismiss: { _ in composerMode = nil }
+                    initialBody: composerInitialBody,
+                    onDismiss: { _ in
+                        composerMode = nil
+                        composerInitialBody = nil
+                    }
                 )
             }
         }
@@ -192,10 +197,12 @@ public struct EmailDetailView: View {
                             .padding(.horizontal)
                     }
 
-                    // AI Summary (FR-ED-02)
+                    // AI Summary — on-demand only (FR-ED-02)
                     AISummaryView(
                         summary: aiSummary,
-                        isLoading: aiSummaryLoading
+                        isLoading: aiSummaryLoading,
+                        isAvailable: summarizeThread != nil,
+                        onRequestSummary: { Task { await generateSummary() } }
                     )
                     .padding(.horizontal)
 
@@ -227,7 +234,8 @@ public struct EmailDetailView: View {
                     if !smartReplySuggestions.isEmpty {
                         SmartReplyView(
                             suggestions: smartReplySuggestions,
-                            onTap: { _ in
+                            onTap: { suggestion in
+                                composerInitialBody = suggestion
                                 openComposer { .reply(email: $0) }
                             }
                         )
@@ -560,18 +568,35 @@ public struct EmailDetailView: View {
 
     // MARK: - AI Content (FR-ED-02)
 
-    private func loadAIContent() async {
+    /// Generate AI summary on-demand (user-initiated only).
+    ///
+    /// Checks for a cached summary first; if none exists, generates one
+    /// via the summarize use case. Only called when the user taps
+    /// the "Summarize with AI" button.
+    private func generateSummary() async {
         guard let thread else { return }
 
-        // Summary: use cached thread.aiSummary first, then generate
+        // Use cached summary if available
         if let cached = thread.aiSummary, !cached.isEmpty {
             aiSummary = cached
-        } else if let summarize = summarizeThread {
-            aiSummaryLoading = true
-            let result = await summarize.summarize(thread: thread)
-            // Only set if non-empty; nil means engine unavailable → hide card
-            aiSummary = (result?.isEmpty == false) ? result : nil
-            aiSummaryLoading = false
+            return
+        }
+
+        guard let summarize = summarizeThread else { return }
+
+        aiSummaryLoading = true
+        let result = await summarize.summarize(thread: thread)
+        aiSummary = (result?.isEmpty == false) ? result : nil
+        aiSummaryLoading = false
+    }
+
+    /// Load smart reply suggestions automatically when the thread loads.
+    private func loadSmartReplies() async {
+        guard let _ = thread else { return }
+
+        // Show cached summary if already generated
+        if let cached = thread?.aiSummary, !cached.isEmpty {
+            aiSummary = cached
         }
 
         // Smart replies (from latest email)

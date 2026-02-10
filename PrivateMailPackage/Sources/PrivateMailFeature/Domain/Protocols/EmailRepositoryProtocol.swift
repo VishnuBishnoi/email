@@ -24,8 +24,9 @@ public protocol EmailRepositoryProtocol {
 
     /// Fetch emails for a given folder.
     func getEmails(folderId: String) async throws -> [Email]
-    /// Save or update an email.
-    func saveEmail(_ email: Email) async throws
+    /// Save or update an email. Returns the managed object (existing or newly inserted).
+    @discardableResult
+    func saveEmail(_ email: Email) async throws -> Email
     /// Delete an email and cascade delete EmailFolders + Attachments.
     func deleteEmail(id: String) async throws
 
@@ -39,6 +40,12 @@ public protocol EmailRepositoryProtocol {
     func saveThread(_ thread: Thread) async throws
 
     // MARK: - Sync Support (FR-SYNC-01)
+
+    /// Persist all pending changes to the store in a single transaction.
+    ///
+    /// Call after a batch of insert/update operations to avoid per-entity
+    /// `context.save()` overhead (WAL checkpoint thrashing).
+    func flushChanges() async throws
 
     /// Find an email by its RFC 2822 Message-ID within an account.
     /// Used by the sync engine for thread resolution and deduplication.
