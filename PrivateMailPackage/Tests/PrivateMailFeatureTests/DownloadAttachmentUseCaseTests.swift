@@ -332,4 +332,46 @@ struct DownloadAttachmentUseCaseTests {
             try await sut.download(attachment: attachment)
         }
     }
+
+    // MARK: - IMAP Download (QUOTED-PRINTABLE)
+
+    @Test("download via IMAP decodes QUOTED-PRINTABLE encoding")
+    func downloadIMAPQuotedPrintable() async throws {
+        let (sut, _, accountRepo, keychainManager, imapClient, _) = Self.makeIMAPSUT()
+
+        let account = Account(id: "acc-1", email: "test@gmail.com", displayName: "Test")
+        accountRepo.accounts.append(account)
+        let token = OAuthToken(accessToken: "tok", refreshToken: "ref", expiresAt: Date().addingTimeInterval(3600))
+        try await keychainManager.store(token, for: account.id)
+
+        let email = Email(accountId: account.id, threadId: "t-1", messageId: "<m1>", fromAddress: "a@b.com", subject: "S")
+        let folder = Folder(name: "Inbox", imapPath: "INBOX")
+        let emailFolder = EmailFolder(imapUID: 20)
+        emailFolder.email = email
+        emailFolder.folder = folder
+        email.emailFolders = [emailFolder]
+
+        let attachment = Attachment(
+            filename: "message.txt",
+            mimeType: "text/plain",
+            sizeBytes: 50,
+            bodySection: "1",
+            transferEncoding: "QUOTED-PRINTABLE"
+        )
+        attachment.email = email
+
+        // QP-encoded data: "=48=65=6C=6C=6F" decodes to "Hello"
+        let qpEncoded = "=48=65=6C=6C=6F"
+        imapClient.fetchBodyPartResult = .success(qpEncoded.data(using: .utf8)!)
+
+        let path = try await sut.download(attachment: attachment)
+
+        let downloadedData = try Data(contentsOf: URL(fileURLWithPath: path))
+        let decoded = String(data: downloadedData, encoding: .utf8)
+        #expect(decoded == "Hello")
+        #expect(attachment.isDownloaded == true)
+
+        // Clean up
+        try? FileManager.default.removeItem(atPath: path)
+    }
 }

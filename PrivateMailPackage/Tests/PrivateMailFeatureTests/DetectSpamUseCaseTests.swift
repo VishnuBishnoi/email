@@ -104,4 +104,73 @@ struct DetectSpamUseCaseTests {
         let email = makeEmail()
         #expect(!email.isSpam)
     }
+
+    // MARK: - ML + Rule Combined Scoring
+
+    private func makeMLUseCase() -> (DetectSpamUseCase, MockAIEngine) {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SpamMLTest-\(UUID().uuidString)")
+        let modelManager = ModelManager(modelsDirectory: tempDir)
+        let mockEngine = MockAIEngine()
+        let resolver = AIEngineResolver(
+            modelManager: modelManager,
+            foundationModelEngine: mockEngine
+        )
+        return (DetectSpamUseCase(engineResolver: resolver), mockEngine)
+    }
+
+    @Test("ML spam classification combined with rules flags spam email")
+    func mlCombinedWithRulesFlagsSpam() async {
+        let (useCase, mockEngine) = makeMLUseCase()
+        await mockEngine.setAvailable(true)
+        await mockEngine.setClassifyResult("spam")
+
+        let email = makeEmail(
+            subject: "URGENT: You won $1,000,000!",
+            from: "winner@free.tk",
+            body: "Nigerian prince wire transfer. Verify your account at http://192.168.1.1/claim."
+        )
+        let result = await useCase.detect(email: email)
+
+        // ML returns spam (1.0 * 0.6 = 0.6) + rule signals → combined ≥ 0.5
+        #expect(result == true)
+        #expect(email.isSpam == true)
+        let classifyCount = await mockEngine.getClassifyCallCount()
+        #expect(classifyCount == 1)
+    }
+
+    @Test("ML legitimate classification keeps clean email clean")
+    func mlLegitimateKeepsClean() async {
+        let (useCase, mockEngine) = makeMLUseCase()
+        await mockEngine.setAvailable(true)
+        await mockEngine.setClassifyResult("legitimate")
+
+        let email = makeEmail(
+            subject: "Team meeting notes",
+            from: "colleague@company.com",
+            body: "Here are the notes from today's meeting."
+        )
+        let result = await useCase.detect(email: email)
+
+        // ML returns legitimate (0.0 * 0.6 = 0.0) + clean rule signals → combined < 0.5
+        #expect(result == false)
+        #expect(email.isSpam == false)
+    }
+
+    @Test("ML unavailable falls back to rules only")
+    func mlUnavailableUsesRulesOnly() async {
+        let (useCase, mockEngine) = makeMLUseCase()
+        await mockEngine.setAvailable(false)
+
+        let email = makeEmail(
+            subject: "Normal email",
+            from: "friend@gmail.com",
+            body: "Let's grab coffee tomorrow."
+        )
+        let result = await useCase.detect(email: email)
+
+        #expect(result == false)
+        let classifyCount = await mockEngine.getClassifyCallCount()
+        #expect(classifyCount == 0)
+    }
 }

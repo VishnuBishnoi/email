@@ -366,7 +366,10 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         return emails.first { $0.id == id }
     }
 
+    var getEmailsBySendStateCallCount = 0
+
     func getEmailsBySendState(_ state: String) async throws -> [Email] {
+        getEmailsBySendStateCallCount += 1
         if let error = errorToThrow { throw error }
         return emails.filter { $0.sendState == state }
     }

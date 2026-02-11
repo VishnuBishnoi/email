@@ -22,6 +22,75 @@ struct ComposeEmailUseCaseTests {
         return (useCase, repo)
     }
 
+    private static func makeSendSUT() -> (
+        ComposeEmailUseCase, MockEmailRepository,
+        MockAccountRepository, MockKeychainManager, MockSMTPClient
+    ) {
+        let repo = MockEmailRepository()
+        let accountRepo = MockAccountRepository()
+        let keychainManager = MockKeychainManager()
+        let smtpClient = MockSMTPClient()
+        let useCase = ComposeEmailUseCase(
+            repository: repo,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager,
+            smtpClient: smtpClient
+        )
+        return (useCase, repo, accountRepo, keychainManager, smtpClient)
+    }
+
+    /// Creates a standard account + token + queued email for executeSend tests.
+    private static func setupSendScenario(
+        repo: MockEmailRepository,
+        accountRepo: MockAccountRepository,
+        keychainManager: MockKeychainManager,
+        accountId: String = "acc1",
+        emailId: String? = nil,
+        toAddresses: String = "[\"to@test.com\"]",
+        sendRetryCount: Int = 0
+    ) async -> Email {
+        let account = Account(id: accountId, email: "me@test.com", displayName: "Me")
+        accountRepo.accounts.append(account)
+
+        let token = OAuthToken(
+            accessToken: "valid-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        try! await keychainManager.store(token, for: accountId)
+
+        // Create Drafts and Sent folders
+        let draftsFolder = Folder(name: "Drafts", imapPath: "[Gmail]/Drafts", totalCount: 0, folderType: FolderType.drafts.rawValue, uidValidity: 1)
+        draftsFolder.account = account
+        let sentFolder = Folder(name: "Sent", imapPath: "[Gmail]/Sent Mail", totalCount: 0, folderType: FolderType.sent.rawValue, uidValidity: 1)
+        sentFolder.account = account
+        repo.folders = [draftsFolder, sentFolder]
+
+        let email = Email(
+            accountId: accountId,
+            threadId: "thread-1",
+            messageId: "<send-test@local>",
+            fromAddress: "",
+            toAddresses: toAddresses,
+            subject: "Send Test",
+            bodyPlain: "Hello",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.queued.rawValue
+        )
+        email.sendRetryCount = sendRetryCount
+
+        // Place in drafts
+        let ef = EmailFolder(imapUID: 0)
+        ef.email = email
+        ef.folder = draftsFolder
+        email.emailFolders.append(ef)
+
+        repo.emails.append(email)
+        return email
+    }
+
     private static let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
 
     private static func makeEmailContext(
@@ -486,5 +555,270 @@ struct ComposeEmailUseCaseTests {
         #expect(ComposerMode.new(accountId: "acc-new").accountId == "acc-new")
         #expect(ComposerMode.reply(email: ctx).accountId == "acc-test")
         #expect(ComposerMode.forward(email: ctx).accountId == "acc-test")
+    }
+
+    // MARK: - executeSend
+
+    @Test("executeSend happy path transitions to sent and calls SMTP")
+    func executeSendHappyPath() async throws {
+        let (useCase, repo, accountRepo, keychainManager, smtpClient) = Self.makeSendSUT()
+        let email = await Self.setupSendScenario(
+            repo: repo, accountRepo: accountRepo, keychainManager: keychainManager
+        )
+
+        try await useCase.executeSend(emailId: email.id)
+
+        let updated = repo.emails.first { $0.id == email.id }
+        #expect(updated?.sendState == SendState.sent.rawValue)
+        #expect(updated?.dateSent != nil)
+
+        let connectCount = await smtpClient.connectCallCount
+        #expect(connectCount == 1)
+        let sendCount = await smtpClient.sendMessageCallCount
+        #expect(sendCount == 1)
+        let disconnectCount = await smtpClient.disconnectCallCount
+        #expect(disconnectCount == 1)
+    }
+
+    @Test("executeSend throws when email not found")
+    func executeSendEmailNotFound() async {
+        let (useCase, _, _, _, _) = Self.makeSendSUT()
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: "nonexistent")
+        }
+    }
+
+    @Test("executeSend fails when account not found")
+    func executeSendAccountNotFound() async {
+        let (useCase, repo, _, keychainManager, _) = Self.makeSendSUT()
+        // Create email but no account
+        let email = Email(
+            accountId: "missing-acc",
+            threadId: "t1",
+            messageId: "<msg@local>",
+            fromAddress: "",
+            toAddresses: "[\"to@test.com\"]",
+            subject: "Test",
+            bodyPlain: "Body",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.queued.rawValue
+        )
+        repo.emails.append(email)
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: email.id)
+        }
+        #expect(email.sendState == SendState.failed.rawValue)
+    }
+
+    @Test("executeSend fails when no token in keychain")
+    func executeSendNoToken() async {
+        let (useCase, repo, accountRepo, _, _) = Self.makeSendSUT()
+        let account = Account(id: "acc1", email: "me@test.com", displayName: "Me")
+        accountRepo.accounts.append(account)
+        // No token stored in keychain
+
+        let email = Email(
+            accountId: "acc1",
+            threadId: "t1",
+            messageId: "<msg@local>",
+            fromAddress: "",
+            toAddresses: "[\"to@test.com\"]",
+            subject: "Test",
+            bodyPlain: "Body",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.queued.rawValue
+        )
+        repo.emails.append(email)
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: email.id)
+        }
+        #expect(email.sendState == SendState.failed.rawValue)
+    }
+
+    @Test("executeSend refreshes expired token before sending")
+    func executeSendTokenRefresh() async throws {
+        let (useCase, repo, accountRepo, keychainManager, smtpClient) = Self.makeSendSUT()
+        let account = Account(id: "acc1", email: "me@test.com", displayName: "Me")
+        accountRepo.accounts.append(account)
+
+        // Store an expired token
+        let expiredToken = OAuthToken(
+            accessToken: "expired-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date().addingTimeInterval(-3600) // expired 1 hour ago
+        )
+        try await keychainManager.store(expiredToken, for: "acc1")
+
+        let draftsFolder = Folder(name: "Drafts", imapPath: "[Gmail]/Drafts", totalCount: 0, folderType: FolderType.drafts.rawValue, uidValidity: 1)
+        let sentFolder = Folder(name: "Sent", imapPath: "[Gmail]/Sent Mail", totalCount: 0, folderType: FolderType.sent.rawValue, uidValidity: 1)
+        repo.folders = [draftsFolder, sentFolder]
+
+        let email = Email(
+            accountId: "acc1",
+            threadId: "t1",
+            messageId: "<msg@local>",
+            fromAddress: "",
+            toAddresses: "[\"to@test.com\"]",
+            subject: "Test",
+            bodyPlain: "Body",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.queued.rawValue
+        )
+        repo.emails.append(email)
+
+        try await useCase.executeSend(emailId: email.id)
+
+        #expect(accountRepo.refreshCallCount == 1)
+        #expect(email.sendState == SendState.sent.rawValue)
+    }
+
+    @Test("executeSend fails when token refresh fails")
+    func executeSendTokenRefreshFails() async {
+        let (useCase, repo, accountRepo, keychainManager, _) = Self.makeSendSUT()
+        let account = Account(id: "acc1", email: "me@test.com", displayName: "Me")
+        accountRepo.accounts.append(account)
+        accountRepo.shouldThrowOnRefresh = true
+
+        // Store an expired token
+        let expiredToken = OAuthToken(
+            accessToken: "expired-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date().addingTimeInterval(-3600)
+        )
+        try! await keychainManager.store(expiredToken, for: "acc1")
+
+        let email = Email(
+            accountId: "acc1",
+            threadId: "t1",
+            messageId: "<msg@local>",
+            fromAddress: "",
+            toAddresses: "[\"to@test.com\"]",
+            subject: "Test",
+            bodyPlain: "Body",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.queued.rawValue
+        )
+        repo.emails.append(email)
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: email.id)
+        }
+        #expect(email.sendState == SendState.failed.rawValue)
+    }
+
+    @Test("executeSend fails when no recipients specified")
+    func executeSendNoRecipients() async {
+        let (useCase, repo, accountRepo, keychainManager, _) = Self.makeSendSUT()
+        let email = await Self.setupSendScenario(
+            repo: repo, accountRepo: accountRepo, keychainManager: keychainManager,
+            toAddresses: "[]"
+        )
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: email.id)
+        }
+        #expect(email.sendState == SendState.failed.rawValue)
+    }
+
+    @Test("executeSend retries on SMTP connect failure")
+    func executeSendSMTPConnectFails() async {
+        let (useCase, repo, accountRepo, keychainManager, smtpClient) = Self.makeSendSUT()
+        let email = await Self.setupSendScenario(
+            repo: repo, accountRepo: accountRepo, keychainManager: keychainManager
+        )
+        await smtpClient.setThrowOnConnect(true)
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: email.id)
+        }
+        // Should re-queue for retry (not yet at max retries)
+        #expect(email.sendRetryCount == 1)
+        #expect(email.sendState == SendState.queued.rawValue)
+    }
+
+    @Test("executeSend retries on SMTP send failure")
+    func executeSendSMTPSendFails() async {
+        let (useCase, repo, accountRepo, keychainManager, smtpClient) = Self.makeSendSUT()
+        let email = await Self.setupSendScenario(
+            repo: repo, accountRepo: accountRepo, keychainManager: keychainManager
+        )
+        await smtpClient.setThrowOnSend(true)
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: email.id)
+        }
+        #expect(email.sendRetryCount == 1)
+        #expect(email.sendState == SendState.queued.rawValue)
+    }
+
+    @Test("executeSend marks failed after max retries exhausted")
+    func executeSendMaxRetries() async {
+        let (useCase, repo, accountRepo, keychainManager, smtpClient) = Self.makeSendSUT()
+        let email = await Self.setupSendScenario(
+            repo: repo, accountRepo: accountRepo, keychainManager: keychainManager,
+            sendRetryCount: AppConstants.maxSendRetryCount - 1
+        )
+        await smtpClient.setThrowOnConnect(true)
+
+        await #expect(throws: ComposerError.self) {
+            try await useCase.executeSend(emailId: email.id)
+        }
+        // Max retries reached — should be failed, not re-queued
+        #expect(email.sendState == SendState.failed.rawValue)
+    }
+
+    // MARK: - recoverStuckSendingEmails
+
+    @Test("recoverStuckSendingEmails transitions sending emails to failed")
+    func recoverStuckSendingEmails() async {
+        let (useCase, repo) = Self.makeSUT()
+
+        let email1 = Email(
+            accountId: "acc1", threadId: "t1", messageId: "<stuck1@local>",
+            fromAddress: "", toAddresses: "[]", subject: "Stuck 1", bodyPlain: "",
+            dateSent: Date(), isRead: true, isDraft: false,
+            sendState: SendState.sending.rawValue
+        )
+        let email2 = Email(
+            accountId: "acc1", threadId: "t2", messageId: "<stuck2@local>",
+            fromAddress: "", toAddresses: "[]", subject: "Stuck 2", bodyPlain: "",
+            dateSent: Date(), isRead: true, isDraft: false,
+            sendState: SendState.sending.rawValue
+        )
+        repo.emails.append(contentsOf: [email1, email2])
+
+        await useCase.recoverStuckSendingEmails()
+
+        #expect(email1.sendState == SendState.failed.rawValue)
+        #expect(email2.sendState == SendState.failed.rawValue)
+    }
+
+    @Test("recoverStuckSendingEmails does nothing when no stuck emails")
+    func recoverStuckNoStuckEmails() async {
+        let (useCase, repo) = Self.makeSUT()
+
+        let normalEmail = Email(
+            accountId: "acc1", threadId: "t1", messageId: "<normal@local>",
+            fromAddress: "", toAddresses: "[]", subject: "Normal", bodyPlain: "",
+            dateSent: Date(), isRead: true, isDraft: false,
+            sendState: SendState.sent.rawValue
+        )
+        repo.emails.append(normalEmail)
+
+        await useCase.recoverStuckSendingEmails()
+
+        // No changes to existing emails
+        #expect(normalEmail.sendState == SendState.sent.rawValue)
     }
 }

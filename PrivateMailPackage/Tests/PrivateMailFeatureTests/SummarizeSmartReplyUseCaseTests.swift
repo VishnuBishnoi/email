@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrivateMailFeature
 
@@ -156,5 +157,45 @@ struct SmartReplyUseCaseTests {
         let result = await sut.generateReplies(for: email)
         #expect(result == ["Cached A", "Cached B"])
         #expect(repo.smartReplyCallCount == 0) // No AI call at all
+    }
+
+    // MARK: - ComposerEmailContext overload
+
+    @Test("generateReplies for ComposerEmailContext returns empty array (stub)")
+    func generateRepliesForComposerContext() async {
+        let (sut, _) = Self.makeSUT()
+
+        let ctx = ComposerEmailContext(
+            emailId: "e1",
+            accountId: "a",
+            threadId: "t",
+            messageId: "m",
+            fromAddress: "sender@example.com",
+            toAddresses: "[\"to@example.com\"]",
+            subject: "Hi",
+            dateSent: Date()
+        )
+        let result = await sut.generateReplies(for: ctx)
+
+        #expect(result.isEmpty)
+    }
+
+    @Test("generateReplies for ComposerEmailContext does not call AI")
+    func generateRepliesForComposerContextNoAICall() async {
+        let (sut, repo) = Self.makeSUT()
+
+        let ctx = ComposerEmailContext(
+            emailId: "e1",
+            accountId: "a",
+            threadId: "t",
+            messageId: "m",
+            fromAddress: "sender@example.com",
+            toAddresses: "[\"to@example.com\"]",
+            subject: "Hi",
+            dateSent: Date()
+        )
+        _ = await sut.generateReplies(for: ctx)
+
+        #expect(repo.smartReplyCallCount == 0)
     }
 }

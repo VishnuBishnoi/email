@@ -560,4 +560,74 @@ struct SearchEmailsUseCaseTests {
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-match")
     }
+
+    // MARK: - Test: Semantic search with available engine
+
+    @Test("Semantic search with available engine returns results via vector similarity")
+    func semanticSearchWithAvailableEngine() async throws {
+        let container = try makeContainer()
+        let fts5Dir = try makeTempFTS5Dir()
+        let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+
+        // Insert email in SwiftData and FTS5
+        try await insertEmail(
+            id: "email-semantic",
+            subject: "Quarterly Financial Review",
+            bodyPlain: "Revenue growth exceeded expectations this quarter",
+            container: container,
+            fts5Manager: fts5Manager
+        )
+
+        // Insert SearchIndex entry with embedding data (the semantic search loads from SwiftData)
+        let embeddingVector: [Float] = [0.6, 0.8]
+        let embeddingData = embeddingVector.withUnsafeBufferPointer { buffer in
+            Data(buffer: buffer)
+        }
+        let searchIndex = SearchIndex(
+            emailId: "email-semantic",
+            accountId: "acc-1",
+            content: "Quarterly Financial Review Revenue growth exceeded expectations this quarter",
+            embedding: embeddingData
+        )
+        container.mainContext.insert(searchIndex)
+        try container.mainContext.save()
+
+        // Create engine that returns a query embedding similar to the stored embedding
+        let engine = MockSearchEngine(
+            available: true,
+            embedResult: [0.6, 0.8]
+        )
+
+        let query = SearchQuery(text: "financial growth")
+        let results = await useCase.execute(query: query, engine: engine)
+
+        // The email should appear via keyword match and/or semantic similarity
+        #expect(!results.isEmpty)
+        #expect(results.contains { $0.emailId == "email-semantic" })
+    }
+
+    @Test("Semantic search falls back to keyword-only when embed fails")
+    func semanticSearchFallsBackOnEmbedFailure() async throws {
+        let container = try makeContainer()
+        let fts5Dir = try makeTempFTS5Dir()
+        let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+
+        try await insertEmail(
+            id: "email-fallback",
+            subject: "Design Review Meeting",
+            bodyPlain: "Reviewing the new design mockups",
+            container: container,
+            fts5Manager: fts5Manager
+        )
+
+        // Engine is available but embed throws an error
+        let engine = MockSearchEngine(available: true, shouldThrow: true)
+        let query = SearchQuery(text: "design")
+        let results = await useCase.execute(query: query, engine: engine)
+
+        // Should still get keyword results even though semantic failed
+        #expect(results.count == 1)
+        #expect(results[0].emailId == "email-fallback")
+        #expect(results[0].matchSource == .keyword)
+    }
 }

@@ -159,4 +159,14 @@ struct GenerateEmbeddingUseCaseTests {
             #expect(value == 0.0)
         }
     }
+
+    @Test("embedBatch with empty input returns empty array")
+    func embedBatchEmptyInput() async {
+        let engine = MockEmbeddingEngine(available: true)
+        let results = await GenerateEmbeddingUseCase.embedBatch(
+            texts: [],
+            using: engine
+        )
+        #expect(results.isEmpty)
+    }
 }

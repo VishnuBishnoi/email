@@ -13,6 +13,7 @@ struct IDLEMonitorUseCaseTests {
         let client: MockIMAPClient
         var checkoutCount = 0
         var checkinCount = 0
+        var shouldThrowOnCheckout = false
 
         init(client: MockIMAPClient) {
             self.client = client
@@ -26,6 +27,9 @@ struct IDLEMonitorUseCaseTests {
             accessToken: String
         ) async throws -> any IMAPClientProtocol {
             checkoutCount += 1
+            if shouldThrowOnCheckout {
+                throw NSError(domain: "IDLETest", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connection checkout failed"])
+            }
             return client
         }
 
@@ -227,5 +231,32 @@ struct IDLEMonitorUseCaseTests {
 
         // Cancel the stream to clean up
         _ = stream // keep reference
+    }
+
+    @Test("Monitor emits .disconnected when connection checkout fails")
+    func monitorConnectionCheckoutFails() async throws {
+        let account = createAccount()
+        try await addAccountWithToken(account)
+
+        let provider = connectionProvider
+        provider.shouldThrowOnCheckout = true
+
+        let sut = IDLEMonitorUseCase(
+            connectionProvider: provider,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
+
+        let stream = sut.monitor(accountId: account.id, folderImapPath: "INBOX")
+
+        var events: [IDLEEvent] = []
+        for await event in stream {
+            events.append(event)
+        }
+
+        #expect(events == [.disconnected])
+        #expect(provider.checkoutCount == 1)
+        // No checkin needed since checkout failed
+        #expect(provider.checkinCount == 0)
     }
 }

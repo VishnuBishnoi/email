@@ -13,8 +13,10 @@ final class MockAccountRepository: AccountRepositoryProtocol {
     var shouldThrowOnAdd = false
     var shouldThrowOnRemove = false
     var shouldThrowOnUpdate = false
+    var shouldThrowOnRefresh = false
     var addError: Error = AccountError.persistenceFailed("mock error")
     var removeError: Error = AccountError.notFound("mock")
+    var refreshError: Error = AccountError.notFound("mock")
 
     func addAccount(_ account: Account) async throws {
         addCallCount += 1
@@ -57,6 +59,9 @@ final class MockAccountRepository: AccountRepositoryProtocol {
 
     func refreshToken(for accountId: String) async throws -> OAuthToken {
         refreshCallCount += 1
+        if shouldThrowOnRefresh {
+            throw refreshError
+        }
         return OAuthToken(
             accessToken: "refreshed-access",
             refreshToken: "refreshed-refresh",
