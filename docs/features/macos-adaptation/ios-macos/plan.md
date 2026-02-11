@@ -1,10 +1,10 @@
 ---
 title: "macOS Adaptation — iOS/macOS Implementation Plan"
 platform: macOS
-spec-ref: docs/features/foundation/spec.md
-version: "1.1.0"
-status: locked
-updated: 2026-02-11
+spec-ref: docs/features/macos-adaptation/spec.md
+version: "1.2.0"
+status: draft
+updated: 2026-02-12
 assignees:
   - Core Team
 target-milestone: V1.0
@@ -12,7 +12,7 @@ target-milestone: V1.0
 
 # macOS Adaptation — iOS/macOS Implementation Plan
 
-> This feature has no separate spec. It implements the same specifications as iOS features with macOS-specific UI adaptations. Refer to Foundation spec Section 7.2 for macOS platform requirements.
+> This plan implements the macOS Native Experience specification (`docs/features/macos-adaptation/spec.md`). Refer to that spec for full requirements (FR-MAC-01 through FR-MAC-10) and Foundation spec Section 7.2 for cross-cutting macOS platform requirements.
 
 ---
 
