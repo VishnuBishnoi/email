@@ -6,7 +6,7 @@ import Foundation
 /// errors with context-specific cases.
 ///
 /// Spec ref: Email Composer spec FR-COMP-01, FR-COMP-02
-public enum ComposerError: Error, Sendable, Equatable {
+public enum ComposerError: Error, Sendable, Equatable, LocalizedError {
     /// Draft save failed (auto-save or manual save).
     case saveDraftFailed(String)
     /// Email send failed (SMTP pipeline error).
@@ -19,4 +19,21 @@ public enum ComposerError: Error, Sendable, Equatable {
     case attachmentTooLarge(totalMB: Int)
     /// Contact autocomplete query failed.
     case contactQueryFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .saveDraftFailed(let msg):
+            "Failed to save draft: \(msg)"
+        case .sendFailed(let msg):
+            "Failed to send email: \(msg)"
+        case .deleteDraftFailed(let msg):
+            "Failed to delete draft: \(msg)"
+        case .invalidRecipient(let addr):
+            "Invalid recipient: \(addr)"
+        case .attachmentTooLarge(let mb):
+            "Attachments too large: \(mb) MB exceeds limit"
+        case .contactQueryFailed(let msg):
+            "Contact query failed: \(msg)"
+        }
+    }
 }

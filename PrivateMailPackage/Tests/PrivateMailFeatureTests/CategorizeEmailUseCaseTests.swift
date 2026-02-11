@@ -50,7 +50,7 @@ struct CategorizeEmailUseCaseTests {
         let mockEngine = MockAIEngine()
         let resolver = AIEngineResolver(
             modelManager: modelManager,
-            foundationModelEngine: StubAIEngine(),
+            foundationModelEngine: mockEngine,
             llamaEngine: LlamaEngine(),
             stubEngine: StubAIEngine()
         )
@@ -125,5 +125,59 @@ struct CategorizeEmailUseCaseTests {
         let email = makeEmail(subject: "Your order confirmation", from: "noreply@service.com")
         let result = await useCase.categorize(email: email)
         #expect(result == .updates)
+    }
+
+    // MARK: - ML Tier Tests
+
+    @Test("classify tier returns category when engine succeeds")
+    func classifyTierReturnsCategory() async {
+        let (resolver, mockEngine) = makeResolver()
+        await mockEngine.setAvailable(true)
+        await mockEngine.setClassifyResult("social")
+
+        let useCase = CategorizeEmailUseCase(engineResolver: resolver)
+        let email = makeEmail(subject: "Friend request from Alice")
+
+        let result = await useCase.categorize(email: email)
+
+        #expect(result == .social)
+        #expect(email.aiCategory == AICategory.social.rawValue)
+        let classifyCount = await mockEngine.getClassifyCallCount()
+        #expect(classifyCount == 1)
+    }
+
+    @Test("classify tier failure falls back to generate tier")
+    func classifyFailsFallsToGenerate() async {
+        let (resolver, mockEngine) = makeResolver()
+        await mockEngine.setAvailable(true)
+        await mockEngine.setShouldThrow(true)
+        await mockEngine.setGenerateTokens(["promotions"])
+
+        let useCase = CategorizeEmailUseCase(engineResolver: resolver)
+        let email = makeEmail(subject: "50% off everything!")
+
+        let result = await useCase.categorize(email: email)
+
+        // classify() threw, so generate() was called as fallback
+        let classifyCount = await mockEngine.getClassifyCallCount()
+        let generateCount = await mockEngine.getGenerateCallCount()
+        #expect(classifyCount == 1)
+        #expect(generateCount == 1)
+        #expect(result == .promotions)
+    }
+
+    @Test("categorizeBatch with ML engine categorizes all emails")
+    func batchWithMLEngine() async {
+        let (resolver, mockEngine) = makeResolver()
+        await mockEngine.setAvailable(true)
+        await mockEngine.setClassifyResult("primary")
+
+        let useCase = CategorizeEmailUseCase(engineResolver: resolver)
+        let emails = (0..<3).map { _ in makeEmail() }
+
+        let count = await useCase.categorizeBatch(emails: emails)
+        #expect(count == 3)
+        let classifyCount = await mockEngine.getClassifyCallCount()
+        #expect(classifyCount == 3)
     }
 }

@@ -20,6 +20,14 @@ actor MockSMTPClient: SMTPClientProtocol {
         _isConnected
     }
 
+    func setThrowOnConnect(_ value: Bool) {
+        shouldThrowOnConnect = value
+    }
+
+    func setThrowOnSend(_ value: Bool) {
+        shouldThrowOnSend = value
+    }
+
     func connect(host: String, port: Int, email: String, accessToken: String) async throws {
         connectCallCount += 1
         if shouldThrowOnConnect {

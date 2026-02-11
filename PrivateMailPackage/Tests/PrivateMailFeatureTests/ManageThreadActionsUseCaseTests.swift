@@ -173,6 +173,27 @@ struct ManageThreadActionsUseCaseTests {
         #expect(repo.moveThreadsCallCount == 1)
     }
 
+    // MARK: - toggleEmailStarStatus
+
+    @Test("toggleEmailStarStatus delegates to repository")
+    func toggleEmailStarStatusDelegates() async throws {
+        let (useCase, repo) = Self.makeSUT()
+
+        try await useCase.toggleEmailStarStatus(emailId: "email-1")
+
+        #expect(repo.toggleEmailStarCallCount == 1)
+    }
+
+    @Test("toggleEmailStarStatus wraps errors as ThreadListError.actionFailed")
+    func toggleEmailStarStatusError() async {
+        let (useCase, repo) = Self.makeSUT()
+        repo.errorToThrow = NSError(domain: "test", code: 1)
+
+        await #expect(throws: ThreadListError.self) {
+            try await useCase.toggleEmailStarStatus(emailId: "email-1")
+        }
+    }
+
     // MARK: - Error Propagation
 
     @Test("Error propagation wraps as ThreadListError.actionFailed")

@@ -88,4 +88,21 @@ struct MarkReadUseCaseTests {
             try await sut.markAllRead(in: thread)
         }
     }
+
+    @Test("marks only unread emails in mixed thread")
+    func marksMixedThread() async throws {
+        let (sut, repo) = Self.makeSUT()
+        // 3 emails total: 1 already read, 2 unread
+        let thread = Self.makeThreadWithEmails(unreadCount: 2, totalCount: 3)
+        repo.threads = [thread]
+
+        try await sut.markAllRead(in: thread)
+
+        for email in thread.emails {
+            #expect(email.isRead == true)
+        }
+        // Only 2 unread emails should have been saved (not the already-read one)
+        #expect(repo.saveEmailCallCount == 2)
+        #expect(thread.unreadCount == 0)
+    }
 }

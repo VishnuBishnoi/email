@@ -237,4 +237,55 @@ struct ManageAccountsUseCaseTests {
             try await useCase.reAuthenticateAccount(id: "nonexistent")
         }
     }
+
+    // MARK: - IMAP Validation Failure Rollback
+
+    private final class FailingConnectionProvider: ConnectionProviding, @unchecked Sendable {
+        func checkoutConnection(
+            accountId: String,
+            host: String,
+            port: Int,
+            email: String,
+            accessToken: String
+        ) async throws -> any IMAPClientProtocol {
+            throw NSError(domain: "IMAP", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connection refused"])
+        }
+
+        func checkinConnection(_ client: any IMAPClientProtocol, accountId: String) async {}
+    }
+
+    @Test("addAccountViaOAuth rolls back on IMAP validation failure")
+    @MainActor
+    func addAccountIMAPValidationFailureRollsBack() async throws {
+        let repo = MockAccountRepository()
+        let oauth = MockOAuthManager()
+        oauth.authenticateResult = .success(Self.makeToken())
+        let keychain = MockKeychainManager()
+        let failingProvider = FailingConnectionProvider()
+
+        let useCase = ManageAccountsUseCase(
+            repository: repo,
+            oauthManager: oauth,
+            keychainManager: keychain,
+            connectionProvider: failingProvider,
+            resolveEmail: { _ in "test@gmail.com" }
+        )
+
+        await #expect(throws: AccountError.self) {
+            _ = try await useCase.addAccountViaOAuth()
+        }
+
+        // Account should have been rolled back (added then removed)
+        #expect(repo.addCallCount == 1)
+        #expect(repo.removeCallCount == 1)
+        #expect(repo.accounts.isEmpty)
+
+        // Keychain should have been cleaned up (store then delete)
+        let storeCount = await keychain.storeCallCount
+        let deleteCount = await keychain.deleteCallCount
+        #expect(storeCount == 1)
+        #expect(deleteCount == 1)
+        let storageCount = await keychain.storage.count
+        #expect(storageCount == 0)
+    }
 }
