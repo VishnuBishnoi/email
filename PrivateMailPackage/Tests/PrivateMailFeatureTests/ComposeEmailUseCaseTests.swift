@@ -591,7 +591,7 @@ struct ComposeEmailUseCaseTests {
 
     @Test("executeSend fails when account not found")
     func executeSendAccountNotFound() async {
-        let (useCase, repo, _, keychainManager, _) = Self.makeSendSUT()
+        let (useCase, repo, _, _, _) = Self.makeSendSUT()
         // Create email but no account
         let email = Email(
             accountId: "missing-acc",
@@ -644,7 +644,7 @@ struct ComposeEmailUseCaseTests {
 
     @Test("executeSend refreshes expired token before sending")
     func executeSendTokenRefresh() async throws {
-        let (useCase, repo, accountRepo, keychainManager, smtpClient) = Self.makeSendSUT()
+        let (useCase, repo, accountRepo, keychainManager, _) = Self.makeSendSUT()
         let account = Account(id: "acc1", email: "me@test.com", displayName: "Me")
         accountRepo.accounts.append(account)
 

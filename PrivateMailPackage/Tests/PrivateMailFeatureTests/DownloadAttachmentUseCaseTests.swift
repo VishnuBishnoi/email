@@ -280,7 +280,7 @@ struct DownloadAttachmentUseCaseTests {
 
     @Test("download throws when account not found")
     func downloadAccountNotFound() async throws {
-        let (sut, _, accountRepo, _, _, _) = Self.makeIMAPSUT()
+        let (sut, _, _, _, _, _) = Self.makeIMAPSUT()
         // No accounts in repo
 
         let email = Email(accountId: "missing", threadId: "t-1", messageId: "<m1>", fromAddress: "a@b.com", subject: "S")

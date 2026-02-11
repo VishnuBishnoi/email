@@ -38,6 +38,15 @@ public final class NetworkMonitor {
         monitor.start(queue: queue)
     }
 
+    /// Stops monitoring. Safe to call multiple times.
+    ///
+    /// Called automatically on deinit, but call it early to release
+    /// the underlying dispatch queue (important in unit tests where
+    /// `NWPathMonitor`'s queue can prevent process exit on Simulator).
+    public func cancel() {
+        monitor.cancel()
+    }
+
     deinit {
         monitor.cancel()
     }
