@@ -64,6 +64,12 @@ struct AttachmentRowView: View {
         }
     }
 
+    private var existingLocalFileURL: URL? {
+        guard let path = attachment.localPath else { return nil }
+        let fileURL = URL(fileURLWithPath: path)
+        return FileManager.default.fileExists(atPath: fileURL.path) ? fileURL : nil
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -74,13 +80,27 @@ struct AttachmentRowView: View {
             actionButtons
         }
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityHint(accessibilityHintText)
         .accessibilityIdentifier("attachment-row-\(attachment.id)")
+        .onTapGesture {
+            if case .downloaded = downloadState {
+                if existingLocalFileURL != nil {
+                    onPreview(attachment)
+                } else {
+                    // Persisted metadata can outlive cache files; re-download when missing.
+                    downloadState = .notDownloaded
+                    initiateDownload()
+                }
+            }
+        }
         .onAppear {
-            if attachment.isDownloaded {
+            if attachment.isDownloaded, existingLocalFileURL != nil {
                 downloadState = .downloaded
+            } else {
+                downloadState = .notDownloaded
             }
         }
         .alert("Security Warning", isPresented: $showSecurityAlert) {
@@ -177,29 +197,21 @@ struct AttachmentRowView: View {
             }
 
         case .downloaded:
-            HStack(spacing: 12) {
-                Button {
-                    onPreview(attachment)
-                } label: {
-                    Image(systemName: "eye")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
+            Button {
+                if let fileURL = existingLocalFileURL {
+                    onShare(fileURL)
+                } else {
+                    // Avoid presenting a share sheet for a stale path.
+                    downloadState = .notDownloaded
+                    initiateDownload()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Preview \(attachment.filename)")
-
-                Button {
-                    if let path = attachment.localPath {
-                        onShare(URL(fileURLWithPath: path))
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Share \(attachment.filename)")
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.subheadline)
+                    .foregroundStyle(.tint)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share \(attachment.filename)")
 
         case .error:
             Button {

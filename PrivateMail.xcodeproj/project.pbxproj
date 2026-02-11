@@ -196,6 +196,9 @@
 			);
 			mainGroup = 8B41F63C2DEDD0D5001A66F9;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9E9A8C5F2F431B3800AA1101 /* XCLocalSwiftPackageReference "PrivateMailPackage" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
 			projectDirPath = "";
@@ -492,13 +495,22 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		9E9A8C5F2F431B3800AA1101 /* XCLocalSwiftPackageReference "PrivateMailPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PrivateMailPackage;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		8B41F6822DEDD23B001A66F9 /* PrivateMailFeature */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 9E9A8C5F2F431B3800AA1101 /* XCLocalSwiftPackageReference "PrivateMailPackage" */;
 			productName = PrivateMailFeature;
 		};
 		8B41F6842DEDD25C001A66F9 /* PrivateMailFeature */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 9E9A8C5F2F431B3800AA1101 /* XCLocalSwiftPackageReference "PrivateMailPackage" */;
 			productName = PrivateMailFeature;
 		};
 /* End XCSwiftPackageProductDependency section */
