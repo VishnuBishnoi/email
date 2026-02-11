@@ -1,6 +1,6 @@
 # Project Overview
 
-This is a native **iOS application** built with **Swift 6.1+** and **SwiftUI**. The codebase targets **iOS 18.0 and later**, allowing full use of modern Swift and iOS APIs. All concurrency is handled with **Swift Concurrency** (async/await, actors, @MainActor isolation) ensuring thread-safe code.
+This is a native **iOS application** built with **Swift 6.1+** and **SwiftUI**. The codebase targets **iOS 17.0 and later**, allowing full use of modern Swift and iOS APIs. All concurrency is handled with **Swift Concurrency** (async/await, actors, @MainActor isolation) ensuring thread-safe code.
 
 - **Frameworks & Tech:** SwiftUI for UI, Swift Concurrency with strict mode, Swift Package Manager for modular architecture
 - **Architecture:** Model-View (MV) pattern using pure SwiftUI state management. We avoid MVVM and instead leverage SwiftUI's built-in state mechanisms (@State, @Observable, @Environment, @Binding)
@@ -408,13 +408,13 @@ This template includes a **declarative entitlements system** that AI agents can 
 
 ## How It Works
 
-- **Entitlements File**: `Config/PrivateMail.entitlements` contains all app capabilities
+- **Entitlements File**: `Config/VaultMail.entitlements` contains all app capabilities
 - **XCConfig Integration**: `CODE_SIGN_ENTITLEMENTS` setting in `Config/Shared.xcconfig` points to the entitlements file
 - **AI-Friendly**: Agents can edit the XML file directly to add/remove capabilities
 
 ## Adding Entitlements
 
-To add capabilities to your app, edit `Config/PrivateMail.entitlements`:
+To add capabilities to your app, edit `Config/VaultMail.entitlements`:
 
 ## Common Entitlements
 
@@ -698,7 +698,7 @@ final class Task {
 
 // In your app
 @main
-struct PrivateMailApp: App {
+struct VaultMailApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

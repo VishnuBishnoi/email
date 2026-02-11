@@ -4,9 +4,9 @@ spec-ref: docs/features/email-sync/spec.md
 plan-refs:
   - docs/features/email-sync/ios-macos/plan.md
   - docs/features/email-sync/ios-macos/tasks.md
-version: "1.2.0"
-status: in-progress
-last-validated: 2026-02-09
+version: "1.3.0"
+status: locked
+last-validated: 2026-02-11
 ---
 
 # Email Sync — Validation: Acceptance Criteria & Test Plan

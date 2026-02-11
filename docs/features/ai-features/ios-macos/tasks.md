@@ -354,9 +354,9 @@ updated: 2026-02-10
 - **Status**: `done`
 - **Spec ref**: FR-AI-01
 - **Validation ref**: AC-A-02
-- **Description**: Inject `ModelManager` and wire AI use cases through the SwiftUI view hierarchy via `PrivateMailApp`.
+- **Description**: Inject `ModelManager` and wire AI use cases through the SwiftUI view hierarchy via `VaultMailApp`.
 - **Deliverables**:
-  - [x] Create `ModelManager` in `PrivateMailApp.init()` and pass through view hierarchy
+  - [x] Create `ModelManager` in `VaultMailApp.init()` and pass through view hierarchy
   - [x] `AIEngineResolver` created from `ModelManager` in use case factories
   - [x] `CategorizeEmailUseCase`, `DetectSpamUseCase` wired via `AIProcessingQueue`
   - [x] `AIRepositoryImpl` provides `smartReply()`, `summarize()`, `generateEmbedding()` for use cases

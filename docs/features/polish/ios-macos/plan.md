@@ -2,8 +2,9 @@
 title: "Polish — iOS/macOS Implementation Plan"
 platform: iOS, macOS
 spec-ref: docs/features/foundation/spec.md
-version: "1.0.0"
-status: draft
+version: "1.1.0"
+status: locked
+updated: 2026-02-11
 assignees:
   - Core Team
 target-milestone: V1.0

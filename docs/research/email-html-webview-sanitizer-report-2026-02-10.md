@@ -1,7 +1,7 @@
 # Email HTML Rendering in Mobile WebView: Research + Implementation Report
 
 Date: February 10, 2026  
-Project: PrivateMail (`/Users/vishnudutt/email`)
+Project: VaultMail (`/Users/vishnudutt/email`)
 
 ## Scope
 Investigate best practices for rendering untrusted email HTML in mobile WebViews, compare common industry approaches, and harden this app's HTML sanitizer/render pipeline.
@@ -21,7 +21,7 @@ Investigate best practices for rendering untrusted email HTML in mobile WebViews
 ## Changes Implemented
 
 ### 1) Sanitizer hardening
-File: `/Users/vishnudutt/email/PrivateMailPackage/Sources/PrivateMailFeature/Domain/Utilities/HTMLSanitizer.swift`
+File: `/Users/vishnudutt/email/VaultMailPackage/Sources/VaultMailFeature/Domain/Utilities/HTMLSanitizer.swift`
 
 - Added stripping of high-risk container tags:
   - `svg`, `math`, `template`
@@ -36,18 +36,18 @@ File: `/Users/vishnudutt/email/PrivateMailPackage/Sources/PrivateMailFeature/Dom
   - Remote images enabled: `img-src http: https: data:`
 
 ### 2) WebView render pipeline fix
-File: `/Users/vishnudutt/email/PrivateMailPackage/Sources/PrivateMailFeature/Presentation/EmailDetail/HTMLEmailView.swift`
+File: `/Users/vishnudutt/email/VaultMailPackage/Sources/VaultMailFeature/Presentation/EmailDetail/HTMLEmailView.swift`
 
 - Removed duplicate HTML wrapping/styling stage.
 - `HTMLEmailView` now loads the already-built full HTML document directly.
 
 ### 3) Correct remote-image policy wiring
-File: `/Users/vishnudutt/email/PrivateMailPackage/Sources/PrivateMailFeature/Presentation/EmailDetail/MessageBubbleView.swift`
+File: `/Users/vishnudutt/email/VaultMailPackage/Sources/VaultMailFeature/Presentation/EmailDetail/MessageBubbleView.swift`
 
 - Passed `allowRemoteImages: shouldLoadRemote` into final HTML document/CSP generation.
 
 ### 4) Regression test additions
-File: `/Users/vishnudutt/email/PrivateMailPackage/Tests/PrivateMailFeatureTests/HTMLSanitizerTests.swift`
+File: `/Users/vishnudutt/email/VaultMailPackage/Tests/VaultMailFeatureTests/HTMLSanitizerTests.swift`
 
 Added tests for:
 - Unquoted `javascript:` URI blocking.
@@ -58,7 +58,7 @@ Added tests for:
 
 ## Verification
 Command run:
-- `swift test --filter HTMLSanitizer` (in `/Users/vishnudutt/email/PrivateMailPackage`)
+- `swift test --filter HTMLSanitizer` (in `/Users/vishnudutt/email/VaultMailPackage`)
 
 Result:
 - Passed: 37 tests

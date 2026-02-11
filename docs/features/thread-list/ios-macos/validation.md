@@ -4,10 +4,10 @@ spec-ref: docs/features/thread-list/spec.md
 plan-refs:
   - docs/features/thread-list/ios-macos/plan.md
   - docs/features/thread-list/ios-macos/tasks.md
-version: "2.0.0"
-status: approved
-last-validated: null
-updated: 2026-02-08
+version: "2.1.0"
+status: locked
+last-validated: 2026-02-11
+updated: 2026-02-11
 ---
 
 # Thread List — Validation: Acceptance Criteria & Test Plan

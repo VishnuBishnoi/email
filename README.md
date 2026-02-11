@@ -1,4 +1,4 @@
-# PrivateMail - iOS App
+# VaultMail - iOS App
 
 A modern iOS application using a **workspace + SPM package** architecture for clean separation between app shell and feature code.
 
@@ -30,25 +30,25 @@ These rules files are **starting points** - feel free to:
 ## Project Architecture
 
 ```
-PrivateMail/
-├── PrivateMail.xcworkspace/              # Open this file in Xcode
-├── PrivateMail.xcodeproj/                # App shell project
-├── PrivateMail/                          # App target (minimal)
+VaultMail/
+├── VaultMail.xcworkspace/              # Open this file in Xcode
+├── VaultMail.xcodeproj/                # App shell project
+├── VaultMail/                          # App target (minimal)
 │   ├── Assets.xcassets/                # App-level assets (icons, colors)
-│   ├── PrivateMailApp.swift              # App entry point
-│   └── PrivateMail.xctestplan            # Test configuration
-├── PrivateMailPackage/                   # 🚀 Primary development area
+│   ├── VaultMailApp.swift              # App entry point
+│   └── VaultMail.xctestplan            # Test configuration
+├── VaultMailPackage/                   # 🚀 Primary development area
 │   ├── Package.swift                   # Package configuration
-│   ├── Sources/PrivateMailFeature/       # Your feature code
-│   └── Tests/PrivateMailFeatureTests/    # Unit tests
-└── PrivateMailUITests/                   # UI automation tests
+│   ├── Sources/VaultMailFeature/       # Your feature code
+│   └── Tests/VaultMailFeatureTests/    # Unit tests
+└── VaultMailUITests/                   # UI automation tests
 ```
 
 ## Key Architecture Points
 
 ### Workspace + SPM Structure
-- **App Shell**: `PrivateMail/` contains minimal app lifecycle code
-- **Feature Code**: `PrivateMailPackage/Sources/PrivateMailFeature/` is where most development happens
+- **App Shell**: `VaultMail/` contains minimal app lifecycle code
+- **Feature Code**: `VaultMailPackage/Sources/VaultMailFeature/` is where most development happens
 - **Separation**: Business logic lives in the SPM package, app target just imports and displays it
 
 ### Buildable Folders (Xcode 16)
@@ -59,7 +59,7 @@ PrivateMail/
 ## Development Notes
 
 ### Code Organization
-Most development happens in `PrivateMailPackage/Sources/PrivateMailFeature/` - organize your code as you prefer.
+Most development happens in `VaultMailPackage/Sources/VaultMailFeature/` - organize your code as you prefer.
 
 ### Public API Requirements
 Types exposed to the app target need `public` access:
@@ -74,23 +74,23 @@ public struct NewView: View {
 ```
 
 ### Adding Dependencies
-Edit `PrivateMailPackage/Package.swift` to add SPM dependencies:
+Edit `VaultMailPackage/Package.swift` to add SPM dependencies:
 ```swift
 dependencies: [
     .package(url: "https://github.com/example/SomePackage", from: "1.0.0")
 ],
 targets: [
     .target(
-        name: "PrivateMailFeature",
+        name: "VaultMailFeature",
         dependencies: ["SomePackage"]
     ),
 ]
 ```
 
 ### Test Structure
-- **Unit Tests**: `PrivateMailPackage/Tests/PrivateMailFeatureTests/` (Swift Testing framework)
-- **UI Tests**: `PrivateMailUITests/` (XCUITest framework)
-- **Test Plan**: `PrivateMail.xctestplan` coordinates all tests
+- **Unit Tests**: `VaultMailPackage/Tests/VaultMailFeatureTests/` (Swift Testing framework)
+- **UI Tests**: `VaultMailUITests/` (XCUITest framework)
+- **Test Plan**: `VaultMail.xctestplan` coordinates all tests
 
 ## Configuration
 
@@ -103,19 +103,19 @@ Build settings are managed through **XCConfig files** in `Config/`:
 
 ### Entitlements Management
 App capabilities are managed through a **declarative entitlements file**:
-- `Config/PrivateMail.entitlements` - All app entitlements and capabilities
+- `Config/VaultMail.entitlements` - All app entitlements and capabilities
 - AI agents can safely edit this XML file to add HealthKit, CloudKit, Push Notifications, etc.
 - No need to modify complex Xcode project files
 
 ### Asset Management
-- **App-Level Assets**: `PrivateMail/Assets.xcassets/` (app icon, accent color)
+- **App-Level Assets**: `VaultMail/Assets.xcassets/` (app icon, accent color)
 - **Feature Assets**: Add `Resources/` folder to SPM package if needed
 
 ### SPM Package Resources
 To include assets in your feature package:
 ```swift
 .target(
-    name: "PrivateMailFeature",
+    name: "VaultMailFeature",
     dependencies: [],
     resources: [.process("Resources")]
 )

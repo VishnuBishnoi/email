@@ -215,7 +215,7 @@ These files already exist and need to be **upgraded** (currently stubs):
 | Task ID | Description | Dependencies | Effort |
 |---------|-------------|-------------|--------|
 | IOS-A-20 | Wire `AIModelSettingsView` to real `ModelManager` | IOS-A-03 | Low |
-| IOS-A-21 | Wire AI use cases into `PrivateMailApp` environment injection | IOS-A-02c, IOS-A-04b | Medium |
+| IOS-A-21 | Wire AI use cases into `VaultMailApp` environment injection | IOS-A-02c, IOS-A-04b | Medium |
 | IOS-A-22 | Wire `OnboardingAIModelStep` to real `ModelManager` | IOS-A-03, IOS-A-20 | Low |
 
 ### Dependency Graph

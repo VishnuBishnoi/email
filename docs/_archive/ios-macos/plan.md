@@ -59,11 +59,11 @@ Platform-specific deviations from the spec:
 ### 3.1 Project Structure
 
 ```
-PrivateMail/
-├── PrivateMail.xcodeproj
-├── PrivateMail/                      # Shared code
+VaultMail/
+├── VaultMail.xcodeproj
+├── VaultMail/                      # Shared code
 │   ├── App/
-│   │   ├── PrivateMailApp.swift      # App entry point
+│   │   ├── VaultMailApp.swift      # App entry point
 │   │   └── AppState.swift            # Global app state
 │   ├── Domain/
 │   │   ├── Models/
@@ -122,7 +122,7 @@ PrivateMail/
 │       ├── Extensions/
 │       ├── Utilities/
 │       └── Constants.swift
-├── PrivateMailiOS/                    # iOS-specific
+├── VaultMailiOS/                    # iOS-specific
 │   ├── Views/
 │   │   ├── ThreadList/
 │   │   │   ├── ThreadListView.swift
@@ -153,7 +153,7 @@ PrivateMail/
 │   │       └── LoadingStateView.swift
 │   └── Navigation/
 │       └── iOSNavigationRouter.swift
-├── PrivateMailMac/                    # macOS-specific
+├── VaultMailMac/                    # macOS-specific
 │   ├── Views/
 │   │   ├── MainWindowView.swift       # Three-pane layout
 │   │   ├── SidebarView.swift          # Accounts + folders
@@ -181,11 +181,11 @@ PrivateMail/
 ```mermaid
 graph TD
     subgraph Targets
-        iOS["PrivateMailiOS"]
-        Mac["PrivateMailMac"]
+        iOS["VaultMailiOS"]
+        Mac["VaultMailMac"]
     end
 
-    subgraph SharedFramework["PrivateMail (Shared)"]
+    subgraph SharedFramework["VaultMail (Shared)"]
         App["App"]
         Domain["Domain"]
         Data["Data"]

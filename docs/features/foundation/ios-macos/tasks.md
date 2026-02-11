@@ -21,7 +21,7 @@ updated: 2026-02-10
 - **Commit**: `8287501`
 - **Description**: Create Xcode project with workspace + SPM package architecture. Configure deployment targets (iOS 17, macOS 14) and Swift 6.1. Set up folder structure with Domain/Models, Domain/Protocols, Data/Persistence, Shared layers.
 - **Deliverables**:
-  - [x] Workspace + SPM package (`PrivateMailPackage`) with iOS and macOS platform support
+  - [x] Workspace + SPM package (`VaultMailPackage`) with iOS and macOS platform support
   - [x] Build settings configured for both platforms (iOS 17.0+, macOS 14.0+)
   - [x] Project compiles and launches empty app on both iOS Simulator and macOS
   - [x] `.gitignore` for Xcode and SPM build artifacts

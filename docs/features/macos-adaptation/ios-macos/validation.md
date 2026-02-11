@@ -4,9 +4,9 @@ spec-ref: docs/features/foundation/spec.md
 plan-refs:
   - docs/features/macos-adaptation/ios-macos/plan.md
   - docs/features/macos-adaptation/ios-macos/tasks.md
-version: "1.0.0"
-status: draft
-last-validated: null
+version: "1.1.0"
+status: locked
+last-validated: 2026-02-11
 ---
 
 # macOS Adaptation — Validation: Acceptance Criteria & Test Plan

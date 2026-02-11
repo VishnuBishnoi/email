@@ -7,8 +7,8 @@
 // ==========================================
 // Test Target Settings (Customizable by scaffold tool)
 // ==========================================
-PRODUCT_BUNDLE_IDENTIFIER = com.privatemail.app
-TEST_TARGET_NAME = PrivateMail
+PRODUCT_BUNDLE_IDENTIFIER = com.vaultmail.app
+TEST_TARGET_NAME = VaultMail
 
 // Fix duplicate module name issue
 PRODUCT_MODULE_NAME = $(PRODUCT_NAME)UITests

@@ -111,7 +111,7 @@ updated: 2026-02-10
   - [ ] Category tab persistence per folder: in-memory `@State` dictionary `[String: AICategory?]` (not persisted across launches)
   - [ ] Toolbar: compose (trailing), folders (leading), search, account switcher, settings
   - [ ] Wire `ContentView.swift` — replace placeholder with ThreadListView
-  - [ ] Wire `PrivateMailApp.swift` — create and inject EmailRepositoryImpl + use cases
+  - [ ] Wire `VaultMailApp.swift` — create and inject EmailRepositoryImpl + use cases
   - [ ] SwiftUI previews for all view states
 
 ---
@@ -206,4 +206,4 @@ updated: 2026-02-10
 |---------|------|--------|---------------|
 | 1.0.0 | 2026-02-07 | Core Team | Initial task breakdown from plan v1.1.0 |
 | 1.1.0 | 2026-02-07 | Core Team | Added deliverable checklists, spec refs, validation refs |
-| 2.0.0 | 2026-02-08 | Core Team | Major revision: Added 4 new domain/data layer tasks (IOS-U-06 through IOS-U-09). Removed NavigationRouter.swift from IOS-U-01 (using built-in NavigationStack). Added Participant model, ThreadPage, ThreadListError to IOS-U-06. Added FetchThreadsUseCase (IOS-U-07) and ManageThreadActionsUseCase (IOS-U-08) replacing individual use cases. Added EmailRepositoryImpl (IOS-U-09). Updated IOS-U-02 with category tab persistence detail and ContentView/PrivateMailApp wiring. Updated IOS-U-03 with Date+RelativeFormat, DateRelativeFormatTests. Updated IOS-U-04 with UndoToastView, MultiSelectToolbar, MoveToFolderSheet, undo toast flow. Updated IOS-U-05 with FolderListView (toolbar button, not sidebar), virtual outbox detail. Updated IOS-U-12 with AccountIndicatorView, deterministic color dot, unified mode constraints. Status → approved |
+| 2.0.0 | 2026-02-08 | Core Team | Major revision: Added 4 new domain/data layer tasks (IOS-U-06 through IOS-U-09). Removed NavigationRouter.swift from IOS-U-01 (using built-in NavigationStack). Added Participant model, ThreadPage, ThreadListError to IOS-U-06. Added FetchThreadsUseCase (IOS-U-07) and ManageThreadActionsUseCase (IOS-U-08) replacing individual use cases. Added EmailRepositoryImpl (IOS-U-09). Updated IOS-U-02 with category tab persistence detail and ContentView/VaultMailApp wiring. Updated IOS-U-03 with Date+RelativeFormat, DateRelativeFormatTests. Updated IOS-U-04 with UndoToastView, MultiSelectToolbar, MoveToFolderSheet, undo toast flow. Updated IOS-U-05 with FolderListView (toolbar button, not sidebar), virtual outbox detail. Updated IOS-U-12 with AccountIndicatorView, deterministic color dot, unified mode constraints. Status → approved |

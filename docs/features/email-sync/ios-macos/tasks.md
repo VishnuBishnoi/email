@@ -55,7 +55,7 @@ updated: 2026-02-10
   - [x] `BackgroundSyncScheduler.swift` — `BGAppRefreshTask` for periodic background sync (15-min interval, 30-sec budget) (FR-SYNC-03)
   - [x] Onboarding sync trigger: `OnboardingView.completeOnboarding()` fires background sync for all added accounts (FR-SYNC-01)
   - [x] Unit tests: `IDLEMonitorUseCaseTests` (5 tests), `BackgroundSyncSchedulerTests` (4 tests)
-- **Notes**: Sync engine logic is in `SyncEmailsUseCase` (not a separate `SyncEngine.swift`), following the MV/use-case pattern. Real-time IDLE is a separate `IDLEMonitorUseCase` wired into `ThreadListView` via `.task(id:)`. Background sync registered in `PrivateMailApp.init()`. Onboarding triggers sync immediately after account setup.
+- **Notes**: Sync engine logic is in `SyncEmailsUseCase` (not a separate `SyncEngine.swift`), following the MV/use-case pattern. Real-time IDLE is a separate `IDLEMonitorUseCase` wired into `ThreadListView` via `.task(id:)`. Background sync registered in `VaultMailApp.init()`. Onboarding triggers sync immediately after account setup.
 
 ### IOS-F-07: SMTP Client
 

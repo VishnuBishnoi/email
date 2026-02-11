@@ -2,12 +2,12 @@
 title: "Email Sync — iOS/macOS Implementation Plan"
 platform: iOS, macOS
 spec-ref: docs/features/email-sync/spec.md
-version: "1.2.0"
-status: in-progress
+version: "1.3.0"
+status: locked
 assignees:
   - Core Team
 target-milestone: V1.0
-updated: 2026-02-09
+updated: 2026-02-11
 ---
 
 # Email Sync — iOS/macOS Implementation Plan
@@ -121,12 +121,12 @@ classDiagram
 
 | File | Integration Point |
 |------|-------------------|
-| `PrivateMailApp.swift` | Creates `BackgroundSyncScheduler`, calls `registerTasks()` + `scheduleNextSync()` at launch |
+| `VaultMailApp.swift` | Creates `BackgroundSyncScheduler`, calls `registerTasks()` + `scheduleNextSync()` at launch |
 | `ContentView.swift` | Passes `syncEmails` dependency to `OnboardingView` |
 | `OnboardingView.swift` | `completeOnboarding()` triggers background `syncAccount()` for all added accounts |
 | `ThreadListView.swift` | `initialLoad()` calls `syncAccount()` + starts `IDLEMonitorUseCase`; IDLE restarts on folder change; `.refreshable` calls `syncFolder()` |
-| `Config/PrivateMail.entitlements` | `com.apple.developer.background-modes` = `fetch` |
-| `PrivateMail/Info.plist` | `BGTaskSchedulerPermittedIdentifiers` = `com.privatemail.app.sync` |
+| `Config/VaultMail.entitlements` | `com.apple.developer.background-modes` = `fetch` |
+| `VaultMail/Info.plist` | `BGTaskSchedulerPermittedIdentifiers` = `com.vaultmail.app.sync` |
 
 ---
 

@@ -144,9 +144,9 @@ Refer to Foundation validation Section 5 for shared device test matrix.
 
 | Target | Platform | Result |
 |--------|----------|--------|
-| PrivateMail | iOS Simulator (iPhone 16, iOS 18.2) | BUILD SUCCEEDED |
-| PrivateMail | macOS (Designed for iPad) | BUILD SUCCEEDED |
-| PrivateMailPackage | swift test (macOS) | 56/56 PASSED |
+| VaultMail | iOS Simulator (iPhone 16, iOS 18.2) | BUILD SUCCEEDED |
+| VaultMail | macOS (Designed for iPad) | BUILD SUCCEEDED |
+| VaultMailPackage | swift test (macOS) | 56/56 PASSED |
 
 ### AC-F-03 (Keychain Manager) — PASS
 

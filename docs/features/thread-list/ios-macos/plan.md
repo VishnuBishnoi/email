@@ -2,12 +2,12 @@
 title: "Thread List — iOS/macOS Implementation Plan"
 platform: iOS, macOS
 spec-ref: docs/features/thread-list/spec.md
-version: "2.0.0"
-status: approved
+version: "2.1.0"
+status: locked
 assignees:
   - Core Team
 target-milestone: V1.0
-updated: 2026-02-08
+updated: 2026-02-11
 ---
 
 # Thread List — iOS/macOS Implementation Plan
@@ -119,7 +119,7 @@ Cursor-based using `latestDate`:
 
 ### New Source Files (22)
 
-All under `PrivateMailPackage/Sources/PrivateMailFeature/`:
+All under `VaultMailPackage/Sources/VaultMailFeature/`:
 
 | # | Path | Layer | Purpose |
 |---|------|-------|---------|
@@ -148,7 +148,7 @@ All under `PrivateMailPackage/Sources/PrivateMailFeature/`:
 
 ### New Test Files (6)
 
-All under `PrivateMailPackage/Tests/PrivateMailFeatureTests/`:
+All under `VaultMailPackage/Tests/VaultMailFeatureTests/`:
 
 | # | Path | Tests |
 |---|------|-------|
@@ -166,7 +166,7 @@ All under `PrivateMailPackage/Tests/PrivateMailFeatureTests/`:
 | 1 | `Domain/Protocols/EmailRepositoryProtocol.swift` | Add ~15 new method signatures for pagination, actions, and batch ops |
 | 2 | `Shared/Constants.swift` | Add `threadListPageSize = 25` |
 | 3 | `ContentView.swift` | Replace `mainAppView` placeholder with `ThreadListView`, add use case properties |
-| 4 | `PrivateMailApp.swift` | Wire `EmailRepositoryImpl`, `FetchThreadsUseCase`, `ManageThreadActionsUseCase` |
+| 4 | `VaultMailApp.swift` | Wire `EmailRepositoryImpl`, `FetchThreadsUseCase`, `ManageThreadActionsUseCase` |
 
 ---
 
@@ -227,7 +227,7 @@ All under `PrivateMailPackage/Tests/PrivateMailFeatureTests/`:
 | IOS-U-01/02 | `ThreadListView.swift` | Main view with NavigationStack, state management, pagination |
 | IOS-U-02 | `CategoryTabBar.swift` | Horizontal filter tabs with unread badges |
 | — | `ContentView.swift` | Replace placeholder with ThreadListView |
-| — | `PrivateMailApp.swift` | Wire repository + use cases |
+| — | `VaultMailApp.swift` | Wire repository + use cases |
 
 ### Phase 6: Interactions (IOS-U-04)
 
