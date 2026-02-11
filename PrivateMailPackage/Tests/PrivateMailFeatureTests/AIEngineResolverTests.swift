@@ -17,7 +17,7 @@ struct AIEngineResolverTests {
         let recommended = resolver.recommendedModelID()
 
         // On most Mac dev machines, RAM >= 6 GB
-        let ramGB = await resolver.deviceRAMInGB()
+        let ramGB = resolver.deviceRAMInGB()
         if ramGB >= 6 {
             #expect(recommended == "qwen3-1.7b-q4km")
         } else {

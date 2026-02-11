@@ -576,7 +576,7 @@ struct IMAPResponseParserTests {
         // Verify the parsed date components
         if let date = headers[0].date {
             let calendar = Calendar(identifier: .gregorian)
-            var components = calendar.dateComponents(in: TimeZone(identifier: "UTC")!, from: date)
+            let components = calendar.dateComponents(in: TimeZone(identifier: "UTC")!, from: date)
             #expect(components.year == 2024)
             #expect(components.month == 1)
             #expect(components.day == 1)

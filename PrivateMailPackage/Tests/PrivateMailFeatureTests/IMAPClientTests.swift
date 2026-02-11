@@ -710,7 +710,7 @@ struct IMAPSanitizationTests {
         #expect(!sanitized.contains("\r"))
         #expect(!sanitized.contains("\n"))
         // All quotes should be escaped
-        let unescapedQuoteCount = sanitized.components(separatedBy: "\"").count
+        _ = sanitized.components(separatedBy: "\"").count
             - sanitized.components(separatedBy: "\\\"").count
         // The result should be safe to interpolate into SELECT "..."
         #expect(sanitized == "\\\"A999 DELETE \\\"INBOX\\\"")
