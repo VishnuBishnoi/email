@@ -77,7 +77,8 @@ public struct EmailDetailView: View {
 
     // MARK: - Attachment Preview
 
-    @State private var previewURL: URL?
+    @State private var previewFiles: [AttachmentPreviewContextFile] = []
+    @State private var previewInitialIndex = 0
     @State private var showPreview = false
 
     // MARK: - Trusted Senders (FR-ED-04)
@@ -142,8 +143,17 @@ public struct EmailDetailView: View {
         }
         #if os(iOS)
         .sheet(isPresented: $showPreview) {
-            if let url = previewURL {
-                AttachmentPreviewView(url: url)
+            if !previewFiles.isEmpty {
+                AttachmentPreviewSheet(
+                    files: previewFiles.map {
+                        AttachmentPreviewFile(
+                            id: $0.id,
+                            fileURL: $0.url,
+                            displayName: $0.displayName
+                        )
+                    },
+                    initialIndex: previewInitialIndex
+                )
             }
         }
         #endif
@@ -768,33 +778,60 @@ public struct EmailDetailView: View {
     // MARK: - Attachment Actions
 
     private func previewAttachment(_ attachment: Attachment) {
-        guard let path = attachment.localPath else { return }
-        previewURL = URL(fileURLWithPath: path)
+        let scopedAttachments = attachment.email?.attachments ?? sortedEmails.flatMap(\.attachments)
+        let localFiles: [AttachmentPreviewContextFile] = scopedAttachments.compactMap { item in
+            guard let localPath = item.localPath else { return nil }
+            let url = URL(fileURLWithPath: localPath)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return AttachmentPreviewContextFile(id: item.id, url: url, displayName: item.filename)
+        }
+
+        guard !localFiles.isEmpty else {
+            errorToast = "Attachment file is no longer available locally. Please download again."
+            return
+        }
+        previewFiles = localFiles
+        previewInitialIndex = localFiles.firstIndex(where: { $0.id == attachment.id }) ?? 0
         showPreview = true
     }
 
     private func shareAttachment(_ url: URL) {
         #if os(iOS)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            errorToast = "Attachment file is no longer available locally. Please download again."
+            return
+        }
         guard let windowScene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first,
               let rootVC = windowScene.windows.first?.rootViewController else {
             return
         }
+        let presenter = topMostViewController(startingFrom: rootVC)
         let activityVC = UIActivityViewController(
             activityItems: [url],
             applicationActivities: nil
         )
         // iPad popover anchor
-        activityVC.popoverPresentationController?.sourceView = rootVC.view
+        activityVC.popoverPresentationController?.sourceView = presenter.view
         activityVC.popoverPresentationController?.sourceRect = CGRect(
-            x: rootVC.view.bounds.midX,
-            y: rootVC.view.bounds.midY,
-            width: 0,
-            height: 0
+            x: presenter.view.bounds.midX,
+            y: presenter.view.bounds.midY,
+            width: 1,
+            height: 1
         )
-        rootVC.present(activityVC, animated: true)
+        presenter.present(activityVC, animated: true)
         #endif
     }
+
+    #if os(iOS)
+    private func topMostViewController(startingFrom root: UIViewController) -> UIViewController {
+        var current = root
+        while let presented = current.presentedViewController {
+            current = presented
+        }
+        return current
+    }
+    #endif
 
     // MARK: - Computed
 
@@ -820,4 +857,11 @@ struct UndoableAction: Equatable {
     let type: ActionType
     let threadId: String
     let message: String
+}
+
+/// Platform-neutral attachment context stored in EmailDetailView state.
+private struct AttachmentPreviewContextFile {
+    let id: String
+    let url: URL
+    let displayName: String
 }

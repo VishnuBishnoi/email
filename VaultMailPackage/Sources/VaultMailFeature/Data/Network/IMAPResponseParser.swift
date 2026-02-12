@@ -628,7 +628,8 @@ enum IMAPResponseParser {
                     filename: part.filename,
                     mimeType: part.mimeType,
                     sizeBytes: part.size,
-                    contentId: part.contentId
+                    contentId: part.contentId,
+                    transferEncoding: part.encoding
                 )
             }
     }
@@ -728,11 +729,16 @@ enum IMAPResponseParser {
             contentId = cidToken.replacingOccurrences(of: "\"", with: "")
         }
 
-        // Determine if this is an attachment
-        if joined.contains("\"attachment\"") || joined.contains("\"inline\"") {
+        // Determine if this is an attachment.
+        // Important: do NOT treat plain inline text body parts as attachments.
+        let hasAttachmentDisposition = joined.contains("\"attachment\"")
+        let hasInlineDisposition = joined.contains("\"inline\"")
+        if hasAttachmentDisposition {
             isAttachment = true
+        } else if hasInlineDisposition {
+            isAttachment = filename != nil || !mimeType.hasPrefix("text/")
         }
-        if filename != nil && !mimeType.hasPrefix("text/") {
+        if filename != nil {
             isAttachment = true
         }
 

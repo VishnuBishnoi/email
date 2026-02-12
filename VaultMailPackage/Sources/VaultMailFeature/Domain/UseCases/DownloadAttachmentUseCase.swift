@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// Use case for downloading email attachments via IMAP body part fetch.
 ///
@@ -178,11 +179,13 @@ public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol 
             decodedData = MIMEDecoder.decodeQuotedPrintableToData(qpString)
         default:
             // 7BIT, 8BIT, BINARY — raw data is already decoded
-            decodedData = rawData
+            // Backward compatibility: older synced attachments may miss
+            // `transferEncoding` and default to 7BIT even when payload is base64.
+            decodedData = decodeLegacyTransferEncodingIfNeeded(rawData, mimeType: attachment.mimeType)
         }
 
         // 5. Write to local storage
-        let localPath = attachmentStoragePath(for: attachment)
+        let localPath = attachmentStoragePath(for: attachment, decodedData: decodedData)
         let localURL = URL(fileURLWithPath: localPath)
         let directory = localURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -197,16 +200,120 @@ public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol 
         return localPath
     }
 
+    private func decodeLegacyTransferEncodingIfNeeded(_ data: Data, mimeType: String) -> Data {
+        guard let rawString = String(data: data, encoding: .utf8) else {
+            return data
+        }
+
+        let compact = rawString
+            .replacingOccurrences(of: "\r\n", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Base64 heuristic should only run for non-text attachments to avoid
+        // accidental decode of plain text.
+        if !mimeType.lowercased().hasPrefix("text/"),
+           !compact.isEmpty,
+           compact.utf8.allSatisfy(isBase64Byte),
+           let decoded = Data(base64Encoded: compact),
+           decoded.count > 0 {
+            return decoded
+        }
+
+        // Quoted-printable fallback: common symptom is repeated "=20" sequences.
+        if rawString.contains("="),
+           looksLikeQuotedPrintable(rawString) {
+            let decodedQP = MIMEDecoder.decodeQuotedPrintableToData(rawString)
+            if !decodedQP.isEmpty {
+                return decodedQP
+            }
+        }
+
+        return data
+    }
+
+    private func looksLikeQuotedPrintable(_ value: String) -> Bool {
+        let bytes = Array(value.utf8.prefix(4096))
+        guard !bytes.isEmpty else { return false }
+        var matches = 0
+        var i = 0
+        while i + 2 < bytes.count {
+            if bytes[i] == 61, // '='
+               isHexByte(bytes[i + 1]),
+               isHexByte(bytes[i + 2]) {
+                matches += 1
+                i += 3
+                continue
+            }
+            i += 1
+        }
+        return matches >= 3
+    }
+
+    private func isBase64Byte(_ byte: UInt8) -> Bool {
+        // A-Z a-z 0-9 + / =
+        (byte >= 65 && byte <= 90)
+            || (byte >= 97 && byte <= 122)
+            || (byte >= 48 && byte <= 57)
+            || byte == 43
+            || byte == 47
+            || byte == 61
+    }
+
+    private func isHexByte(_ byte: UInt8) -> Bool {
+        (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 70) || (byte >= 97 && byte <= 102)
+    }
+
     // MARK: - Private: Storage Path
 
     /// Returns a deterministic local path for an attachment.
-    private func attachmentStoragePath(for attachment: Attachment) -> String {
+    private func attachmentStoragePath(for attachment: Attachment, decodedData: Data? = nil) -> String {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let dir = caches.appendingPathComponent("attachments", isDirectory: true)
-        let sanitizedName = attachment.filename
+        let sanitizedName = resolvedFilename(for: attachment, decodedData: decodedData)
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "_")
         // Use attachment ID to avoid filename collisions
         return dir.appendingPathComponent("\(attachment.id)_\(sanitizedName)").path
+    }
+
+    private func resolvedFilename(for attachment: Attachment, decodedData: Data?) -> String {
+        let baseName = attachment.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackName = baseName.isEmpty ? "attachment" : baseName
+
+        // Keep original extension when present.
+        if !URL(fileURLWithPath: fallbackName).pathExtension.isEmpty {
+            return fallbackName
+        }
+
+        if let type = UTType(mimeType: attachment.mimeType),
+           let ext = type.preferredFilenameExtension,
+           !ext.isEmpty {
+            return "\(fallbackName).\(ext)"
+        }
+
+        if let decodedData, let sniffedExt = sniffFileExtension(from: decodedData) {
+            return "\(fallbackName).\(sniffedExt)"
+        }
+
+        return fallbackName
+    }
+
+    private func sniffFileExtension(from data: Data) -> String? {
+        if data.starts(with: [0x25, 0x50, 0x44, 0x46, 0x2D]) { return "pdf" } // %PDF-
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "jpg" }
+        if data.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "gif" }
+        if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return "zip" } // zip/docx/xlsx/pptx
+        if let text = String(data: data.prefix(2048), encoding: .utf8) {
+            let lower = text.lowercased()
+            if lower.contains("<!doctype html") || lower.contains("<html") {
+                return "html"
+            }
+            if lower.hasPrefix("{") || lower.hasPrefix("[") {
+                return "json"
+            }
+        }
+        return nil
     }
 }

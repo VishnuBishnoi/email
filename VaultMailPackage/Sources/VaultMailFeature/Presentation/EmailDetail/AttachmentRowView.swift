@@ -64,6 +64,14 @@ struct AttachmentRowView: View {
         }
     }
 
+    private var existingLocalFileURL: URL? {
+        guard let path = attachment.localPath else { return nil }
+        let fileURL = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        guard !looksLikeEncodedTextFile(fileURL: fileURL) else { return nil }
+        return fileURL
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -74,13 +82,27 @@ struct AttachmentRowView: View {
             actionButtons
         }
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityHint(accessibilityHintText)
         .accessibilityIdentifier("attachment-row-\(attachment.id)")
+        .onTapGesture {
+            if case .downloaded = downloadState {
+                if existingLocalFileURL != nil {
+                    onPreview(attachment)
+                } else {
+                    // Persisted metadata can outlive cache files; re-download when missing.
+                    downloadState = .notDownloaded
+                    initiateDownload()
+                }
+            }
+        }
         .onAppear {
-            if attachment.isDownloaded {
+            if attachment.isDownloaded, existingLocalFileURL != nil {
                 downloadState = .downloaded
+            } else {
+                downloadState = .notDownloaded
             }
         }
         .alert("Security Warning", isPresented: $showSecurityAlert) {
@@ -177,29 +199,21 @@ struct AttachmentRowView: View {
             }
 
         case .downloaded:
-            HStack(spacing: 12) {
-                Button {
-                    onPreview(attachment)
-                } label: {
-                    Image(systemName: "eye")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
+            Button {
+                if let fileURL = existingLocalFileURL {
+                    onShare(fileURL)
+                } else {
+                    // Avoid presenting a share sheet for a stale path.
+                    downloadState = .notDownloaded
+                    initiateDownload()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Preview \(attachment.filename)")
-
-                Button {
-                    if let path = attachment.localPath {
-                        onShare(URL(fileURLWithPath: path))
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Share \(attachment.filename)")
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.subheadline)
+                    .foregroundStyle(.tint)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share \(attachment.filename)")
 
         case .error:
             Button {
@@ -278,6 +292,29 @@ struct AttachmentRowView: View {
             return "\(bytes) B"
         }
         return String(format: "%.1f %@", value, units[unitIndex])
+    }
+
+    /// Detect legacy corrupted attachment files that were written as base64 text
+    /// instead of decoded binary content.
+    private func looksLikeEncodedTextFile(fileURL: URL) -> Bool {
+        guard !attachment.mimeType.lowercased().hasPrefix("text/"),
+              let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]),
+              !data.isEmpty else {
+            return false
+        }
+
+        let sample = data.prefix(min(1024, data.count))
+        // If file sample is entirely base64 characters, it's likely an encoded payload.
+        return sample.allSatisfy { byte in
+            (byte >= 65 && byte <= 90)
+                || (byte >= 97 && byte <= 122)
+                || (byte >= 48 && byte <= 57)
+                || byte == 43   // +
+                || byte == 47   // /
+                || byte == 61   // =
+                || byte == 13   // \r
+                || byte == 10   // \n
+        }
     }
 
     // MARK: - Accessibility

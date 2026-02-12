@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import CryptoKit
 
 /// Domain use case for syncing emails from IMAP to SwiftData.
@@ -735,14 +736,32 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     /// Stores `bodySection` (MIME part ID) so ``DownloadAttachmentUseCase``
     /// can lazily fetch this part via `BODY.PEEK[<section>]` (FR-SYNC-08).
     private func mapToAttachment(from info: IMAPAttachmentInfo) -> Attachment {
-        Attachment(
-            filename: info.filename ?? "attachment",
+        let filename = resolvedAttachmentFilename(from: info)
+        return Attachment(
+            filename: filename,
             mimeType: info.mimeType ?? "application/octet-stream",
             sizeBytes: Int(info.sizeBytes ?? 0),
             isDownloaded: false,
             bodySection: info.partId,
+            transferEncoding: info.transferEncoding,
             contentId: info.contentId
         )
+    }
+
+    private func resolvedAttachmentFilename(from info: IMAPAttachmentInfo) -> String {
+        let rawName = (info.filename ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = rawName.isEmpty ? "attachment" : rawName
+        if !URL(fileURLWithPath: base).pathExtension.isEmpty {
+            return base
+        }
+
+        guard let mimeType = info.mimeType,
+              let type = UTType(mimeType: mimeType),
+              let ext = type.preferredFilenameExtension,
+              !ext.isEmpty else {
+            return base
+        }
+        return "\(base).\(ext)"
     }
 
     // MARK: - Contact Extraction
