@@ -1,10 +1,10 @@
 ---
 title: "macOS Adaptation — iOS/macOS Implementation Plan"
 platform: macOS
-spec-ref: docs/features/foundation/spec.md
-version: "1.1.0"
+spec-ref: docs/features/macos-adaptation/spec.md
+version: "1.3.0"
 status: locked
-updated: 2026-02-11
+updated: 2026-02-12
 assignees:
   - Core Team
 target-milestone: V1.0
@@ -12,7 +12,7 @@ target-milestone: V1.0
 
 # macOS Adaptation — iOS/macOS Implementation Plan
 
-> This feature has no separate spec. It implements the same specifications as iOS features with macOS-specific UI adaptations. Refer to Foundation spec Section 7.2 for macOS platform requirements.
+> This plan implements the macOS Native Experience specification (`docs/features/macos-adaptation/spec.md`). Refer to that spec for full requirements (FR-MAC-01 through FR-MAC-10) and Foundation spec Section 7.2 for cross-cutting macOS platform requirements.
 
 ---
 
@@ -70,18 +70,18 @@ Refer to Foundation plan Section 2.
 
 ## 4. Implementation Phases
 
-| Task ID | Description | Dependencies |
-|---------|-------------|-------------|
-| IOS-M-01 | macOS target configuration | Phase 1 (Foundation) |
-| IOS-M-02 | Three-pane main window layout | IOS-M-01 |
-| IOS-M-03 | Sidebar (accounts + folders) | IOS-M-02 |
-| IOS-M-04 | macOS thread list adaptation | IOS-M-02, Phase 2 (Core UI) |
-| IOS-M-05 | macOS email detail adaptation | IOS-M-02, Phase 2 (Core UI) |
-| IOS-M-06 | macOS composer window | IOS-M-01, Phase 2 (Core UI) |
-| IOS-M-07 | Menu bar commands + keyboard shortcuts | IOS-M-01 |
-| IOS-M-08 | macOS toolbar integration | IOS-M-02 |
-| IOS-M-09 | Drag-and-drop for attachments | IOS-M-06 |
-| IOS-M-10 | macOS settings (Settings scene) | IOS-M-01 |
+| Task ID | Description | Spec Requirement | Dependencies |
+|---------|-------------|-----------------|-------------|
+| IOS-M-01 | macOS target configuration | FR-MAC-10 | Phase 1 (Foundation) |
+| IOS-M-02 | Three-pane main window layout | FR-MAC-01 | IOS-M-01 |
+| IOS-M-03 | Sidebar (accounts + folders) | FR-MAC-02 | IOS-M-02 |
+| IOS-M-04 | macOS thread list adaptation | FR-MAC-04, FR-MAC-05 | IOS-M-02, Phase 2 (Core UI) |
+| IOS-M-05 | macOS email detail adaptation | FR-MAC-06 | IOS-M-02, Phase 2 (Core UI) |
+| IOS-M-06 | macOS composer window | FR-MAC-08 | IOS-M-01, Phase 2 (Core UI) |
+| IOS-M-07 | Menu bar commands + keyboard shortcuts | FR-MAC-07 | IOS-M-01 |
+| IOS-M-08 | macOS toolbar integration | FR-MAC-03 | IOS-M-02 |
+| IOS-M-09 | Drag-and-drop for attachments | FR-MAC-09 | IOS-M-06 |
+| IOS-M-10 | macOS settings (Settings scene) | — (existing) | IOS-M-01 |
 
 ---
 
