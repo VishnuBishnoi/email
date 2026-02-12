@@ -2,8 +2,8 @@
 title: "macOS Adaptation — iOS/macOS Implementation Plan"
 platform: macOS
 spec-ref: docs/features/macos-adaptation/spec.md
-version: "1.2.0"
-status: draft
+version: "1.3.0"
+status: locked
 updated: 2026-02-12
 assignees:
   - Core Team

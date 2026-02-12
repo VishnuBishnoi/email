@@ -1,7 +1,7 @@
 ---
 title: "macOS Native Experience — Specification"
-version: "1.1.0"
-status: draft
+version: "1.2.0"
+status: locked
 created: 2026-02-12
 updated: 2026-02-12
 authors:
@@ -696,13 +696,13 @@ graph TD
 
 ## 9. Open Questions
 
-| # | Question | Owner | Target Date |
-|---|----------|-------|-------------|
-| OQ-01 | Should compose always open in a new window on macOS, or should it default to a sheet with an "Open in Window" option? | Core Team | TBD |
-| OQ-02 | Should we support opening an individual email thread in its own window (double-click to open in new window)? | Core Team | TBD |
-| OQ-03 | Should the sidebar support drag-and-drop of threads onto folders for moving messages in V1? | Core Team | TBD |
-| OQ-04 | What minimum macOS version should be targeted — macOS 14 (Sonoma) per Constitution TC-01, or macOS 15 (Sequoia) to leverage newer NavigationSplitView improvements? | Core Team | TBD |
-| OQ-05 | Should we display a status bar at the bottom of the main window (sync status, unread count, AI engine status) as shown in the implementation plan? | Core Team | TBD |
+| # | Question | Resolution |
+|---|----------|------------|
+| ~~OQ-01~~ | ~~Should compose always open in a new window on macOS, or should it default to a sheet with an "Open in Window" option?~~ | **RESOLVED**: Default to sheet (consistent with iOS flow). Add an "Open in Window" button in the composer toolbar. FR-MAC-08 already specifies both modes — sheet is primary, window is secondary. |
+| ~~OQ-02~~ | ~~Should we support opening an individual email thread in its own window (double-click to open in new window)?~~ | **RESOLVED**: Deferred to V2. V1 scope is the three-pane layout. Thread detail always renders in the detail column. |
+| ~~OQ-03~~ | ~~Should the sidebar support drag-and-drop of threads onto folders for moving messages in V1?~~ | **RESOLVED**: Deferred to V2. V1 uses context menu "Move to Folder…" and toolbar Move button. Drag-to-folder requires additional Transferable conformance and drop target handling that adds scope risk. |
+| ~~OQ-04~~ | ~~What minimum macOS version should be targeted — macOS 14 (Sonoma) or macOS 15 (Sequoia)?~~ | **RESOLVED**: macOS 15 (Sequoia). NavigationSplitView column visibility persistence and `.inspector` modifier improvements in macOS 15 reduce workaround code. macOS 14 market share is declining and the app has no existing macOS user base to support. |
+| ~~OQ-05~~ | ~~Should we display a status bar at the bottom of the main window?~~ | **RESOLVED**: Deferred to V2. The toolbar already shows sync state via the Sync button. Adding a status bar increases layout complexity for V1 with marginal benefit. |
 
 ---
 
@@ -712,3 +712,4 @@ graph TD
 |---------|------|--------|---------------|
 | 1.0.0 | 2026-02-12 | Core Team | Initial draft. Comprehensive macOS native experience specification covering three-pane layout (FR-MAC-01), sidebar (FR-MAC-02), toolbar (FR-MAC-03), thread list adaptation (FR-MAC-04), macOS interactions (FR-MAC-05), email detail with NSViewRepresentable HTML rendering (FR-MAC-06), keyboard shortcuts and menu bar (FR-MAC-07), multi-window compose (FR-MAC-08), macOS attachment handling (FR-MAC-09), and window configuration (FR-MAC-10). Five NFRs defined (window responsiveness, column resize, keyboard latency, accessibility, memory). Architecture diagrams for platform fork strategy and HTML rendering sharing. Five open questions flagged for review. |
 | 1.1.0 | 2026-02-12 | Core Team | Review round 1: Resolved ⌘⇧R shortcut conflict — changed Sync/Refresh to ⌃⇧R (was conflicting with Reply All). Changed Forward shortcut from ⌘⇧F to ⌘⇧E (Outlook convention — avoids conflict with macOS Find in Page convention). Added missing `email-sync/spec.md` to depends-on. Removed undocumented "saved searches" from sidebar column definition and added NG-08 to defer to V2. Added Mermaid state diagrams for column visibility (FR-MAC-01) and thread selection (FR-MAC-05) per Constitution SF-03. Fixed `.windowResizability(.contentSize)` to `.contentMinSize` (FR-MAC-10) for correct free-resize behavior. Clarified NFR-MAC-01 measurement scope (requires ≥1 cached thread, first-launch excluded). Replaced iOS language ("Tap to retry", "Tapping") with macOS conventions ("Click to retry", "Clicking"). |
+| 1.2.0 | 2026-02-12 | Core Team | Lock for development: Resolved all 5 open questions — OQ-01 (compose defaults to sheet with "Open in Window" option), OQ-02 (thread-in-window deferred to V2), OQ-03 (drag-to-folder deferred to V2), OQ-04 (minimum macOS 15 Sequoia), OQ-05 (status bar deferred to V2). Status → locked. |
