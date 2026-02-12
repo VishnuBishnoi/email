@@ -9,7 +9,7 @@ import SwiftData
 ///
 /// Spec ref: FR-MAC-01 (Three-Pane Layout), FR-MAC-10 (Window Configuration)
 @MainActor
-struct MacOSMainView: View {
+public struct MacOSMainView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(\.modelContext) private var modelContext
 
@@ -31,6 +31,42 @@ struct MacOSMainView: View {
     var summarizeThread: SummarizeThreadUseCaseProtocol?
     var smartReply: SmartReplyUseCaseProtocol?
     var searchUseCase: SearchEmailsUseCase?
+
+    public init(
+        fetchThreads: FetchThreadsUseCaseProtocol,
+        manageThreadActions: ManageThreadActionsUseCaseProtocol,
+        manageAccounts: ManageAccountsUseCaseProtocol,
+        syncEmails: SyncEmailsUseCaseProtocol,
+        fetchEmailDetail: FetchEmailDetailUseCaseProtocol,
+        markRead: MarkReadUseCaseProtocol,
+        downloadAttachment: DownloadAttachmentUseCaseProtocol,
+        composeEmail: ComposeEmailUseCaseProtocol,
+        queryContacts: QueryContactsUseCaseProtocol,
+        idleMonitor: IDLEMonitorUseCaseProtocol? = nil,
+        modelManager: ModelManager = ModelManager(),
+        aiEngineResolver: AIEngineResolver? = nil,
+        aiProcessingQueue: AIProcessingQueue? = nil,
+        summarizeThread: SummarizeThreadUseCaseProtocol? = nil,
+        smartReply: SmartReplyUseCaseProtocol? = nil,
+        searchUseCase: SearchEmailsUseCase? = nil
+    ) {
+        self.fetchThreads = fetchThreads
+        self.manageThreadActions = manageThreadActions
+        self.manageAccounts = manageAccounts
+        self.syncEmails = syncEmails
+        self.fetchEmailDetail = fetchEmailDetail
+        self.markRead = markRead
+        self.downloadAttachment = downloadAttachment
+        self.composeEmail = composeEmail
+        self.queryContacts = queryContacts
+        self.idleMonitor = idleMonitor
+        self.modelManager = modelManager
+        self.aiEngineResolver = aiEngineResolver
+        self.aiProcessingQueue = aiProcessingQueue
+        self.summarizeThread = summarizeThread
+        self.smartReply = smartReply
+        self.searchUseCase = searchUseCase
+    }
 
     // MARK: - Navigation State
 
@@ -142,7 +178,7 @@ struct MacOSMainView: View {
 
     // MARK: - Body
 
-    var body: some View {
+    public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             // SIDEBAR
             SidebarView(

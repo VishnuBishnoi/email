@@ -8,11 +8,13 @@ import SwiftUI
 /// by `MacCommandState` environment values.
 ///
 /// Spec ref: FR-MAC-07 (Keyboard Shortcuts)
-struct AppCommands: Commands {
+public struct AppCommands: Commands {
     /// Shared state object for enabling/disabling thread-dependent actions.
     @FocusedValue(\.macCommandState) private var commandState
 
-    var body: some Commands {
+    public init() {}
+
+    public var body: some Commands {
         // MARK: - File Menu
 
         CommandGroup(after: .newItem) {
