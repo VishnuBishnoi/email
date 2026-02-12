@@ -1,6 +1,8 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 /// A single email message "bubble" within the thread detail.
@@ -184,17 +186,22 @@ struct MessageBubbleView: View {
         } else {
             noContentPlaceholder
         }
-        #else
-        if let plainText = email.bodyPlain, !plainText.isEmpty {
+        #elseif os(macOS)
+        if let html = processedHTML, !html.isEmpty {
+            HTMLEmailView_macOS(
+                htmlContent: html,
+                contentHeight: $htmlContentHeight,
+                onLinkTapped: { url in
+                    guard let scheme = url.scheme?.lowercased(),
+                          scheme == "http" || scheme == "https" else { return }
+                    NSWorkspace.shared.open(url)
+                }
+            )
+            .frame(height: max(htmlContentHeight, 44))
+            .clipped()
+            .animation(.easeInOut(duration: 0.15), value: htmlContentHeight)
+        } else if let plainText = email.bodyPlain, !plainText.isEmpty {
             Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
-                .font(.body)
-                .textSelection(.enabled)
-        } else if let html = processedHTML, !html.isEmpty {
-            // TODO: [P2] macOS HTML rendering gap — spec requires WKWebView on macOS too.
-            // Current fallback strips HTML to plain text. When macOS is a supported
-            // platform, implement NSViewRepresentable wrapping WKWebView similar to
-            // HTMLEmailView (iOS). Tracked by PR #8 Comment 6.
-            Text(Self.stripHTMLTags(from: html))
                 .font(.body)
                 .textSelection(.enabled)
         } else {
