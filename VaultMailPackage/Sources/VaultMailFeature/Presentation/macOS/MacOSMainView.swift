@@ -300,6 +300,10 @@ public struct MacOSMainView: View {
             idleTask?.cancel()
             syncTask?.cancel()
         }
+        .onReceive(NotificationCenter.default.publisher(for: AppConstants.accountsDidChangeNotification)) { _ in
+            Task { await refreshAfterAccountChange() }
+        }
+        .preferredColorScheme(settings.colorScheme)
     }
 
     // MARK: - Placeholders
@@ -532,49 +536,140 @@ public struct MacOSMainView: View {
             selectedFolder = folders.first(where: { $0.folderType == inboxType }) ?? folders.first
             await loadThreadsAndCounts()
 
-            // Background sync
+            // Background sync — sync ALL accounts, starting with the selected one
             isSyncing = true
-            let accountId = firstAccount.id
+            let allAccountIDs = accounts.map(\.id)
+            let selectedId = firstAccount.id
             syncTask = Task {
                 defer { isSyncing = false; syncTask = nil }
-                do {
-                    _ = try await syncEmails.syncAccountInboxFirst(
-                        accountId: accountId,
-                        onInboxSynced: { _ in
-                            if let fresh = try? await fetchThreads.fetchFolders(accountId: accountId) {
-                                folders = fresh
-                                // Update allFolders: replace this account's folders
-                                allFolders = allFolders.filter { $0.account?.id != accountId } + fresh
-                                let inboxType = FolderType.inbox.rawValue
-                                selectedFolder = fresh.first(where: { $0.folderType == inboxType }) ?? fresh.first
-                            }
-                            await loadThreadsAndCounts()
-                        }
-                    )
+
+                // Sync selected account first so user sees results immediately
+                await syncSingleAccount(selectedId, isSelected: true)
+
+                // Sync remaining accounts in background
+                for accountId in allAccountIDs where accountId != selectedId {
                     guard !Task.isCancelled else { return }
-                    let freshFolders = try await fetchThreads.fetchFolders(accountId: accountId)
-                    folders = freshFolders
-                    allFolders = allFolders.filter { $0.account?.id != accountId } + freshFolders
-                    if let currentType = selectedFolder?.folderType {
-                        selectedFolder = folders.first(where: { $0.folderType == currentType }) ?? folders.first
-                    }
-                    await loadThreadsAndCounts()
-                    startIDLEMonitor()
-                } catch is CancellationError {
-                    // cancelled
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    if threads.isEmpty {
-                        viewState = .error("Sync failed: \(error.localizedDescription)")
-                    } else {
-                        errorMessage = "Sync failed: \(error.localizedDescription)"
-                    }
+                    await syncSingleAccount(accountId, isSelected: false)
                 }
+
+                startIDLEMonitor()
             }
             hasLoaded = true
         } catch {
             viewState = .error(error.localizedDescription)
             hasLoaded = true
+        }
+    }
+
+    /// Syncs a single account's IMAP folders and emails, updating the sidebar.
+    /// - Parameters:
+    ///   - accountId: The account to sync.
+    ///   - isSelected: If true, also updates `folders` and `selectedFolder` for the detail pane.
+    private func syncSingleAccount(_ accountId: String, isSelected: Bool) async {
+        do {
+            _ = try await syncEmails.syncAccountInboxFirst(
+                accountId: accountId,
+                onInboxSynced: { _ in
+                    if let fresh = try? await fetchThreads.fetchFolders(accountId: accountId) {
+                        allFolders = allFolders.filter { $0.account?.id != accountId } + fresh
+                        if isSelected {
+                            folders = fresh
+                            let inboxType = FolderType.inbox.rawValue
+                            selectedFolder = fresh.first(where: { $0.folderType == inboxType }) ?? fresh.first
+                        }
+                    }
+                    if isSelected {
+                        await loadThreadsAndCounts()
+                    }
+                }
+            )
+            guard !Task.isCancelled else { return }
+            let freshFolders = try await fetchThreads.fetchFolders(accountId: accountId)
+            allFolders = allFolders.filter { $0.account?.id != accountId } + freshFolders
+            if isSelected {
+                folders = freshFolders
+                if let currentType = selectedFolder?.folderType {
+                    selectedFolder = freshFolders.first(where: { $0.folderType == currentType }) ?? freshFolders.first
+                }
+                await loadThreadsAndCounts()
+            }
+        } catch is CancellationError {
+            // cancelled
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = "Sync failed for account: \(error.localizedDescription)"
+        }
+    }
+
+    /// Refreshes the account list and reloads data after accounts are added
+    /// or removed from the Settings window (cross-window notification).
+    private func refreshAfterAccountChange() async {
+        do {
+            // Capture old account IDs BEFORE updating state, so we can
+            // detect which accounts are newly added.
+            let oldAccountIDs = Set(accounts.map(\.id))
+
+            let freshAccounts = try await manageAccounts.getAccounts()
+            accounts = freshAccounts
+
+            if freshAccounts.isEmpty {
+                viewState = .empty
+                folders = []
+                allFolders = []
+                threads = []
+                selectedAccount = nil
+                selectedFolder = nil
+                return
+            }
+
+            // If the previously selected account was removed, select the first
+            if let current = selectedAccount,
+               !freshAccounts.contains(where: { $0.id == current.id }) {
+                selectedAccount = freshAccounts.first
+            }
+
+            // If no account was selected (first add), do full initial load
+            if selectedAccount == nil {
+                await initialLoad()
+                return
+            }
+
+            // Reload folders for all accounts from local DB
+            var combined: [Folder] = []
+            for account in freshAccounts {
+                let accountFolders = try await fetchThreads.fetchFolders(accountId: account.id)
+                combined.append(contentsOf: accountFolders)
+            }
+            allFolders = combined
+
+            if let sel = selectedAccount {
+                folders = combined.filter { $0.account?.id == sel.id }
+                if selectedFolder == nil {
+                    let inboxType = FolderType.inbox.rawValue
+                    selectedFolder = folders.first(where: { $0.folderType == inboxType }) ?? folders.first
+                }
+            }
+            await loadThreadsAndCounts()
+
+            // Identify newly added accounts and sync them
+            let newAccountIDs = freshAccounts
+                .filter { !oldAccountIDs.contains($0.id) }
+                .map(\.id)
+
+            if !newAccountIDs.isEmpty {
+                isSyncing = true
+                syncTask?.cancel()
+                syncTask = Task {
+                    defer { isSyncing = false; syncTask = nil }
+                    for accountId in newAccountIDs {
+                        guard !Task.isCancelled else { return }
+                        let isSelected = selectedAccount?.id == accountId
+                        await syncSingleAccount(accountId, isSelected: isSelected)
+                    }
+                }
+            }
+        } catch {
+            errorMessage = "Failed to refresh accounts: \(error.localizedDescription)"
         }
     }
 

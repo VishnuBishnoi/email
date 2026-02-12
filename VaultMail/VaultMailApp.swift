@@ -192,9 +192,13 @@ struct VaultMailApp: App {
 
         #if os(macOS)
         Settings {
-            SettingsView(manageAccounts: manageAccounts, modelManager: aiModelManager)
-                .environment(settingsStore)
-                .modelContainer(modelContainer)
+            MacSettingsView(
+                manageAccounts: manageAccounts,
+                modelManager: aiModelManager,
+                aiEngineResolver: aiEngineResolver
+            )
+            .environment(settingsStore)
+            .modelContainer(modelContainer)
         }
         #endif
     }
