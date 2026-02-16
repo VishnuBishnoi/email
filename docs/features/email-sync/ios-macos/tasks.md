@@ -59,7 +59,7 @@ updated: 2026-02-16
 
 ### IOS-F-07: SMTP Client
 
-- **Status**: `done`
+- **Status**: `done` (partial — PLAIN auth, STARTTLS, conditional sent append, multi-auth errors deferred to IOS-MP/IOS-ES)
 - **Spec ref**: Email Sync spec, FR-SYNC-07
 - **Validation ref**: AC-F-07
 - **Description**: Implement SMTP client supporting provider-configured authentication (XOAUTH2 or PLAIN), transport security (implicit TLS or STARTTLS), and conditional sent-folder append via `requiresSentAppend`. Includes offline send queue with auth-mechanism-aware error handling.
@@ -88,13 +88,13 @@ updated: 2026-02-16
   - [x] Fetch threads with pagination (cursor-based via `FetchThreadsUseCase`)
   - [x] Mark read/unread, star/unstar (optimistic local + IMAP STORE via `ManageThreadActionsUseCase`, FR-SYNC-10)
   - [x] Move to folder, delete, archive (COPY + DELETE + local EmailFolder cleanup via `ManageThreadActionsUseCase`, FR-SYNC-10)
-  - [ ] IMAP APPEND for sent messages (blocked on SMTP — IOS-F-07)
+  - [ ] IMAP APPEND for sent messages — deferred to IOS-MP-12 (conditional `requiresSentAppend`)
   - [x] Lazy attachment download on user tap via `DownloadAttachmentUseCase` with real IMAP `fetchBodyPart()` (FR-SYNC-08)
   - [ ] Attachment cache management (500MB LRU per account, FR-SYNC-08)
   - [x] Cellular download warning for attachments >=25MB (FR-SYNC-08)
   - [x] Security warnings for dangerous file extensions (exe, bat, pkg, dmg, etc.) (FR-ED-03)
   - [x] Unit tests: `DownloadAttachmentUseCaseTests` (20+ tests covering IMAP download, base64/QP/7bit decoding, security warnings, cellular warnings, error cases)
-- **Notes**: Attachment download is fully wired end-to-end: `bodySection` stored during sync, lazy `FETCH BODY[section]` on tap, Content-Transfer-Encoding decode (base64, quoted-printable, 7bit/8bit), local file persist. IMAP APPEND blocked on SMTP. Cache eviction (500MB LRU) still TODO.
+- **Notes**: Attachment download is fully wired end-to-end: `bodySection` stored during sync, lazy `FETCH BODY[section]` on tap, Content-Transfer-Encoding decode (base64, quoted-printable, 7bit/8bit), local file persist. IMAP APPEND deferred to IOS-MP-12 (provider-conditional). Cache eviction (500MB LRU) still TODO.
 
 ### IOS-F-10: Domain Use Cases
 
@@ -105,7 +105,7 @@ updated: 2026-02-16
 - **Deliverables**:
   - [x] `SyncEmailsUseCase.swift` — full/incremental sync with connection pooling, threading, dedup, contact extraction
   - [x] `FetchThreadsUseCase.swift` — with AI category filtering, sorting, cursor-based pagination
-  - [x] `SendEmailUseCase.swift` — with outbox queue support (SMTP transport stubbed — IOS-F-07)
+  - [x] `SendEmailUseCase.swift` — with outbox queue and full SMTP send pipeline via `ComposeEmailUseCase.executeSend()`
   - [x] `ManageAccountsUseCase.swift` — CRUD + re-authentication flow
   - [x] `IDLEMonitorUseCase.swift` — real-time folder monitoring via IMAP IDLE (`AsyncStream<IDLEEvent>`)
   - [x] `DownloadAttachmentUseCase.swift` — lazy IMAP body part fetch with transfer-encoding decode

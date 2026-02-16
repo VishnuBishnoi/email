@@ -24,7 +24,7 @@ last-validated: 2026-02-16
 | FR-SYNC-03 | Real-time updates (IDLE) | MUST | AC-F-05 | Both | **Implemented** — `IDLEMonitorUseCase` + `BackgroundSyncScheduler` (BGAppRefreshTask on iOS) |
 | FR-SYNC-05 | Conflict resolution | MUST | AC-F-06 | Both | **Implemented** — server-wins for flags; local optimistic updates via `ManageThreadActionsUseCase` |
 | FR-SYNC-06 | Threading algorithm | MUST | AC-F-06 | Both | **Implemented** — References/In-Reply-To + subject-based fallback with 30-day window |
-| FR-SYNC-07 | Email sending (SMTP) | MUST | AC-F-07 | Both | **Implemented** — Gmail XOAUTH2 + implicit TLS via `SMTPClient`/`SMTPSession`/`MIMEEncoder`; provider-agnostic extensions (PLAIN auth, STARTTLS, conditional sent append) deferred to IOS-MP-02/03/12 |
+| FR-SYNC-07 | Email sending (SMTP) | MUST | AC-F-07 | Both | **Partial** — Gmail XOAUTH2 + implicit TLS implemented; provider-agnostic MUST behaviors (PLAIN auth, STARTTLS, conditional `requiresSentAppend`, auth-mechanism-aware errors) deferred to IOS-MP-02/03/12 and IOS-ES-04 |
 | FR-SYNC-08 | Attachment handling | MUST | AC-F-06 | Both | **Implemented** — lazy `FETCH BODY[section]` via `DownloadAttachmentUseCase`, base64/QP decode, security warnings, cellular warnings; LRU cache TODO |
 | FR-SYNC-09 | Connection management | MUST | AC-F-05 | Both | **Implemented** — `ConnectionPool` + `ConnectionProviding` protocol, TLS port 993, 30s timeout, 3 retries; provider-configurable limits deferred to IOS-MP-13 |
 | FR-SYNC-10 | Flag synchronization | MUST | AC-F-06b, AC-F-08 | Both | **Implemented** — reads `\Seen`, `\Flagged`, `\Draft`, `\Deleted` from IMAP; local-to-server via IMAP STORE |
@@ -40,7 +40,7 @@ last-validated: 2026-02-16
 | NFR-SYNC-07 | Per-account error isolation | MUST | AC-ES-01 | Both | — (zero cross-account failure) |
 | NFR-SYNC-08 | Global connection resource usage | MUST | AC-ES-06 | Both | — (≤ 30 connections, platform-specific reclaim) |
 | NFR-SYNC-09 | Sync status latency | MUST | AC-ES-07 | Both | — (< 500ms state → UI) |
-| G-01 | Full email CRUD | MUST | AC-F-05, AC-F-07, AC-F-08 | Both | **Implemented** — read, archive, delete, star, mark-read, send all done |
+| G-01 | Full email CRUD | MUST | AC-F-05, AC-F-07, AC-F-08 | Both | **Partial** — read, archive, delete, star, mark-read done; send done for Gmail XOAUTH2; provider-agnostic send deferred to IOS-MP/IOS-ES |
 
 ---
 
@@ -92,7 +92,7 @@ last-validated: 2026-02-16
 
 ---
 
-**AC-F-07**: SMTP Client — **Implemented** (Gmail XOAUTH2; provider extensions deferred)
+**AC-F-07**: SMTP Client — **Partial** (Gmail XOAUTH2 implemented; provider-agnostic MUST behaviors deferred)
 
 - **Given**: Valid credentials (OAuth token or app password) and a composed email
 - **When**: The email is sent
@@ -103,7 +103,8 @@ last-validated: 2026-02-16
   AND SMTP auth failure handling **MUST** depend on auth mechanism: OAuth → token refresh; PLAIN → credential error (no refresh)
   AND if offline, the email **MUST** be queued and sent when connectivity resumes
 - **Priority**: Critical
-- **Implementation**: `SMTPClient.swift`, `SMTPSession.swift`, `MIMEEncoder.swift`, `ComposeEmailUseCase.executeSend()`. Gmail XOAUTH2 + implicit TLS (port 465) is implemented. PLAIN auth (IOS-MP-02), STARTTLS (IOS-MP-03), conditional sent append (IOS-MP-12), and multi-auth error handling (IOS-ES-04) are deferred to multi-provider tasks.
+- **Implementation**: `SMTPClient.swift`, `SMTPSession.swift`, `MIMEEncoder.swift`, `ComposeEmailUseCase.executeSend()`. Gmail XOAUTH2 + implicit TLS (port 465) is implemented and tested.
+- **Deferred MUST behaviors**: PLAIN auth (IOS-MP-02), STARTTLS transport (IOS-MP-03), conditional `requiresSentAppend` (IOS-MP-12), auth-mechanism-aware error handling (IOS-ES-04). These are spec v1.3.4 MUST requirements that block full FR-SYNC-07 compliance.
 
 ---
 
@@ -122,7 +123,7 @@ last-validated: 2026-02-16
 - **Priority**: Critical
 - **Implementation**: `EmailRepositoryImpl.swift`, `ManageThreadActionsUseCase.swift`, `DownloadAttachmentUseCase.swift`
 - **Tests**: `DownloadAttachmentUseCaseTests` (20+ tests)
-- **Remaining**: IMAP APPEND (blocked on SMTP), 500MB LRU attachment cache
+- **Remaining**: IMAP APPEND (deferred to IOS-MP-12 — conditional `requiresSentAppend`), 500MB LRU attachment cache
 
 ---
 
@@ -132,7 +133,7 @@ last-validated: 2026-02-16
 - **When**: Each use case is invoked
 - **Then**: `SyncEmailsUseCase` **MUST** orchestrate sync and report progress/errors
   AND `FetchThreadsUseCase` **MUST** return filtered, sorted, paginated threads
-  AND `SendEmailUseCase` **MUST** queue the email for sending (SMTP transport pending)
+  AND `SendEmailUseCase` **MUST** queue the email and send via SMTP (Gmail XOAUTH2 implemented; multi-provider extensions deferred to IOS-MP/IOS-ES tasks)
   AND `ManageAccountsUseCase` **MUST** delegate to account repository correctly
   AND `IDLEMonitorUseCase` **MUST** emit `.newMail` events via `AsyncStream<IDLEEvent>`
   AND `DownloadAttachmentUseCase` **MUST** fetch body parts and decode transfer encoding
