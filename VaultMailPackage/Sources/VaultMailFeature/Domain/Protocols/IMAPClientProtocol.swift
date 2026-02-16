@@ -136,19 +136,23 @@ public struct IMAPAttachmentInfo: Sendable, Equatable {
     public let sizeBytes: UInt32?
     /// Content-ID for inline attachments
     public let contentId: String?
+    /// Content-Transfer-Encoding for this MIME part (e.g. "BASE64", "QUOTED-PRINTABLE")
+    public let transferEncoding: String?
 
     public init(
         partId: String,
         filename: String?,
         mimeType: String?,
         sizeBytes: UInt32?,
-        contentId: String?
+        contentId: String?,
+        transferEncoding: String? = nil
     ) {
         self.partId = partId
         self.filename = filename
         self.mimeType = mimeType
         self.sizeBytes = sizeBytes
         self.contentId = contentId
+        self.transferEncoding = transferEncoding
     }
 }
 

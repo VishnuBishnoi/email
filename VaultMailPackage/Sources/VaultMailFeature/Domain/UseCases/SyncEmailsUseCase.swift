@@ -735,13 +735,22 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     /// Stores `bodySection` (MIME part ID) so ``DownloadAttachmentUseCase``
     /// can lazily fetch this part via `BODY.PEEK[<section>]` (FR-SYNC-08).
     private func mapToAttachment(from info: IMAPAttachmentInfo) -> Attachment {
-        Attachment(
-            filename: info.filename ?? "attachment",
+        let filename = resolvedAttachmentFilename(from: info)
+        return Attachment(
+            filename: filename,
             mimeType: info.mimeType ?? "application/octet-stream",
             sizeBytes: Int(info.sizeBytes ?? 0),
             isDownloaded: false,
             bodySection: info.partId,
+            transferEncoding: info.transferEncoding,
             contentId: info.contentId
+        )
+    }
+
+    private func resolvedAttachmentFilename(from info: IMAPAttachmentInfo) -> String {
+        AttachmentFileUtilities.resolvedFilename(
+            info.filename ?? "",
+            mimeType: info.mimeType
         )
     }
 

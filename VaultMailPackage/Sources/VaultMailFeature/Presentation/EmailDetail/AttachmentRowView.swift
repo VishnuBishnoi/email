@@ -29,6 +29,8 @@ struct AttachmentRowView: View {
     @State private var securityMessage = ""
     @State private var showCellularAlert = false
     @State private var pendingSecurityWarning: String?
+    /// Validated local file URL, computed asynchronously to avoid blocking the main thread.
+    @State private var validatedFileURL: URL?
 
     // MARK: - Download State
 
@@ -74,13 +76,28 @@ struct AttachmentRowView: View {
             actionButtons
         }
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityHint(accessibilityHintText)
         .accessibilityIdentifier("attachment-row-\(attachment.id)")
-        .onAppear {
-            if attachment.isDownloaded {
+        .onTapGesture {
+            if case .downloaded = downloadState {
+                if validatedFileURL != nil {
+                    onPreview(attachment)
+                } else {
+                    // Persisted metadata can outlive cache files; re-download when missing.
+                    downloadState = .notDownloaded
+                    initiateDownload()
+                }
+            }
+        }
+        .task(id: attachment.localPath) {
+            validatedFileURL = await validateLocalFile()
+            if attachment.isDownloaded, validatedFileURL != nil {
                 downloadState = .downloaded
+            } else if downloadState != .downloading {
+                downloadState = .notDownloaded
             }
         }
         .alert("Security Warning", isPresented: $showSecurityAlert) {
@@ -177,29 +194,21 @@ struct AttachmentRowView: View {
             }
 
         case .downloaded:
-            HStack(spacing: 12) {
-                Button {
-                    onPreview(attachment)
-                } label: {
-                    Image(systemName: "eye")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
+            Button {
+                if let fileURL = validatedFileURL {
+                    onShare(fileURL)
+                } else {
+                    // Avoid presenting a share sheet for a stale path.
+                    downloadState = .notDownloaded
+                    initiateDownload()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Preview \(attachment.filename)")
-
-                Button {
-                    if let path = attachment.localPath {
-                        onShare(URL(fileURLWithPath: path))
-                    }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Share \(attachment.filename)")
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.subheadline)
+                    .foregroundStyle(.tint)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share \(attachment.filename)")
 
         case .error:
             Button {
@@ -278,6 +287,33 @@ struct AttachmentRowView: View {
             return "\(bytes) B"
         }
         return String(format: "%.1f %@", value, units[unitIndex])
+    }
+
+    /// Validates the local file exists and isn't a legacy base64-encoded text file.
+    /// Captures attachment properties on the main actor, then performs file I/O
+    /// off the main thread to avoid blocking the UI.
+    private func validateLocalFile() async -> URL? {
+        // Capture Sendable values on the main actor before switching contexts.
+        guard let path = attachment.localPath else { return nil }
+        let mimeType = attachment.mimeType
+
+        return await Task.detached {
+            let fileURL = URL(fileURLWithPath: path)
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+
+            // Detect legacy corrupted files that contain raw base64 text
+            // instead of decoded binary content.
+            if !mimeType.lowercased().hasPrefix("text/"),
+               let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]),
+               !data.isEmpty {
+                let sample = data.prefix(min(1024, data.count))
+                if AttachmentFileUtilities.looksLikeBase64(sample) {
+                    return nil
+                }
+            }
+
+            return fileURL
+        }.value
     }
 
     // MARK: - Accessibility

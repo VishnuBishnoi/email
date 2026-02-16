@@ -203,7 +203,8 @@ public actor IMAPClient: IMAPClientProtocol {
                         filename: part.filename,
                         mimeType: part.mimeType,
                         sizeBytes: part.size,
-                        contentId: part.contentId
+                        contentId: part.contentId,
+                        transferEncoding: part.encoding
                     )
                 }
 
