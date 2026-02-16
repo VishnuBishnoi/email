@@ -84,4 +84,9 @@ public enum AppConstants {
     public static let smartReplyMaxSuggestions = 3
     /// SMTP retry delays in seconds: 30s, 2m, 8m (FR-SYNC-07)
     public static let sendRetryDelays: [TimeInterval] = [30, 120, 480]
+
+    // MARK: - Notifications
+
+    /// Posted when accounts are added or removed, so other windows can refresh.
+    public static let accountsDidChangeNotification = Notification.Name("VaultMail.accountsDidChange")
 }

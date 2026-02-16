@@ -2,6 +2,8 @@ import SwiftUI
 #if os(iOS)
 import PhotosUI
 import UniformTypeIdentifiers
+#elseif os(macOS)
+import UniformTypeIdentifiers
 #endif
 
 /// Attachment picker and list for the email composer.
@@ -75,12 +77,29 @@ struct AttachmentPickerView: View {
                 addFilesFromURLs(urls)
             }
         }
-        #endif
-        #if os(iOS)
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 10, matching: .images)
         .onChange(of: selectedPhotos) { _, newItems in
             Task { await addPhotos(from: newItems) }
             selectedPhotos = []
+        }
+        #elseif os(macOS)
+        .fileImporter(
+            isPresented: $showDocumentPicker,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                addFilesFromURLs(urls)
+            }
+        }
+        .fileImporter(
+            isPresented: $showPhotoPicker,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                addFilesFromURLs(urls)
+            }
         }
         #endif
     }
@@ -140,11 +159,7 @@ struct AttachmentPickerView: View {
 
             let name = url.lastPathComponent
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            #if os(iOS)
             let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-            #else
-            let mimeType = "application/octet-stream"
-            #endif
 
             // Copy file to temp directory while security scope is active.
             // After defer releases the scope, the original URL may be inaccessible.

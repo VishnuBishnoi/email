@@ -131,6 +131,31 @@ struct VaultMailApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if os(macOS)
+            MacOSMainView(
+                fetchThreads: fetchThreads,
+                manageThreadActions: manageThreadActions,
+                manageAccounts: manageAccounts,
+                syncEmails: syncEmails,
+                fetchEmailDetail: fetchEmailDetail,
+                markRead: markRead,
+                downloadAttachment: downloadAttachment,
+                composeEmail: composeEmail,
+                queryContacts: queryContacts,
+                idleMonitor: idleMonitor,
+                modelManager: aiModelManager,
+                aiEngineResolver: aiEngineResolver,
+                aiProcessingQueue: aiProcessingQueue,
+                summarizeThread: summarizeThread,
+                smartReply: smartReply,
+                searchUseCase: searchUseCase
+            )
+            .environment(settingsStore)
+            .task {
+                await searchIndexManager.openIndex()
+                await searchIndexManager.reindexIfNeeded()
+            }
+            #else
             ContentView(
                 manageAccounts: manageAccounts,
                 fetchThreads: fetchThreads,
@@ -156,14 +181,24 @@ struct VaultMailApp: App {
                 await searchIndexManager.openIndex()
                 await searchIndexManager.reindexIfNeeded()
             }
+            #endif
         }
+        #if os(macOS)
+        .defaultSize(width: 1200, height: 800)
+        .windowResizability(.contentMinSize)
+        .commands { AppCommands() }
+        #endif
         .modelContainer(modelContainer)
 
         #if os(macOS)
         Settings {
-            SettingsView(manageAccounts: manageAccounts, modelManager: aiModelManager)
-                .environment(settingsStore)
-                .modelContainer(modelContainer)
+            MacSettingsView(
+                manageAccounts: manageAccounts,
+                modelManager: aiModelManager,
+                aiEngineResolver: aiEngineResolver
+            )
+            .environment(settingsStore)
+            .modelContainer(modelContainer)
         }
         #endif
     }
