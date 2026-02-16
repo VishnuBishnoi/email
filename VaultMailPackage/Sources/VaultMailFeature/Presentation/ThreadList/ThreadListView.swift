@@ -95,6 +95,13 @@ struct ThreadListView: View {
     // Inline error banner (Comment 3: show banner when threads already loaded)
     @State private var errorBannerMessage: String? = nil
 
+    // Action toast (undo feedback for archive/delete)
+    @State private var actionToastMessage: String? = nil
+    @State private var actionToastUndoInfo: (threadId: String, folderId: String)? = nil
+
+    // Error toast (feedback for failed thread actions)
+    @State private var errorToastMessage: String? = nil
+
     // Background sync progress feedback
     @State private var isSyncing = false
 
@@ -210,6 +217,25 @@ struct ThreadListView: View {
                         }
                     )
                     .animation(.easeInOut(duration: 0.3), value: undoSendManager.isCountdownActive)
+                }
+
+                // Action undo toast (archive/delete feedback)
+                if let msg = actionToastMessage {
+                    UndoToastView(
+                        message: msg,
+                        onUndo: { undoLastAction() },
+                        onDismiss: { withAnimation { actionToastMessage = nil; actionToastUndoInfo = nil } }
+                    )
+                    .animation(.easeInOut(duration: 0.3), value: actionToastMessage)
+                }
+
+                // Error toast (failed action feedback)
+                if let msg = errorToastMessage {
+                    ErrorToastView(
+                        message: msg,
+                        onDismiss: { withAnimation { errorToastMessage = nil } }
+                    )
+                    .animation(.easeInOut(duration: 0.3), value: errorToastMessage)
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -549,7 +575,7 @@ struct ThreadListView: View {
         } else {
             ForEach(threads, id: \.id) { thread in
                 threadRow(for: thread)
-                // TODO: Add swipe actions for read/unread toggle, star, move (Phase 6 integration)
+                // Swipe actions (read/unread, star) are on the threadRow view builder
             }
         }
     }
@@ -585,6 +611,16 @@ struct ThreadListView: View {
                     Label("Archive", systemImage: "archivebox")
                 }
                 .tint(.blue)
+
+                Button {
+                    Task { await toggleReadStatus(thread) }
+                } label: {
+                    Label(
+                        thread.unreadCount > 0 ? "Read" : "Unread",
+                        systemImage: thread.unreadCount > 0 ? "envelope.open" : "envelope.badge"
+                    )
+                }
+                .tint(.indigo)
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 Button(role: .destructive) {
@@ -592,6 +628,16 @@ struct ThreadListView: View {
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
+
+                Button {
+                    Task { await toggleStarStatus(thread) }
+                } label: {
+                    Label(
+                        thread.isStarred ? "Unstar" : "Star",
+                        systemImage: thread.isStarred ? "star.slash" : "star.fill"
+                    )
+                }
+                .tint(.orange)
             }
             // Comment 7: Context menu to enter multi-select mode.
             // Note: .onLongPressGesture blocks NavigationLink tap gesture in
@@ -1043,27 +1089,74 @@ struct ThreadListView: View {
 
     private func archiveThread(_ thread: VaultMailFeature.Thread) async {
         do {
+            let folderId = selectedFolder?.id ?? ""
             try await manageThreadActions.archiveThread(id: thread.id)
             threads.removeAll { $0.id == thread.id }
             if threads.isEmpty {
                 viewState = selectedCategory != nil ? .emptyFiltered : .empty
             }
-            // TODO: Show UndoToastView (Phase 6 integration)
+            withAnimation {
+                actionToastMessage = "Thread archived"
+                actionToastUndoInfo = (threadId: thread.id, folderId: folderId)
+            }
         } catch {
-            // TODO: Show error toast (Phase 6 integration)
+            withAnimation { errorToastMessage = "Failed to archive thread" }
         }
     }
 
     private func deleteThread(_ thread: VaultMailFeature.Thread) async {
         do {
+            let folderId = selectedFolder?.id ?? ""
             try await manageThreadActions.deleteThread(id: thread.id)
             threads.removeAll { $0.id == thread.id }
             if threads.isEmpty {
                 viewState = selectedCategory != nil ? .emptyFiltered : .empty
             }
-            // TODO: Show UndoToastView (Phase 6 integration)
+            withAnimation {
+                actionToastMessage = "Thread deleted"
+                actionToastUndoInfo = (threadId: thread.id, folderId: folderId)
+            }
         } catch {
-            // TODO: Show error toast (Phase 6 integration)
+            withAnimation { errorToastMessage = "Failed to delete thread" }
+        }
+    }
+
+    /// Undo the last archive/delete action by moving the thread back to its original folder.
+    private func undoLastAction() {
+        guard let info = actionToastUndoInfo else { return }
+        let threadId = info.threadId
+        let folderId = info.folderId
+        withAnimation {
+            actionToastMessage = nil
+            actionToastUndoInfo = nil
+        }
+        Task {
+            do {
+                try await manageThreadActions.moveThread(id: threadId, toFolderId: folderId)
+                await reloadThreads()
+            } catch {
+                withAnimation { errorToastMessage = "Failed to undo action" }
+            }
+        }
+    }
+
+    /// Toggle read/unread status for a thread via swipe action.
+    private func toggleReadStatus(_ thread: PrivateMailFeature.Thread) async {
+        do {
+            try await manageThreadActions.toggleReadStatus(threadId: thread.id)
+            await reloadThreads()
+        } catch {
+            withAnimation { errorToastMessage = "Failed to update read status" }
+        }
+    }
+
+    /// Toggle star/unstar status for a thread via swipe action.
+    private func toggleStarStatus(_ thread: PrivateMailFeature.Thread) async {
+        do {
+            try await manageThreadActions.toggleStarStatus(threadId: thread.id)
+            await reloadThreads()
+        } catch {
+            withAnimation { errorToastMessage = "Failed to update star" }
         }
     }
 
@@ -1122,7 +1215,7 @@ struct ThreadListView: View {
             threads.removeAll { ids.contains($0.id) }
             exitMultiSelectMode()
         } catch {
-            // TODO: Show error toast
+            withAnimation { errorToastMessage = "Failed to archive \(ids.count) threads" }
         }
     }
 
@@ -1133,7 +1226,7 @@ struct ThreadListView: View {
             threads.removeAll { ids.contains($0.id) }
             exitMultiSelectMode()
         } catch {
-            // TODO: Show error toast
+            withAnimation { errorToastMessage = "Failed to delete \(ids.count) threads" }
         }
     }
 
@@ -1144,7 +1237,7 @@ struct ThreadListView: View {
             exitMultiSelectMode()
             await reloadThreads()
         } catch {
-            // TODO: Show error toast
+            withAnimation { errorToastMessage = "Failed to mark threads as read" }
         }
     }
 
@@ -1155,7 +1248,7 @@ struct ThreadListView: View {
             exitMultiSelectMode()
             await reloadThreads()
         } catch {
-            // TODO: Show error toast
+            withAnimation { errorToastMessage = "Failed to mark threads as unread" }
         }
     }
 
@@ -1166,7 +1259,7 @@ struct ThreadListView: View {
             exitMultiSelectMode()
             await reloadThreads()
         } catch {
-            // TODO: Show error toast
+            withAnimation { errorToastMessage = "Failed to star threads" }
         }
     }
 
@@ -1177,7 +1270,7 @@ struct ThreadListView: View {
             threads.removeAll { ids.contains($0.id) }
             exitMultiSelectMode()
         } catch {
-            // TODO: Show error toast
+            withAnimation { errorToastMessage = "Failed to move threads" }
         }
     }
 
