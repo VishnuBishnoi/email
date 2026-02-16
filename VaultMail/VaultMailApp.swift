@@ -4,6 +4,108 @@ import VaultMailFeature
 
 @main
 struct VaultMailApp: App {
+    /// Holds all app dependencies. `nil` when ModelContainer creation fails.
+    private let dependencies: AppDependencies?
+    /// Error message when database initialisation fails.
+    private let containerError: String?
+
+    init() {
+        do {
+            let container = try ModelContainerFactory.create()
+            dependencies = AppDependencies(modelContainer: container)
+            containerError = nil
+        } catch {
+            dependencies = nil
+            containerError = error.localizedDescription
+        }
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            if let deps = dependencies {
+                #if os(macOS)
+                MacOSMainView(
+                    fetchThreads: deps.fetchThreads,
+                    manageThreadActions: deps.manageThreadActions,
+                    manageAccounts: deps.manageAccounts,
+                    syncEmails: deps.syncEmails,
+                    fetchEmailDetail: deps.fetchEmailDetail,
+                    markRead: deps.markRead,
+                    downloadAttachment: deps.downloadAttachment,
+                    composeEmail: deps.composeEmail,
+                    queryContacts: deps.queryContacts,
+                    idleMonitor: deps.idleMonitor,
+                    modelManager: deps.aiModelManager,
+                    aiEngineResolver: deps.aiEngineResolver,
+                    aiProcessingQueue: deps.aiProcessingQueue,
+                    summarizeThread: deps.summarizeThread,
+                    smartReply: deps.smartReply,
+                    searchUseCase: deps.searchUseCase
+                )
+                .environment(deps.settingsStore)
+                .modelContainer(deps.modelContainer)
+                .task {
+                    await deps.searchIndexManager.openIndex()
+                    await deps.searchIndexManager.reindexIfNeeded()
+                }
+                #else
+                ContentView(
+                    manageAccounts: deps.manageAccounts,
+                    fetchThreads: deps.fetchThreads,
+                    manageThreadActions: deps.manageThreadActions,
+                    syncEmails: deps.syncEmails,
+                    fetchEmailDetail: deps.fetchEmailDetail,
+                    markRead: deps.markRead,
+                    downloadAttachment: deps.downloadAttachment,
+                    composeEmail: deps.composeEmail,
+                    queryContacts: deps.queryContacts,
+                    idleMonitor: deps.idleMonitor,
+                    appLockManager: deps.appLockManager,
+                    modelManager: deps.aiModelManager,
+                    aiEngineResolver: deps.aiEngineResolver,
+                    aiProcessingQueue: deps.aiProcessingQueue,
+                    summarizeThread: deps.summarizeThread,
+                    smartReply: deps.smartReply,
+                    searchUseCase: deps.searchUseCase
+                )
+                .environment(deps.settingsStore)
+                .modelContainer(deps.modelContainer)
+                .task {
+                    await deps.searchIndexManager.openIndex()
+                    await deps.searchIndexManager.reindexIfNeeded()
+                }
+                #endif
+            } else {
+                DatabaseErrorView(message: containerError ?? "Unknown error")
+            }
+        }
+        #if os(macOS)
+        .defaultSize(width: 1200, height: 800)
+        .windowResizability(.contentMinSize)
+        .commands { AppCommands() }
+        #endif
+
+        #if os(macOS)
+        if let deps = dependencies {
+            Settings {
+                MacSettingsView(
+                    manageAccounts: deps.manageAccounts,
+                    modelManager: deps.aiModelManager,
+                    aiEngineResolver: deps.aiEngineResolver
+                )
+                .environment(deps.settingsStore)
+                .modelContainer(deps.modelContainer)
+            }
+        }
+        #endif
+    }
+}
+
+// MARK: - Dependency Container
+
+/// Encapsulates all app-level dependencies that require a valid ModelContainer.
+/// Created once at launch and passed through the view hierarchy.
+private struct AppDependencies {
     let modelContainer: ModelContainer
     let settingsStore: SettingsStore
     let appLockManager: AppLockManager
@@ -28,12 +130,8 @@ struct VaultMailApp: App {
     let searchIndexManager: SearchIndexManager
     let searchUseCase: SearchEmailsUseCase
 
-    init() {
-        do {
-            modelContainer = try ModelContainerFactory.create()
-        } catch {
-            fatalError("Failed to create ModelContainer: \(error)")
-        }
+    init(modelContainer: ModelContainer) {
+        self.modelContainer = modelContainer
 
         settingsStore = SettingsStore()
         appLockManager = AppLockManager()
@@ -106,7 +204,6 @@ struct VaultMailApp: App {
         aiEngineResolver = AIEngineResolver(modelManager: aiModelManager)
         let categorizeUseCase = CategorizeEmailUseCase(engineResolver: aiEngineResolver)
         let detectSpamUseCase = DetectSpamUseCase(engineResolver: aiEngineResolver)
-        // AI summary + smart reply use cases
         let aiRepository = AIRepositoryImpl(engineResolver: aiEngineResolver)
 
         // Search infrastructure (IOS-S-01..05)
@@ -127,79 +224,5 @@ struct VaultMailApp: App {
         )
         summarizeThread = SummarizeThreadUseCase(aiRepository: aiRepository)
         smartReply = SmartReplyUseCase(aiRepository: aiRepository)
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            #if os(macOS)
-            MacOSMainView(
-                fetchThreads: fetchThreads,
-                manageThreadActions: manageThreadActions,
-                manageAccounts: manageAccounts,
-                syncEmails: syncEmails,
-                fetchEmailDetail: fetchEmailDetail,
-                markRead: markRead,
-                downloadAttachment: downloadAttachment,
-                composeEmail: composeEmail,
-                queryContacts: queryContacts,
-                idleMonitor: idleMonitor,
-                modelManager: aiModelManager,
-                aiEngineResolver: aiEngineResolver,
-                aiProcessingQueue: aiProcessingQueue,
-                summarizeThread: summarizeThread,
-                smartReply: smartReply,
-                searchUseCase: searchUseCase
-            )
-            .environment(settingsStore)
-            .task {
-                await searchIndexManager.openIndex()
-                await searchIndexManager.reindexIfNeeded()
-            }
-            #else
-            ContentView(
-                manageAccounts: manageAccounts,
-                fetchThreads: fetchThreads,
-                manageThreadActions: manageThreadActions,
-                syncEmails: syncEmails,
-                fetchEmailDetail: fetchEmailDetail,
-                markRead: markRead,
-                downloadAttachment: downloadAttachment,
-                composeEmail: composeEmail,
-                queryContacts: queryContacts,
-                idleMonitor: idleMonitor,
-                appLockManager: appLockManager,
-                modelManager: aiModelManager,
-                aiEngineResolver: aiEngineResolver,
-                aiProcessingQueue: aiProcessingQueue,
-                summarizeThread: summarizeThread,
-                smartReply: smartReply,
-                searchUseCase: searchUseCase
-            )
-            .environment(settingsStore)
-            .task {
-                // Open FTS5 search database and backfill index on first launch
-                await searchIndexManager.openIndex()
-                await searchIndexManager.reindexIfNeeded()
-            }
-            #endif
-        }
-        #if os(macOS)
-        .defaultSize(width: 1200, height: 800)
-        .windowResizability(.contentMinSize)
-        .commands { AppCommands() }
-        #endif
-        .modelContainer(modelContainer)
-
-        #if os(macOS)
-        Settings {
-            MacSettingsView(
-                manageAccounts: manageAccounts,
-                modelManager: aiModelManager,
-                aiEngineResolver: aiEngineResolver
-            )
-            .environment(settingsStore)
-            .modelContainer(modelContainer)
-        }
-        #endif
     }
 }
