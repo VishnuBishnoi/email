@@ -611,15 +611,23 @@ OAuthProviderConfig:
   - clientId: String
   - scopes: String
   - redirectScheme: String
-  - emailResolverURL: URL (endpoint to resolve email from access token)
+  - emailResolution: EmailResolutionStrategy
+```
+
+**EmailResolutionStrategy** defines how to resolve the user's email address after OAuth:
+
+```
+enum EmailResolutionStrategy:
+  case userinfoEndpoint(URL)   // Call a userinfo endpoint with the access token (e.g., Gmail)
+  case idTokenClaims           // Decode id_token JWT claims: email, then preferred_username (e.g., Outlook)
 ```
 
 **Built-in OAuth Configs**
 
-| Provider | Auth Endpoint | Token Endpoint | Client ID | Scopes | Email Resolver |
-|----------|--------------|---------------|-----------|--------|---------------|
-| Gmail | `accounts.google.com/o/oauth2/v2/auth` | `oauth2.googleapis.com/token` | (existing) | `https://mail.google.com/ email profile` | `googleapis.com/oauth2/v3/userinfo` |
-| Outlook | `login.microsoftonline.com/common/oauth2/v2.0/authorize` | `login.microsoftonline.com/common/oauth2/v2.0/token` | (Azure AD app) | `IMAP.AccessAsUser.All SMTP.Send offline_access openid email profile` | `id_token` JWT claims (`email` or `preferred_username`) |
+| Provider | Auth Endpoint | Token Endpoint | Client ID | Scopes | Email Resolution |
+|----------|--------------|---------------|-----------|--------|-----------------|
+| Gmail | `accounts.google.com/o/oauth2/v2/auth` | `oauth2.googleapis.com/token` | (existing) | `https://mail.google.com/ email profile` | `.userinfoEndpoint(googleapis.com/oauth2/v3/userinfo)` |
+| Outlook | `login.microsoftonline.com/common/oauth2/v2.0/authorize` | `login.microsoftonline.com/common/oauth2/v2.0/token` | (Azure AD app) | `https://outlook.office365.com/IMAP.AccessAsUser.All https://outlook.office365.com/SMTP.Send offline_access openid email profile` | `.idTokenClaims` |
 
 **Protocol Change**
 
@@ -685,7 +693,7 @@ The multi-provider connection pool **MUST** enforce a global limit in addition t
 - The total number of IMAP connections across all accounts **MUST NOT** exceed **30**.
 - If the global limit is reached, connection checkout requests **MUST** be queued with priority given to the currently-viewed account.
 - When a connection is returned to any account's pool, the highest-priority waiting request (across all accounts) **MUST** be served first.
-- Connections idle for more than **5 minutes** in non-active accounts **MUST** be closed proactively to free resources.
+- Idle connection cleanup timeouts are **platform-specific** and defined in the Email Sync spec (FR-SYNC-16): 5 minutes on iOS, 15 minutes on macOS.
 - The connection pool **MUST** log (debug-level) when connections are closed due to idle timeout.
 - If the global limit prevents a sync operation from starting, the operation **MUST** be queued (not failed). The queue timeout remains 30 seconds per Email Sync FR-SYNC-09.
 
@@ -756,7 +764,7 @@ The SwiftData migration for new Account model fields (FR-MPROV-10) **MUST** be v
 
 - **Metric**: Total IMAP connections across all accounts
 - **Target**: ≤ 30 concurrent connections system-wide
-- **Hard Limit**: Must not exceed 30 connections. Idle connections on non-active accounts **MUST** be reclaimed within 5 minutes.
+- **Hard Limit**: Must not exceed 30 connections. Idle connection reclaim timeouts are platform-specific per Email Sync FR-SYNC-16 and NFR-SYNC-08 (5 min iOS, 15 min macOS).
 
 > **Note**: Multi-account sync throughput (NFR-SYNC-06), error isolation (NFR-SYNC-07), and sync status latency (NFR-SYNC-09) are defined in the Email Sync spec.
 
@@ -952,4 +960,5 @@ graph TD
 |---------|------|--------|---------------|
 | 1.0.0 | 2026-02-11 | Core Team | Initial draft. Defines multi-provider IMAP support: provider registry, XOAUTH2 + PLAIN auth, STARTTLS, Outlook OAuth, app password flow, auto-discovery, manual setup, provider-agnostic folder mapping, per-provider connection config, Account model extensions, onboarding UI updates, OAuthManager refactoring, and sync compatibility. |
 | 1.1.0 | 2026-02-16 | Core Team | Multi-account sync gap analysis. Extended FR-MPROV-13 with draft sync, sent folder post-send, and flag support variance behaviors. Added `requiresSentAppend` to provider registry schema. Added FR-MPROV-14 (Multi-Account Sync cross-reference + global connection pool limits) and FR-MPROV-15 (Data Migration Validation). Added NFR-MPROV-07 (Global Connection Resource Usage). Moved sync orchestration, IDLE monitoring, background sync, send queue, unified inbox, observability, and debug view requirements to Email Sync spec v1.3.0 (FR-SYNC-11 through FR-SYNC-18) as the canonical location for all sync behavior. |
-| 1.1.1 | 2026-02-16 | Core Team | PR review fixes. **P1**: Fixed Outlook OAuth token audience conflict — replaced Graph API `/me` email resolution with `id_token` JWT claims (`openid email profile` scopes); added OIDC validation requirements; updated sequence diagram and external prerequisites. **P2**: Removed `.oauthbearer` from FR-MPROV-01 registry schema `authMechanism` (contradicted Section 5 enum and Alternatives Considered). **P3**: Unified migration semantics — fields are `String?` (nullable) in SwiftData schema, app-level computed properties apply defaults for `nil`; removed contradictory "defaulted" language from FR-MPROV-10 and aligned FR-MPROV-15. |
+| 1.1.1 | 2026-02-16 | Core Team | PR review fixes (round 1). **P1**: Fixed Outlook OAuth token audience conflict — replaced Graph API `/me` email resolution with `id_token` JWT claims (`openid email profile` scopes); added OIDC validation requirements; updated sequence diagram and external prerequisites. **P2**: Removed `.oauthbearer` from FR-MPROV-01 registry schema `authMechanism` (contradicted Section 5 enum and Alternatives Considered). **P3**: Unified migration semantics — fields are `String?` (nullable) in SwiftData schema, app-level computed properties apply defaults for `nil`; removed contradictory "defaulted" language from FR-MPROV-10 and aligned FR-MPROV-15. |
+| 1.1.2 | 2026-02-16 | Core Team | PR review fixes (round 2). **P2**: FR-MPROV-14 — replaced hardcoded 5-minute idle cleanup with cross-reference to Email Sync FR-SYNC-16 platform-specific timeouts (5 min iOS, 15 min macOS). NFR-MPROV-07 — same alignment. **P2**: FR-MPROV-12 — replaced `emailResolverURL: URL` with `emailResolution: EmailResolutionStrategy` enum (`.userinfoEndpoint(URL)` for Gmail, `.idTokenClaims` for Outlook) to match Outlook's id_token-based resolution. Fixed Outlook scopes to use fully-qualified resource scopes (`https://outlook.office365.com/...`) matching FR-MPROV-03. |

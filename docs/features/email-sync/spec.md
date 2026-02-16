@@ -152,7 +152,7 @@ The client **MUST** use IMAP IDLE (RFC 2177) to receive real-time email notifica
 - IDLE **MUST** monitor the INBOX folder only (IMAP IDLE operates on a single selected mailbox).
 - The client **MUST** maintain a single IDLE connection per active account.
 - When the server sends an `EXISTS` response (new message), the client **MUST** break IDLE and trigger an incremental sync of the INBOX.
-- Gmail drops IDLE connections after approximately 29 minutes. The client **MUST** re-issue the IDLE command every 25 minutes to maintain the connection.
+- The client **MUST** re-issue the IDLE command at the provider-specific refresh interval (per Multi-Provider IMAP FR-MPROV-09). For example, Gmail drops IDLE after ~29 minutes (re-issue every 25 min), Yahoo after ~5 minutes (re-issue every 4 min).
 - If the IDLE connection drops unexpectedly, the client **MUST** re-establish it automatically with backoff per FR-SYNC-09.
 
 **Background Sync (iOS)**
@@ -163,7 +163,7 @@ The client **MUST** use IMAP IDLE (RFC 2177) to receive real-time email notifica
 
 **Background Sync (macOS)**
 
-- IMAP IDLE **MAY** remain active while the app window is open (macOS does not restrict background network connections for foreground apps).
+- IMAP IDLE **MUST** remain active for all active accounts while any app window is open (macOS does not restrict background network connections for foreground apps). See Section 7 macOS Platform-Specific Considerations for full macOS IDLE requirements.
 
 **Error Handling**
 
@@ -327,12 +327,12 @@ When the device is offline, the client **MUST** queue emails for sending:
 
 **Description**
 
-- IMAP connections **MUST** use TLS on port 993 (implicit TLS to `imap.gmail.com`).
-- SMTP connections **MUST** use TLS on port 465 (implicit TLS) or STARTTLS on port 587 (to `smtp.gmail.com`).
+- IMAP connections **MUST** use the account's configured security mode and port: implicit TLS (typically port 993) or STARTTLS (typically port 143) per the account's `imapSecurity` setting. See Multi-Provider IMAP FR-MPROV-05 for STARTTLS handshake requirements.
+- SMTP connections **MUST** use the account's configured security mode and port: implicit TLS (typically port 465) or STARTTLS (typically port 587) per the account's `smtpSecurity` setting.
 - Connection timeout: 30 seconds. If a connection is not established within 30 seconds, it **MUST** be considered failed.
 - Connection retry policy: 3 retries with exponential backoff (5 seconds, 15 seconds, 45 seconds). After 3 failures, transition to `Error` state and surface to user.
-- Maximum concurrent IMAP connections per account: 5 (Gmail's limit).
-- IMAP IDLE refresh interval: 25 minutes (Gmail drops IDLE connections after ~29 minutes).
+- Maximum concurrent IMAP connections per account **MUST** be read from the account's resolved provider configuration (`maxConnections` field in the provider registry, Multi-Provider IMAP FR-MPROV-09). Default: 5 for unknown providers.
+- IMAP IDLE refresh interval **MUST** be read from the account's resolved provider configuration (`idleRefreshInterval` field in the provider registry, Multi-Provider IMAP FR-MPROV-09). Default: 20 minutes for unknown providers.
 - The client **MUST** implement connection pooling to reuse IMAP connections across sync operations within the same account.
 
 **Error Handling**
@@ -872,4 +872,5 @@ Refer to Foundation spec Section 6. This feature uses:
 | 1.1.0 | 2026-02-07 | Core Team | Review round 1: Added G-XX/NG-XX IDs. Added FR-SYNC-08 (Attachments), FR-SYNC-09 (Connection Management), FR-SYNC-10 (Flag Sync). Expanded FR-SYNC-01 with folder discovery, body format handling, sync sequence diagram, sync window cross-ref. Expanded FR-SYNC-02 with progressive checkpointing, change detection details. Expanded FR-SYNC-03 with IDLE behavior, background refresh details. Expanded FR-SYNC-04 with token refresh cross-ref and Indexing definition. Inlined send queue lifecycle into FR-SYNC-07 (removed Proposal reference). Defined virtual Outbox. Added error handling to all FRs. Added NFR-SYNC-03 (Send Time), NFR-SYNC-04 (Memory), NFR-SYNC-05 (Security). Set NFR-SYNC-01 hard limit to 10s. Resolved all ambiguities. Status → locked. |
 | 1.2.0 | 2026-02-07 | Core Team | Post-lock compliance fixes: PL-01 — aligned Foundation spec to 24h queue age (Foundation v1.4.0). PL-02 — fixed `\Jstrash` typo → `\Junk` (RFC 6154). PL-03 — removed non-existent `[Gmail]/Archive` folder mapping; added virtual archive explanation and local state handling for archive operations. PL-04 — added explicit cross-folder deduplication strategy using `messageId`. |
 | 1.3.0 | 2026-02-16 | Core Team | Multi-account sync gap analysis. Unlocked spec for multi-account requirements. Added G-06/G-07/G-08 goals, NG-03 non-goal. Added FR-SYNC-11 (Concurrent Multi-Account Sync Orchestration), FR-SYNC-12 (Per-Account IDLE Monitoring), FR-SYNC-13 (Background Sync for Multiple Accounts), FR-SYNC-14 (Per-Account Offline Send Queue), FR-SYNC-15 (Unified Inbox Behavior), FR-SYNC-16 (Global Connection Pool Limits), FR-SYNC-17 (Sync Status Observability), FR-SYNC-18 (Sync Debug View). Added NFR-SYNC-06 through NFR-SYNC-09. Added `SyncPhase`, `IDLEStatus`, `SyncEvent` data model types. Updated architecture with `SyncCoordinator` and `SyncLogger`. Added OQ-01 through OQ-03. Status → draft (pending review). |
-| 1.3.1 | 2026-02-16 | Core Team | PR review fixes. **P1**: FR-SYNC-07 — made SMTP sending provider-agnostic (removed hardcoded `smtp.gmail.com` and XOAUTH2-only; defers to provider config for host, port, security, and auth mechanism). Fixed sent-folder APPEND contradiction: now checks `requiresSentAppend` flag instead of unconditionally appending. **P2**: FR-SYNC-12 — added platform qualifier to IDLE connection limit (iOS-only MUST; macOS exempt per Section 7). FR-SYNC-16 — added platform qualifier to idle connection cleanup timeout (5 min iOS, 15 min macOS). NFR-SYNC-08 — aligned hard limit text with platform-specific timeouts. |
+| 1.3.1 | 2026-02-16 | Core Team | PR review fixes (round 1). **P1**: FR-SYNC-07 — made SMTP sending provider-agnostic (removed hardcoded `smtp.gmail.com` and XOAUTH2-only; defers to provider config for host, port, security, and auth mechanism). Fixed sent-folder APPEND contradiction: now checks `requiresSentAppend` flag instead of unconditionally appending. **P2**: FR-SYNC-12 — added platform qualifier to IDLE connection limit (iOS-only MUST; macOS exempt per Section 7). FR-SYNC-16 — added platform qualifier to idle connection cleanup timeout (5 min iOS, 15 min macOS). NFR-SYNC-08 — aligned hard limit text with platform-specific timeouts. |
+| 1.3.2 | 2026-02-16 | Core Team | PR review fixes (round 2). **P1**: FR-SYNC-09 — removed hardcoded Gmail connection rules (`imap.gmail.com`, max 5, 25 min IDLE); now defers to provider registry for IMAP/SMTP host/port/security, `maxConnections`, and `idleRefreshInterval`. FR-SYNC-03 — made IDLE refresh interval provider-configurable (was hardcoded 25 min). **P2**: FR-SYNC-03 macOS — upgraded IDLE from MAY to MUST for all active accounts (aligned with Section 7 macOS IDLE requirements). |
