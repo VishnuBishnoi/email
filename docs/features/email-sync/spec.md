@@ -150,7 +150,7 @@ The client **MUST** use IMAP IDLE (RFC 2177) to receive real-time email notifica
 **IMAP IDLE Behavior**
 
 - IDLE **MUST** monitor the INBOX folder only (IMAP IDLE operates on a single selected mailbox).
-- The client **MUST** maintain a single IDLE connection per active account.
+- The client **SHOULD** maintain a single IDLE connection per active account, subject to platform-specific resource limits defined in FR-SYNC-12 (e.g., iOS caps at 5 concurrent IDLE connections; accounts beyond the cap fall back to periodic polling).
 - When the server sends an `EXISTS` response (new message), the client **MUST** break IDLE and trigger an incremental sync of the INBOX.
 - The client **MUST** re-issue the IDLE command at the provider-specific refresh interval (per Multi-Provider IMAP FR-MPROV-09). For example, Gmail drops IDLE after ~29 minutes (re-issue every 25 min), Yahoo after ~5 minutes (re-issue every 4 min).
 - If the IDLE connection drops unexpectedly, the client **MUST** re-establish it automatically with backoff per FR-SYNC-09.
@@ -304,7 +304,9 @@ When the device is offline, the client **MUST** queue emails for sending:
 
 **Error Handling**
 
-- SMTP authentication failure **MUST** trigger token refresh per Account Management FR-ACCT-04.
+- SMTP authentication failure handling depends on the account's auth mechanism:
+  - **OAuth accounts (XOAUTH2)**: SMTP auth failure **MUST** trigger token refresh per Account Management FR-ACCT-04. If refresh succeeds, retry the send. If refresh fails, set `sendState = .failed`.
+  - **App-password accounts (PLAIN)**: SMTP auth failure **MUST NOT** trigger token refresh (there is no token to refresh). The client **MUST** set `sendState = .failed` and display "SMTP authentication failed for {email}. Please check your app password."
 - SMTP server rejection (e.g., recipient not found) **MUST NOT** be retried — set `sendState = .failed` immediately with the server error message.
 - Network errors **MUST** follow the retry policy above.
 
@@ -874,3 +876,4 @@ Refer to Foundation spec Section 6. This feature uses:
 | 1.3.0 | 2026-02-16 | Core Team | Multi-account sync gap analysis. Unlocked spec for multi-account requirements. Added G-06/G-07/G-08 goals, NG-03 non-goal. Added FR-SYNC-11 (Concurrent Multi-Account Sync Orchestration), FR-SYNC-12 (Per-Account IDLE Monitoring), FR-SYNC-13 (Background Sync for Multiple Accounts), FR-SYNC-14 (Per-Account Offline Send Queue), FR-SYNC-15 (Unified Inbox Behavior), FR-SYNC-16 (Global Connection Pool Limits), FR-SYNC-17 (Sync Status Observability), FR-SYNC-18 (Sync Debug View). Added NFR-SYNC-06 through NFR-SYNC-09. Added `SyncPhase`, `IDLEStatus`, `SyncEvent` data model types. Updated architecture with `SyncCoordinator` and `SyncLogger`. Added OQ-01 through OQ-03. Status → draft (pending review). |
 | 1.3.1 | 2026-02-16 | Core Team | PR review fixes (round 1). **P1**: FR-SYNC-07 — made SMTP sending provider-agnostic (removed hardcoded `smtp.gmail.com` and XOAUTH2-only; defers to provider config for host, port, security, and auth mechanism). Fixed sent-folder APPEND contradiction: now checks `requiresSentAppend` flag instead of unconditionally appending. **P2**: FR-SYNC-12 — added platform qualifier to IDLE connection limit (iOS-only MUST; macOS exempt per Section 7). FR-SYNC-16 — added platform qualifier to idle connection cleanup timeout (5 min iOS, 15 min macOS). NFR-SYNC-08 — aligned hard limit text with platform-specific timeouts. |
 | 1.3.2 | 2026-02-16 | Core Team | PR review fixes (round 2). **P1**: FR-SYNC-09 — removed hardcoded Gmail connection rules (`imap.gmail.com`, max 5, 25 min IDLE); now defers to provider registry for IMAP/SMTP host/port/security, `maxConnections`, and `idleRefreshInterval`. FR-SYNC-03 — made IDLE refresh interval provider-configurable (was hardcoded 25 min). **P2**: FR-SYNC-03 macOS — upgraded IDLE from MAY to MUST for all active accounts (aligned with Section 7 macOS IDLE requirements). |
+| 1.3.3 | 2026-02-16 | Core Team | PR review fixes (round 3). **P1**: FR-SYNC-07 — SMTP auth failure handling now differentiates by auth mechanism: OAuth triggers token refresh, PLAIN displays credential error (was blanket "trigger token refresh" that conflicted with FR-SYNC-14 for app-password accounts). **P2**: FR-SYNC-03 — downgraded per-account IDLE from MUST to SHOULD with explicit deferral to FR-SYNC-12 resource limits (was unqualified MUST that conflicted with iOS 5-cap). |

@@ -618,16 +618,21 @@ OAuthProviderConfig:
 
 ```
 enum EmailResolutionStrategy:
-  case userinfoEndpoint(URL)   // Call a userinfo endpoint with the access token (e.g., Gmail)
+  case userProvided            // Use the email address the user entered before OAuth (e.g., Gmail)
   case idTokenClaims           // Decode id_token JWT claims: email, then preferred_username (e.g., Outlook)
 ```
+
+- `.userProvided` — The user enters their email address before the OAuth flow begins (email-first approach per FR-MPROV-11). The email is validated implicitly when the IMAP connection test succeeds. No additional API call is needed.
+- `.idTokenClaims` — The `id_token` returned in the OAuth token response contains the user's email in its JWT claims. Used when the OAuth provider's login flow determines the email (e.g., Microsoft accounts where the user may have multiple aliases).
 
 **Built-in OAuth Configs**
 
 | Provider | Auth Endpoint | Token Endpoint | Client ID | Scopes | Email Resolution |
 |----------|--------------|---------------|-----------|--------|-----------------|
-| Gmail | `accounts.google.com/o/oauth2/v2/auth` | `oauth2.googleapis.com/token` | (existing) | `https://mail.google.com/ email profile` | `.userinfoEndpoint(googleapis.com/oauth2/v3/userinfo)` |
+| Gmail | `accounts.google.com/o/oauth2/v2/auth` | `oauth2.googleapis.com/token` | (existing) | `https://mail.google.com/` | `.userProvided` |
 | Outlook | `login.microsoftonline.com/common/oauth2/v2.0/authorize` | `login.microsoftonline.com/common/oauth2/v2.0/token` | (Azure AD app) | `https://outlook.office365.com/IMAP.AccessAsUser.All https://outlook.office365.com/SMTP.Send offline_access openid email profile` | `.idTokenClaims` |
+
+> **Note**: Gmail scopes **MUST** be exactly `https://mail.google.com/` per Account Management FR-ACCT-01 and Constitution LG-02 (minimal scope principle). The `email profile` OIDC scopes are **not** requested for Gmail because email resolution uses the user-provided address, not a userinfo endpoint or id_token.
 
 **Protocol Change**
 
@@ -962,3 +967,4 @@ graph TD
 | 1.1.0 | 2026-02-16 | Core Team | Multi-account sync gap analysis. Extended FR-MPROV-13 with draft sync, sent folder post-send, and flag support variance behaviors. Added `requiresSentAppend` to provider registry schema. Added FR-MPROV-14 (Multi-Account Sync cross-reference + global connection pool limits) and FR-MPROV-15 (Data Migration Validation). Added NFR-MPROV-07 (Global Connection Resource Usage). Moved sync orchestration, IDLE monitoring, background sync, send queue, unified inbox, observability, and debug view requirements to Email Sync spec v1.3.0 (FR-SYNC-11 through FR-SYNC-18) as the canonical location for all sync behavior. |
 | 1.1.1 | 2026-02-16 | Core Team | PR review fixes (round 1). **P1**: Fixed Outlook OAuth token audience conflict — replaced Graph API `/me` email resolution with `id_token` JWT claims (`openid email profile` scopes); added OIDC validation requirements; updated sequence diagram and external prerequisites. **P2**: Removed `.oauthbearer` from FR-MPROV-01 registry schema `authMechanism` (contradicted Section 5 enum and Alternatives Considered). **P3**: Unified migration semantics — fields are `String?` (nullable) in SwiftData schema, app-level computed properties apply defaults for `nil`; removed contradictory "defaulted" language from FR-MPROV-10 and aligned FR-MPROV-15. |
 | 1.1.2 | 2026-02-16 | Core Team | PR review fixes (round 2). **P2**: FR-MPROV-14 — replaced hardcoded 5-minute idle cleanup with cross-reference to Email Sync FR-SYNC-16 platform-specific timeouts (5 min iOS, 15 min macOS). NFR-MPROV-07 — same alignment. **P2**: FR-MPROV-12 — replaced `emailResolverURL: URL` with `emailResolution: EmailResolutionStrategy` enum (`.userinfoEndpoint(URL)` for Gmail, `.idTokenClaims` for Outlook) to match Outlook's id_token-based resolution. Fixed Outlook scopes to use fully-qualified resource scopes (`https://outlook.office365.com/...`) matching FR-MPROV-03. |
+| 1.1.3 | 2026-02-16 | Core Team | PR review fixes (round 3). **P2**: FR-MPROV-12 — fixed Gmail OAuth scope to `https://mail.google.com/` only (was `https://mail.google.com/ email profile` which violated Account Management FR-ACCT-01 and Constitution LG-02 minimal scope principle). Replaced `.userinfoEndpoint` with `.userProvided` strategy for Gmail (email resolution uses user-entered address validated via IMAP connection test, no userinfo API call needed). Added explicit note on Gmail scope compliance. |
