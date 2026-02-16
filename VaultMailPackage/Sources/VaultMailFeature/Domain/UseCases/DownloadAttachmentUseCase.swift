@@ -1,5 +1,4 @@
 import Foundation
-import UniformTypeIdentifiers
 
 /// Use case for downloading email attachments via IMAP body part fetch.
 ///
@@ -210,13 +209,14 @@ public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol 
             .replacingOccurrences(of: "\n", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Base64 heuristic should only run for non-text attachments to avoid
-        // accidental decode of plain text.
+        // Base64 heuristic: only for non-text types, with a minimum length and
+        // decoded-size ratio check to avoid false positives on short alphanumeric data.
         if !mimeType.lowercased().hasPrefix("text/"),
-           !compact.isEmpty,
-           compact.utf8.allSatisfy(isBase64Byte),
+           compact.count >= 64,
+           compact.utf8.allSatisfy(AttachmentFileUtilities.isBase64Byte),
            let decoded = Data(base64Encoded: compact),
-           decoded.count > 0 {
+           decoded.count > 0,
+           Double(decoded.count) / Double(compact.count) < 0.8 {
             return decoded
         }
 
@@ -250,16 +250,6 @@ public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol 
         return matches >= 3
     }
 
-    private func isBase64Byte(_ byte: UInt8) -> Bool {
-        // A-Z a-z 0-9 + / =
-        (byte >= 65 && byte <= 90)
-            || (byte >= 97 && byte <= 122)
-            || (byte >= 48 && byte <= 57)
-            || byte == 43
-            || byte == 47
-            || byte == 61
-    }
-
     private func isHexByte(_ byte: UInt8) -> Bool {
         (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 70) || (byte >= 97 && byte <= 102)
     }
@@ -278,25 +268,19 @@ public final class DownloadAttachmentUseCase: DownloadAttachmentUseCaseProtocol 
     }
 
     private func resolvedFilename(for attachment: Attachment, decodedData: Data?) -> String {
-        let baseName = attachment.filename.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackName = baseName.isEmpty ? "attachment" : baseName
+        let resolved = AttachmentFileUtilities.resolvedFilename(
+            attachment.filename,
+            mimeType: attachment.mimeType
+        )
 
-        // Keep original extension when present.
-        if !URL(fileURLWithPath: fallbackName).pathExtension.isEmpty {
-            return fallbackName
+        // If MIME type couldn't resolve an extension, try magic-byte sniffing.
+        if URL(fileURLWithPath: resolved).pathExtension.isEmpty,
+           let decodedData,
+           let sniffedExt = sniffFileExtension(from: decodedData) {
+            return "\(resolved).\(sniffedExt)"
         }
 
-        if let type = UTType(mimeType: attachment.mimeType),
-           let ext = type.preferredFilenameExtension,
-           !ext.isEmpty {
-            return "\(fallbackName).\(ext)"
-        }
-
-        if let decodedData, let sniffedExt = sniffFileExtension(from: decodedData) {
-            return "\(fallbackName).\(sniffedExt)"
-        }
-
-        return fallbackName
+        return resolved
     }
 
     private func sniffFileExtension(from data: Data) -> String? {

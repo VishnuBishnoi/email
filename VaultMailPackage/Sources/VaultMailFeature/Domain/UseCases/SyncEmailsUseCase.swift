@@ -1,5 +1,4 @@
 import Foundation
-import UniformTypeIdentifiers
 import CryptoKit
 
 /// Domain use case for syncing emails from IMAP to SwiftData.
@@ -749,19 +748,10 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     }
 
     private func resolvedAttachmentFilename(from info: IMAPAttachmentInfo) -> String {
-        let rawName = (info.filename ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = rawName.isEmpty ? "attachment" : rawName
-        if !URL(fileURLWithPath: base).pathExtension.isEmpty {
-            return base
-        }
-
-        guard let mimeType = info.mimeType,
-              let type = UTType(mimeType: mimeType),
-              let ext = type.preferredFilenameExtension,
-              !ext.isEmpty else {
-            return base
-        }
-        return "\(base).\(ext)"
+        AttachmentFileUtilities.resolvedFilename(
+            info.filename ?? "",
+            mimeType: info.mimeType
+        )
     }
 
     // MARK: - Contact Extraction

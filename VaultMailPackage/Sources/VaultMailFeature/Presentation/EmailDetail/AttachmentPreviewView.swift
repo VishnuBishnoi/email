@@ -3,7 +3,6 @@ import Foundation
 import QuickLook
 import SwiftUI
 import UIKit
-import UniformTypeIdentifiers
 
 // MARK: - Input Models
 
@@ -49,7 +48,11 @@ enum AttachmentPreviewFileStore {
         }
 
         let safeName = sanitizeFilename(payload.filename)
-        let resolvedName = ensureExtensionIfMissing(filename: safeName, mimeType: payload.mimeType)
+        let resolvedName = AttachmentFileUtilities.resolvedFilename(
+            safeName,
+            mimeType: payload.mimeType,
+            fallbackName: "Attachment"
+        )
         let target = base.appendingPathComponent(resolvedName)
 
         if manager.fileExists(atPath: target.path) {
@@ -68,18 +71,6 @@ enum AttachmentPreviewFileStore {
         return cleaned.isEmpty ? "Attachment" : cleaned
     }
 
-    private static func ensureExtensionIfMissing(filename: String, mimeType: String?) -> String {
-        let url = URL(fileURLWithPath: filename)
-        if !url.pathExtension.isEmpty { return filename }
-
-        guard let mimeType,
-              let utType = UTType(mimeType: mimeType),
-              let ext = utType.preferredFilenameExtension,
-              !ext.isEmpty else {
-            return filename
-        }
-        return "\(filename).\(ext)"
-    }
 }
 
 // MARK: - Quick Look Item
@@ -427,7 +418,20 @@ struct AttachmentPreviewSheet: UIViewControllerRepresentable {
         ) {
             return controller
         }
-        return UIViewController()
+        // Fallback: show an error message instead of a blank sheet.
+        let alert = UIAlertController(
+            title: "Unable to Preview",
+            message: "This attachment cannot be previewed.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let wrapper = UIViewController()
+        wrapper.view.backgroundColor = .systemBackground
+        // Present the alert after the view appears.
+        DispatchQueue.main.async {
+            wrapper.present(alert, animated: true)
+        }
+        return wrapper
     }
 
     func updateUIViewController(_ controller: UIViewController, context: Context) {}
