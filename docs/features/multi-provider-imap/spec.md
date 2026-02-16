@@ -72,7 +72,7 @@ Each provider entry **MUST** contain:
 | `smtpHost` | `String` | SMTP server hostname |
 | `smtpPort` | `Int` | SMTP server port |
 | `smtpSecurity` | `ConnectionSecurity` | `.tls` or `.starttls` |
-| `authMechanism` | `AuthMechanism` | `.xoauth2`, `.plain`, or `.oauthbearer` |
+| `authMechanism` | `AuthMechanism` | `.xoauth2` or `.plain` (see Section 5 enum and Alternatives Considered for OAUTHBEARER rejection) |
 | `oauthConfig` | `OAuthProviderConfig?` | OAuth endpoints, client ID, scopes (nil for password-based providers) |
 | `maxConnections` | `Int` | Maximum concurrent IMAP connections per account |
 | `idleRefreshInterval` | `TimeInterval` | Seconds between IDLE re-issue |
@@ -150,7 +150,7 @@ The client **MUST** support OAuth 2.0 for Microsoft accounts (Outlook.com, Hotma
 |---------|-------|
 | Auth endpoint | `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` |
 | Token endpoint | `https://login.microsoftonline.com/common/oauth2/v2.0/token` |
-| Scopes | `https://outlook.office365.com/IMAP.AccessAsUser.All https://outlook.office365.com/SMTP.Send offline_access` |
+| Scopes | `https://outlook.office365.com/IMAP.AccessAsUser.All https://outlook.office365.com/SMTP.Send offline_access openid email profile` |
 | PKCE | Yes (S256) |
 | Redirect URI | Custom URL scheme registered in Azure AD app registration |
 
@@ -175,7 +175,7 @@ sequenceDiagram
     App->>M: Exchange code for tokens
     M->>App: Access token + refresh token
     App->>App: Store tokens in Keychain
-    App->>App: Resolve email via Microsoft Graph /me
+    App->>App: Decode id_token JWT → extract email claim
     App->>App: Test IMAP connection
     App->>App: Begin initial sync
     App->>U: Account ready
@@ -183,8 +183,10 @@ sequenceDiagram
 
 **Email Resolution**
 
-- After obtaining an access token, the client **MUST** resolve the user's email address via the Microsoft Graph API: `GET https://graph.microsoft.com/v1.0/me` with the `User.Read` scope (included implicitly by Microsoft).
-- The response **MUST** be parsed for the `mail` or `userPrincipalName` field.
+- The token response includes an `id_token` (JWT) because the `openid email profile` scopes are requested. The client **MUST** decode the `id_token` claims to resolve the user's email address.
+- The client **MUST** extract the `email` claim from the `id_token`. If the `email` claim is absent, the client **MUST** fall back to the `preferred_username` claim.
+- The `id_token` **MUST** be validated per standard OIDC rules (issuer, audience, expiry) before extracting claims.
+- The client **MUST NOT** call the Microsoft Graph API (`/v1.0/me`) for email resolution. The access token is scoped to `outlook.office365.com` (IMAP/SMTP) and is **not** a valid Graph API token. Calling Graph with an Outlook-audience token will result in a `401 Unauthorized` error.
 
 **Token Refresh**
 
@@ -194,8 +196,9 @@ sequenceDiagram
 **External Prerequisites**
 
 - The app **MUST** be registered in the Microsoft Entra (Azure AD) portal before Outlook support is functional.
-- The app registration **MUST** request `IMAP.AccessAsUser.All` and `SMTP.Send` delegated permissions.
+- The app registration **MUST** request `IMAP.AccessAsUser.All`, `SMTP.Send`, `openid`, `email`, and `profile` delegated permissions.
 - The redirect URI **MUST** be registered in the app registration matching the iOS custom URL scheme.
+- The `User.Read` Graph permission is **NOT** required — email resolution uses the `id_token` OIDC claims instead of the Graph API.
 
 **Error Handling**
 
@@ -527,11 +530,11 @@ The `Account` SwiftData model **MUST** be extended with new fields to support mu
 
 **New Fields**
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `provider` | `String` | `"gmail"` | Provider identifier (maps to `EmailProvider` enum) |
-| `imapSecurity` | `String` | `"tls"` | Connection security: `"tls"` or `"starttls"` |
-| `smtpSecurity` | `String` | `"tls"` | Connection security: `"tls"` or `"starttls"` |
+| Field | Type | SwiftData Schema | App-Level Default | Description |
+|-------|------|-----------------|-------------------|-------------|
+| `provider` | `String?` | Optional (nullable) | `"gmail"` | Provider identifier (maps to `EmailProvider` enum) |
+| `imapSecurity` | `String?` | Optional (nullable) | `"tls"` | Connection security: `"tls"` or `"starttls"` |
+| `smtpSecurity` | `String?` | Optional (nullable) | `"tls"` | Connection security: `"tls"` or `"starttls"` |
 
 **Existing Fields (Unchanged)**
 
@@ -540,10 +543,13 @@ The following existing fields already support multi-provider scenarios:
 - `smtpHost`, `smtpPort` — configurable per account
 - `authType` — already a `String` field (`"xoauth2"`, `"plain"`)
 
-**Migration**
+**Migration Strategy**
 
-- Adding new optional `String` fields to a SwiftData `@Model` is a lightweight migration. SwiftData handles this automatically — no explicit migration code is required.
-- Existing Gmail accounts **MUST** have `provider` defaulted to `"gmail"`, `imapSecurity` to `"tls"`, and `smtpSecurity` to `"tls"`.
+SwiftData lightweight migration adds new fields as **nullable** (`nil`). No explicit migration code or `VersionedSchema` is required. The app **MUST** apply defaults at the application layer:
+
+1. **Schema**: The three new fields **MUST** be declared as `String?` (optional) in the `@Model` class. This ensures SwiftData's automatic lightweight migration succeeds — it simply adds nullable columns.
+2. **App-level backfill**: On first access after upgrade, any Account with `provider == nil` **MUST** be treated as `provider = "gmail"`, `imapSecurity = "tls"`, `smtpSecurity = "tls"`. This **SHOULD** be implemented via computed properties that return defaults for `nil` values, rather than a write-on-upgrade migration pass.
+3. **New accounts**: When creating new accounts, all three fields **MUST** be populated explicitly (never left as `nil`).
 
 ### FR-MPROV-11: Onboarding and Account Setup UI
 
@@ -613,7 +619,7 @@ OAuthProviderConfig:
 | Provider | Auth Endpoint | Token Endpoint | Client ID | Scopes | Email Resolver |
 |----------|--------------|---------------|-----------|--------|---------------|
 | Gmail | `accounts.google.com/o/oauth2/v2/auth` | `oauth2.googleapis.com/token` | (existing) | `https://mail.google.com/ email profile` | `googleapis.com/oauth2/v3/userinfo` |
-| Outlook | `login.microsoftonline.com/common/oauth2/v2.0/authorize` | `login.microsoftonline.com/common/oauth2/v2.0/token` | (Azure AD app) | `IMAP.AccessAsUser.All SMTP.Send offline_access` | `graph.microsoft.com/v1.0/me` |
+| Outlook | `login.microsoftonline.com/common/oauth2/v2.0/authorize` | `login.microsoftonline.com/common/oauth2/v2.0/token` | (Azure AD app) | `IMAP.AccessAsUser.All SMTP.Send offline_access openid email profile` | `id_token` JWT claims (`email` or `preferred_username`) |
 
 **Protocol Change**
 
@@ -689,10 +695,10 @@ The multi-provider connection pool **MUST** enforce a global limit in addition t
 
 The SwiftData migration for new Account model fields (FR-MPROV-10) **MUST** be validated to ensure zero data loss for existing accounts.
 
-**Automatic Defaults**
+**Default Handling for Pre-Existing Accounts**
 
-- On app upgrade, existing accounts with nil `provider` **MUST** be automatically populated with `provider = "gmail"` (since only Gmail was supported pre-migration).
-- Existing accounts **MUST** receive `imapSecurity = "tls"` and `smtpSecurity = "tls"` defaults.
+- On app upgrade, SwiftData lightweight migration adds the three new nullable columns. Existing rows will have `nil` for `provider`, `imapSecurity`, and `smtpSecurity`.
+- The app **MUST** treat `nil` values as defaults: `provider = "gmail"`, `imapSecurity = "tls"`, `smtpSecurity = "tls"` (per FR-MPROV-10 migration strategy). This is handled at the application layer via computed properties, **not** via a write-on-upgrade migration pass.
 - The migration **MUST NOT** alter any existing sync state (`uidValidity`, `lastSyncDate`, `lastSyncedUID`, folder data, emails, threads).
 
 **Migration Failure**
@@ -800,13 +806,13 @@ erDiagram
         string id PK
         string email
         string displayName
-        string provider "NEW: gmail, outlook, yahoo, icloud, custom"
+        string provider "NEW: nullable, defaults to gmail via app logic"
         string imapHost
         int imapPort
-        string imapSecurity "NEW: tls, starttls"
+        string imapSecurity "NEW: nullable, defaults to tls via app logic"
         string smtpHost
         int smtpPort
-        string smtpSecurity "NEW: tls, starttls"
+        string smtpSecurity "NEW: nullable, defaults to tls via app logic"
         string authType "xoauth2, plain"
         date lastSyncDate
         bool isActive
@@ -946,3 +952,4 @@ graph TD
 |---------|------|--------|---------------|
 | 1.0.0 | 2026-02-11 | Core Team | Initial draft. Defines multi-provider IMAP support: provider registry, XOAUTH2 + PLAIN auth, STARTTLS, Outlook OAuth, app password flow, auto-discovery, manual setup, provider-agnostic folder mapping, per-provider connection config, Account model extensions, onboarding UI updates, OAuthManager refactoring, and sync compatibility. |
 | 1.1.0 | 2026-02-16 | Core Team | Multi-account sync gap analysis. Extended FR-MPROV-13 with draft sync, sent folder post-send, and flag support variance behaviors. Added `requiresSentAppend` to provider registry schema. Added FR-MPROV-14 (Multi-Account Sync cross-reference + global connection pool limits) and FR-MPROV-15 (Data Migration Validation). Added NFR-MPROV-07 (Global Connection Resource Usage). Moved sync orchestration, IDLE monitoring, background sync, send queue, unified inbox, observability, and debug view requirements to Email Sync spec v1.3.0 (FR-SYNC-11 through FR-SYNC-18) as the canonical location for all sync behavior. |
+| 1.1.1 | 2026-02-16 | Core Team | PR review fixes. **P1**: Fixed Outlook OAuth token audience conflict — replaced Graph API `/me` email resolution with `id_token` JWT claims (`openid email profile` scopes); added OIDC validation requirements; updated sequence diagram and external prerequisites. **P2**: Removed `.oauthbearer` from FR-MPROV-01 registry schema `authMechanism` (contradicted Section 5 enum and Alternatives Considered). **P3**: Unified migration semantics — fields are `String?` (nullable) in SwiftData schema, app-level computed properties apply defaults for `nil`; removed contradictory "defaulted" language from FR-MPROV-10 and aligned FR-MPROV-15. |

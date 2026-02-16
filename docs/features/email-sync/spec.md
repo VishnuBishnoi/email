@@ -285,10 +285,10 @@ Gmail's internal threading algorithm may produce different groupings than this R
 
 **Description**
 
-- The client **MUST** send email via SMTP with XOAUTH2 authentication (see Account Management spec for XOAUTH2 formatting).
-- The client **MUST** connect to `smtp.gmail.com` on port 465 (implicit TLS) or port 587 (STARTTLS).
+- The client **MUST** send email via SMTP using the account's configured authentication mechanism (XOAUTH2 or PLAIN per Account Management spec and Multi-Provider IMAP FR-MPROV-02).
+- The client **MUST** connect to the account's configured SMTP server using its configured port and security mode (implicit TLS or STARTTLS per Multi-Provider IMAP FR-MPROV-05).
 - The client **MUST** construct valid MIME messages with appropriate headers (From, To, CC, BCC, Subject, Date, Message-ID, Content-Type).
-- The client **MUST** move sent messages to the Sent folder via IMAP APPEND after successful SMTP delivery.
+- After successful SMTP delivery, the client **MUST** check the account's `requiresSentAppend` flag (from the provider registry, Multi-Provider IMAP FR-MPROV-13). If `requiresSentAppend` is `true`, the client **MUST** issue an IMAP `APPEND` to the provider's Sent folder with the `\Seen` flag. If `requiresSentAppend` is `false` (e.g., Gmail, which auto-copies sent messages server-side), the client **MUST NOT** APPEND to Sent (doing so would create duplicates).
 - The client **MUST** display clear error messages if sending fails.
 
 **Offline Send Queue**
@@ -415,7 +415,8 @@ The client **MUST** maintain concurrent IDLE connections for multiple accounts t
 
 **Resource Limits**
 
-- The client **MUST** enforce a global maximum of **5 concurrent IDLE connections**. If the user has more than 5 active accounts, the most recently viewed accounts **MUST** be prioritized for IDLE. Deprioritized accounts fall back to periodic incremental sync every 5 minutes.
+- **On iOS**, the client **MUST** enforce a global maximum of **5 concurrent IDLE connections**. If the user has more than 5 active accounts, the most recently viewed accounts **MUST** be prioritized for IDLE. Deprioritized accounts fall back to periodic incremental sync every 5 minutes.
+- **On macOS**, the IDLE connection limit **DOES NOT** apply — see Section 7 macOS Platform-Specific Considerations for macOS-specific IDLE behavior.
 - Each IDLE connection counts against the account's connection pool limit (FR-SYNC-09).
 
 **IDLE Event Routing**
@@ -533,7 +534,8 @@ In addition to per-account connection limits (FR-SYNC-09), the client **MUST** e
 
 **Idle Connection Cleanup**
 
-- Connections idle for more than **5 minutes** in non-active accounts (accounts the user is not currently viewing) **MUST** be closed proactively to free resources.
+- **On iOS**, connections idle for more than **5 minutes** in non-active accounts (accounts the user is not currently viewing) **MUST** be closed proactively to free resources.
+- **On macOS**, the idle connection cleanup timeout **SHOULD** be relaxed to **15 minutes** — see Section 7 macOS Platform-Specific Considerations.
 - The connection pool **MUST** log (debug-level) when connections are closed due to idle timeout.
 
 **Error Handling**
@@ -697,7 +699,7 @@ The sync debug view **MUST** display the following information per account:
 
 - **Metric**: Total IMAP connections across all accounts
 - **Target**: ≤ 30 concurrent connections system-wide
-- **Hard Limit**: Must not exceed 30 connections. Idle connections on non-active accounts **MUST** be reclaimed within 5 minutes.
+- **Hard Limit**: Must not exceed 30 connections. Idle connections on non-active accounts **MUST** be reclaimed within 5 minutes on iOS, 15 minutes on macOS (see Section 7).
 
 ### NFR-SYNC-09: Sync Status Latency
 
@@ -870,3 +872,4 @@ Refer to Foundation spec Section 6. This feature uses:
 | 1.1.0 | 2026-02-07 | Core Team | Review round 1: Added G-XX/NG-XX IDs. Added FR-SYNC-08 (Attachments), FR-SYNC-09 (Connection Management), FR-SYNC-10 (Flag Sync). Expanded FR-SYNC-01 with folder discovery, body format handling, sync sequence diagram, sync window cross-ref. Expanded FR-SYNC-02 with progressive checkpointing, change detection details. Expanded FR-SYNC-03 with IDLE behavior, background refresh details. Expanded FR-SYNC-04 with token refresh cross-ref and Indexing definition. Inlined send queue lifecycle into FR-SYNC-07 (removed Proposal reference). Defined virtual Outbox. Added error handling to all FRs. Added NFR-SYNC-03 (Send Time), NFR-SYNC-04 (Memory), NFR-SYNC-05 (Security). Set NFR-SYNC-01 hard limit to 10s. Resolved all ambiguities. Status → locked. |
 | 1.2.0 | 2026-02-07 | Core Team | Post-lock compliance fixes: PL-01 — aligned Foundation spec to 24h queue age (Foundation v1.4.0). PL-02 — fixed `\Jstrash` typo → `\Junk` (RFC 6154). PL-03 — removed non-existent `[Gmail]/Archive` folder mapping; added virtual archive explanation and local state handling for archive operations. PL-04 — added explicit cross-folder deduplication strategy using `messageId`. |
 | 1.3.0 | 2026-02-16 | Core Team | Multi-account sync gap analysis. Unlocked spec for multi-account requirements. Added G-06/G-07/G-08 goals, NG-03 non-goal. Added FR-SYNC-11 (Concurrent Multi-Account Sync Orchestration), FR-SYNC-12 (Per-Account IDLE Monitoring), FR-SYNC-13 (Background Sync for Multiple Accounts), FR-SYNC-14 (Per-Account Offline Send Queue), FR-SYNC-15 (Unified Inbox Behavior), FR-SYNC-16 (Global Connection Pool Limits), FR-SYNC-17 (Sync Status Observability), FR-SYNC-18 (Sync Debug View). Added NFR-SYNC-06 through NFR-SYNC-09. Added `SyncPhase`, `IDLEStatus`, `SyncEvent` data model types. Updated architecture with `SyncCoordinator` and `SyncLogger`. Added OQ-01 through OQ-03. Status → draft (pending review). |
+| 1.3.1 | 2026-02-16 | Core Team | PR review fixes. **P1**: FR-SYNC-07 — made SMTP sending provider-agnostic (removed hardcoded `smtp.gmail.com` and XOAUTH2-only; defers to provider config for host, port, security, and auth mechanism). Fixed sent-folder APPEND contradiction: now checks `requiresSentAppend` flag instead of unconditionally appending. **P2**: FR-SYNC-12 — added platform qualifier to IDLE connection limit (iOS-only MUST; macOS exempt per Section 7). FR-SYNC-16 — added platform qualifier to idle connection cleanup timeout (5 min iOS, 15 min macOS). NFR-SYNC-08 — aligned hard limit text with platform-specific timeouts. |
