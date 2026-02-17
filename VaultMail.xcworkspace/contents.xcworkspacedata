@@ -4,4 +4,7 @@
    <FileRef
       location = "group:VaultMail.xcodeproj">
    </FileRef>
+   <FileRef
+      location = "group:VaultMailPackage">
+   </FileRef>
 </Workspace>

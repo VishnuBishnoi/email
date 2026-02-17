@@ -24,6 +24,12 @@ public enum IMAPError: Error, LocalizedError, Equatable, Sendable {
     case timeout
     /// Maximum retry attempts exhausted (3 retries per FR-SYNC-09).
     case maxRetriesExhausted
+    /// Server does not advertise STARTTLS capability (FR-MPROV-05).
+    case starttlsNotSupported
+    /// TLS upgrade failed after STARTTLS command (FR-MPROV-05).
+    case tlsUpgradeFailed(String)
+    /// Server certificate is invalid or untrusted (FR-MPROV-05, NFR-SYNC-05).
+    case certificateValidationFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -47,6 +53,12 @@ public enum IMAPError: Error, LocalizedError, Equatable, Sendable {
             "IMAP Operation Timed Out"
         case .maxRetriesExhausted:
             "IMAP Maximum Retries Exhausted"
+        case .starttlsNotSupported:
+            "IMAP STARTTLS Not Supported: This server does not support secure connections."
+        case .tlsUpgradeFailed(let message):
+            "IMAP TLS Upgrade Failed: \(message)"
+        case .certificateValidationFailed(let message):
+            "IMAP Certificate Validation Failed: \(message)"
         }
     }
 }

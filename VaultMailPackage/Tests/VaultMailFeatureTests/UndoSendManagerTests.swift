@@ -34,6 +34,7 @@ struct UndoSendManagerTests {
         #expect(manager.activeEmailId == "email-1")
         #expect(manager.remainingSeconds == 10)
         #expect(manager.isCountdownActive == true)
+        _ = manager.undoSend()
     }
 
     @Test("Starting countdown with 0 delay sends immediately")
@@ -65,6 +66,7 @@ struct UndoSendManagerTests {
 
         #expect(manager.remainingSeconds < 5)
         #expect(manager.isCountdownActive == true)
+        _ = manager.undoSend()
     }
 
     // MARK: - Undo
@@ -119,6 +121,7 @@ struct UndoSendManagerTests {
 
         // Should have decremented after resume
         #expect(afterResume < afterPause)
+        _ = manager.undoSend()
     }
 
     // MARK: - Restart
@@ -132,6 +135,7 @@ struct UndoSendManagerTests {
 
         #expect(manager.activeEmailId == "email-2")
         #expect(manager.remainingSeconds == 5)
+        _ = manager.undoSend()
     }
 
     // MARK: - isCountdownActive

@@ -15,7 +15,10 @@ struct FTS5ManagerTests {
         return (manager, tempDir)
     }
 
-    private func cleanup(_ tempDir: URL) {
+    /// Close the database before removing the temp directory to avoid
+    /// "vnode unlinked while in use" SQLite corruption when tests run in parallel.
+    private func cleanup(_ manager: FTS5Manager, _ tempDir: URL) async {
+        await manager.close()
         try? FileManager.default.removeItem(at: tempDir)
     }
 
@@ -24,7 +27,6 @@ struct FTS5ManagerTests {
     @Test("open creates database and sets isOpen to true")
     func openCreatesDatabase() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         let beforeOpen = await manager.isOpen
         #expect(beforeOpen == false)
@@ -32,35 +34,38 @@ struct FTS5ManagerTests {
         try await manager.open()
         let afterOpen = await manager.isOpen
         #expect(afterOpen == true)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("close sets isOpen to false")
     func closeDatabase() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         await manager.close()
         let isOpen = await manager.isOpen
         #expect(isOpen == false)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("close is idempotent and does not crash when called twice")
     func closeIdempotent() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         await manager.close()
         await manager.close() // Should not crash
         let isOpen = await manager.isOpen
         #expect(isOpen == false)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("insert before open throws databaseNotOpen")
     func insertBeforeOpenThrows() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         await #expect(throws: FTS5Error.self) {
             try await manager.insert(
@@ -69,6 +74,8 @@ struct FTS5ManagerTests {
                 senderName: "Alice", senderEmail: "alice@example.com"
             )
         }
+
+        await cleanup(manager, tempDir)
     }
 
     // MARK: - Insert / Delete
@@ -76,7 +83,6 @@ struct FTS5ManagerTests {
     @Test("insert email then search finds it")
     func insertEmail() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -89,12 +95,13 @@ struct FTS5ManagerTests {
         #expect(results.count == 1)
         #expect(results.first?.emailId == "e1")
         #expect(results.first?.accountId == "a1")
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("insert with same emailId replaces existing entry")
     func insertReplacesExisting() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -115,12 +122,13 @@ struct FTS5ManagerTests {
         // Old content should not be findable
         let oldResults = try await manager.search(query: "Original")
         #expect(oldResults.isEmpty)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("delete email removes it from search results")
     func deleteEmail() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -133,12 +141,13 @@ struct FTS5ManagerTests {
 
         let results = try await manager.search(query: "Delete")
         #expect(results.isEmpty)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("deleteAll removes all entries for a specific account")
     func deleteAllForAccount() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -163,6 +172,8 @@ struct FTS5ManagerTests {
         let results1 = try await manager.search(query: "Email")
         #expect(results1.count == 1)
         #expect(results1.first?.accountId == "a2")
+
+        await cleanup(manager, tempDir)
     }
 
     // MARK: - Search
@@ -170,7 +181,6 @@ struct FTS5ManagerTests {
     @Test("search matches subject text")
     func searchBySubject() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -181,12 +191,13 @@ struct FTS5ManagerTests {
 
         let results = try await manager.search(query: "Revenue")
         #expect(results.count == 1)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("search matches body text")
     func searchByBody() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -197,12 +208,13 @@ struct FTS5ManagerTests {
 
         let results = try await manager.search(query: "kubernetes")
         #expect(results.count == 1)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("search matches sender name")
     func searchBySenderName() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -213,12 +225,13 @@ struct FTS5ManagerTests {
 
         let results = try await manager.search(query: "Bartholomew")
         #expect(results.count == 1)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("search matches sender email")
     func searchBySenderEmail() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -229,12 +242,13 @@ struct FTS5ManagerTests {
 
         let results = try await manager.search(query: "wonderland")
         #expect(results.count == 1)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("search supports prefix matching (search-as-you-type)")
     func searchPrefixMatching() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -246,12 +260,13 @@ struct FTS5ManagerTests {
         // "budg" should match "budget" via prefix *
         let results = try await manager.search(query: "budg")
         #expect(results.count == 1)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("search respects limit parameter")
     func searchLimitRespected() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         for i in 1...5 {
@@ -264,24 +279,26 @@ struct FTS5ManagerTests {
 
         let results = try await manager.search(query: "meeting", limit: 2)
         #expect(results.count == 2)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("search with empty query throws invalidQuery")
     func searchEmptyQueryThrows() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
 
         await #expect(throws: FTS5Error.self) {
             _ = try await manager.search(query: "")
         }
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("search sanitizes special FTS5 characters")
     func searchSanitizesSpecialChars() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -293,6 +310,8 @@ struct FTS5ManagerTests {
         // These special chars should be stripped, leaving "Testing"
         let results = try await manager.search(query: "\"Test*ing()\"")
         #expect(results.count == 1)
+
+        await cleanup(manager, tempDir)
     }
 
     // MARK: - Highlight
@@ -300,7 +319,6 @@ struct FTS5ManagerTests {
     @Test("highlight wraps matched terms in bold tags")
     func highlightWrapsMatchInBoldTags() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -318,12 +336,13 @@ struct FTS5ManagerTests {
         #expect(highlighted != nil)
         #expect(highlighted?.contains("<b>") == true)
         #expect(highlighted?.contains("</b>") == true)
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("highlight returns nil for non-existent email")
     func highlightReturnsNilForMissing() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         try await manager.open()
         try await manager.insert(
@@ -338,6 +357,8 @@ struct FTS5ManagerTests {
             query: "test"
         )
         #expect(result == nil)
+
+        await cleanup(manager, tempDir)
     }
 
     // MARK: - Error: operations on closed database
@@ -345,30 +366,33 @@ struct FTS5ManagerTests {
     @Test("search before open throws databaseNotOpen")
     func searchBeforeOpenThrows() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         await #expect(throws: FTS5Error.self) {
             _ = try await manager.search(query: "test")
         }
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("delete before open throws databaseNotOpen")
     func deleteBeforeOpenThrows() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         await #expect(throws: FTS5Error.self) {
             try await manager.delete(emailId: "e1")
         }
+
+        await cleanup(manager, tempDir)
     }
 
     @Test("deleteAll before open throws databaseNotOpen")
     func deleteAllBeforeOpenThrows() async throws {
         let (manager, tempDir) = try makeSUT()
-        defer { cleanup(tempDir) }
 
         await #expect(throws: FTS5Error.self) {
             try await manager.deleteAll(accountId: "a1")
         }
+
+        await cleanup(manager, tempDir)
     }
 }

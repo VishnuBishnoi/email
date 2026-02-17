@@ -24,21 +24,32 @@ private final class AtomicFlag: @unchecked Sendable {
 
 // MARK: - IMAPSession
 
-/// Low-level IMAP session managing a single TLS connection.
+/// Low-level IMAP session managing a single connection.
 ///
-/// Uses Network.framework for platform-native TLS (P-07: Security as a Requirement).
-/// Handles command tagging, response buffering, and connection lifecycle.
+/// Supports two connection modes:
+/// - **Implicit TLS** (`.tls`): Uses Network.framework `NWConnection` for
+///   platform-native TLS (ports 993). This is the original V1 path.
+/// - **STARTTLS** (`.starttls`): Uses `STARTTLSConnection` (Foundation streams)
+///   to connect plaintext, then upgrade to TLS in-place (port 143).
 ///
 /// Build vs. library decision (IOS-F-05):
-///   **Decision**: Build on Network.framework.
+///   **Decision**: Build on Network.framework + Foundation streams.
 ///   **Rationale**: Zero external dependencies, platform-native TLS, native
-///   Swift concurrency support, focused Gmail scope for V1. The ~12 IMAP
-///   commands needed for Gmail don't justify importing swift-nio-imap (pre-1.0).
+///   Swift concurrency support. Foundation streams used only for STARTTLS
+///   because NWConnection cannot do in-place TLS upgrade (FR-MPROV-05).
+///
+/// Spec ref: FR-SYNC-09 (connection management), FR-MPROV-05 (STARTTLS)
 actor IMAPSession {
 
     // MARK: - Properties
 
+    /// Backend for implicit TLS connections (NWConnection).
     private var connection: NWConnection?
+    /// Backend for STARTTLS connections (Foundation streams).
+    private var starttlsConnection: STARTTLSConnection?
+    /// Which connection mode is active.
+    private var activeSecurityMode: ConnectionSecurity?
+
     private var receiveBuffer = Data()
     private var tagCounter = 0
     private var currentIdleTag: String?
@@ -46,8 +57,19 @@ actor IMAPSession {
     private let connectionQueue: DispatchQueue
 
     var isSessionConnected: Bool {
-        guard let connection else { return false }
-        return connection.state == .ready
+        switch activeSecurityMode {
+        case .tls:
+            guard let connection else { return false }
+            return connection.state == .ready
+        case .starttls:
+            return starttlsConnection != nil
+        #if DEBUG
+        case .some(.none):
+            return starttlsConnection != nil
+        #endif
+        case nil:
+            return false
+        }
     }
 
     // MARK: - Init
@@ -60,15 +82,44 @@ actor IMAPSession {
         )
     }
 
-    // MARK: - Connect
+    // MARK: - Connect (Implicit TLS — port 993)
 
-    /// Establishes a TLS connection to the IMAP server.
+    /// Establishes an implicit TLS connection to the IMAP server.
+    ///
+    /// This is the original V1 code path for Gmail (port 993).
     ///
     /// - Parameters:
     ///   - host: IMAP server hostname (e.g., "imap.gmail.com")
     ///   - port: IMAP port (993 for implicit TLS per FR-SYNC-09)
     /// - Throws: `IMAPError.connectionFailed`, `IMAPError.timeout`
     func connect(host: String, port: Int) async throws {
+        try await connect(host: host, port: port, security: .tls)
+    }
+
+    /// Establishes a connection to the IMAP server using the specified security mode.
+    ///
+    /// - Parameters:
+    ///   - host: IMAP server hostname
+    ///   - port: IMAP port (993 for TLS, 143 for STARTTLS)
+    ///   - security: Connection security mode (`.tls` or `.starttls`)
+    /// - Throws: `IMAPError.connectionFailed`, `IMAPError.timeout`,
+    ///           `IMAPError.starttlsNotSupported`, `IMAPError.tlsUpgradeFailed`
+    func connect(host: String, port: Int, security: ConnectionSecurity) async throws {
+        switch security {
+        case .tls:
+            try await connectImplicitTLS(host: host, port: port)
+        case .starttls:
+            try await connectSTARTTLS(host: host, port: port)
+        #if DEBUG
+        case .none:
+            try await connectPlaintext(host: host, port: port)
+        #endif
+        }
+    }
+
+    // MARK: - Connect: Implicit TLS
+
+    private func connectImplicitTLS(host: String, port: Int) async throws {
         let tlsOptions = NWProtocolTLS.Options()
         let tcpOptions = NWProtocolTCP.Options()
         let params = NWParameters(tls: tlsOptions, tcp: tcpOptions)
@@ -111,30 +162,168 @@ actor IMAPSession {
         }
 
         self.connection = conn
+        self.activeSecurityMode = .tls
 
         // Read and verify server greeting (e.g., "* OK Gimap ready")
         let greeting = try await readLine()
         guard greeting.contains("OK") else {
             conn.cancel()
             self.connection = nil
+            self.activeSecurityMode = nil
             throw IMAPError.connectionFailed("Unexpected server greeting: \(greeting)")
         }
     }
+
+    // MARK: - Connect: STARTTLS (FR-MPROV-05)
+
+    /// Connects via STARTTLS: plaintext TCP → CAPABILITY → STARTTLS → TLS → re-CAPABILITY.
+    ///
+    /// Spec sequence (FR-MPROV-05):
+    /// 1. TCP connect (port 143, plaintext)
+    /// 2. Read server greeting (* OK ...)
+    /// 3. CAPABILITY — check for STARTTLS
+    /// 4. STARTTLS command
+    /// 5. Server responds OK → TLS handshake
+    /// 6. Re-issue CAPABILITY (capabilities may change after TLS)
+    private func connectSTARTTLS(host: String, port: Int) async throws {
+        let stConn = STARTTLSConnection(timeout: timeout)
+        self.starttlsConnection = stConn
+        self.activeSecurityMode = .starttls
+
+        do {
+            // Step 1: Plaintext TCP connect
+            try await stConn.connect(host: host, port: port)
+
+            // Step 2: Read server greeting
+            let greeting = try await stConn.readLine()
+            guard greeting.contains("OK") else {
+                await stConn.disconnect()
+                self.starttlsConnection = nil
+                self.activeSecurityMode = nil
+                throw IMAPError.connectionFailed("Unexpected server greeting: \(greeting)")
+            }
+
+            // Step 3: CAPABILITY — verify STARTTLS is supported
+            tagCounter += 1
+            let capTag = makeTag()
+            try await stConn.sendLine("\(capTag) CAPABILITY")
+
+            var capabilityLine = ""
+            while true {
+                let line = try await stConn.readLine()
+                if line.hasPrefix("* CAPABILITY") {
+                    capabilityLine = line
+                }
+                if line.hasPrefix("\(capTag) OK") {
+                    break
+                }
+                if line.hasPrefix("\(capTag) NO") || line.hasPrefix("\(capTag) BAD") {
+                    throw IMAPError.commandFailed("CAPABILITY failed: \(line)")
+                }
+            }
+
+            guard capabilityLine.uppercased().contains("STARTTLS") else {
+                await stConn.disconnect()
+                self.starttlsConnection = nil
+                self.activeSecurityMode = nil
+                throw IMAPError.starttlsNotSupported
+            }
+
+            // Step 4: Send STARTTLS command
+            tagCounter += 1
+            let startTag = makeTag()
+            try await stConn.sendLine("\(startTag) STARTTLS")
+
+            let startResponse = try await stConn.readLine()
+            guard startResponse.hasPrefix("\(startTag) OK") else {
+                await stConn.disconnect()
+                self.starttlsConnection = nil
+                self.activeSecurityMode = nil
+                throw IMAPError.tlsUpgradeFailed("Server rejected STARTTLS: \(startResponse)")
+            }
+
+            // Step 5: Upgrade to TLS
+            try await stConn.upgradeTLS(host: host)
+
+            // Step 6: Re-issue CAPABILITY after TLS
+            tagCounter += 1
+            let reCapTag = makeTag()
+            try await stConn.sendLine("\(reCapTag) CAPABILITY")
+
+            while true {
+                let line = try await stConn.readLine()
+                if line.hasPrefix("\(reCapTag) OK") {
+                    break
+                }
+                if line.hasPrefix("\(reCapTag) NO") || line.hasPrefix("\(reCapTag) BAD") {
+                    throw IMAPError.commandFailed("Post-TLS CAPABILITY failed: \(line)")
+                }
+            }
+        } catch let error as ConnectionError {
+            await stConn.disconnect()
+            self.starttlsConnection = nil
+            self.activeSecurityMode = nil
+            throw mapConnectionError(error)
+        }
+    }
+
+    #if DEBUG
+    // MARK: - Connect: Plaintext (debug only, FR-MPROV-05)
+
+    private func connectPlaintext(host: String, port: Int) async throws {
+        let stConn = STARTTLSConnection(timeout: timeout)
+        self.starttlsConnection = stConn
+        self.activeSecurityMode = ConnectionSecurity.none
+
+        do {
+            try await stConn.connect(host: host, port: port)
+
+            let greeting = try await stConn.readLine()
+            guard greeting.contains("OK") else {
+                await stConn.disconnect()
+                self.starttlsConnection = nil
+                self.activeSecurityMode = nil
+                throw IMAPError.connectionFailed("Unexpected server greeting: \(greeting)")
+            }
+        } catch let error as ConnectionError {
+            await stConn.disconnect()
+            self.starttlsConnection = nil
+            self.activeSecurityMode = nil
+            throw mapConnectionError(error)
+        }
+    }
+    #endif
 
     // MARK: - Disconnect
 
     /// Disconnects from the IMAP server gracefully.
     func disconnect() {
-        if isSessionConnected {
-            tagCounter += 1
-            let tag = makeTag()
-            let cmd = Data("\(tag) LOGOUT\r\n".utf8)
-            connection?.send(content: cmd, completion: .idempotent)
+        switch activeSecurityMode {
+        case .tls:
+            if isSessionConnected {
+                tagCounter += 1
+                let tag = makeTag()
+                let cmd = Data("\(tag) LOGOUT\r\n".utf8)
+                connection?.send(content: cmd, completion: .idempotent)
+            }
+            connection?.cancel()
+            connection = nil
+        case .starttls:
+            let conn = starttlsConnection
+            starttlsConnection = nil
+            if let conn { Task { await conn.disconnect() } }
+        #if DEBUG
+        case .some(.none):
+            let conn = starttlsConnection
+            starttlsConnection = nil
+            if let conn { Task { await conn.disconnect() } }
+        #endif
+        case nil:
+            break
         }
-        connection?.cancel()
-        connection = nil
         receiveBuffer.removeAll()
         currentIdleTag = nil
+        activeSecurityMode = nil
     }
 
     // MARK: - XOAUTH2 Authentication
@@ -259,18 +448,43 @@ actor IMAPSession {
 
     /// Sends raw bytes to the server (for APPEND literal data).
     func sendLiteralData(_ data: Data) async throws {
-        guard let conn = connection, conn.state == .ready else {
-            throw IMAPError.connectionFailed("Not connected")
-        }
+        switch activeSecurityMode {
+        case .tls:
+            guard let conn = connection, conn.state == .ready else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            conn.send(content: data, completion: .contentProcessed { error in
-                if let error {
-                    cont.resume(throwing: IMAPError.connectionFailed(error.localizedDescription))
-                } else {
-                    cont.resume()
-                }
-            })
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                conn.send(content: data, completion: .contentProcessed { error in
+                    if let error {
+                        cont.resume(throwing: IMAPError.connectionFailed(error.localizedDescription))
+                    } else {
+                        cont.resume()
+                    }
+                })
+            }
+        case .starttls:
+            guard let stConn = starttlsConnection else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
+            do {
+                try await stConn.send(data)
+            } catch let error as ConnectionError {
+                throw mapConnectionError(error)
+            }
+        #if DEBUG
+        case .some(.none):
+            guard let stConn = starttlsConnection else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
+            do {
+                try await stConn.send(data)
+            } catch let error as ConnectionError {
+                throw mapConnectionError(error)
+            }
+        #endif
+        case nil:
+            throw IMAPError.connectionFailed("Not connected")
         }
     }
 
@@ -313,20 +527,45 @@ actor IMAPSession {
     // MARK: - Private: Send
 
     private func sendRaw(_ line: String) async throws {
-        guard let conn = connection, conn.state == .ready else {
-            throw IMAPError.connectionFailed("Not connected")
-        }
-
         let data = Data("\(line)\r\n".utf8)
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            conn.send(content: data, completion: .contentProcessed { error in
-                if let error {
-                    cont.resume(throwing: IMAPError.connectionFailed("Send failed: \(error.localizedDescription)"))
-                } else {
-                    cont.resume()
-                }
-            })
+        switch activeSecurityMode {
+        case .tls:
+            guard let conn = connection, conn.state == .ready else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
+
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                conn.send(content: data, completion: .contentProcessed { error in
+                    if let error {
+                        cont.resume(throwing: IMAPError.connectionFailed("Send failed: \(error.localizedDescription)"))
+                    } else {
+                        cont.resume()
+                    }
+                })
+            }
+        case .starttls:
+            guard let stConn = starttlsConnection else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
+            do {
+                try await stConn.send(data)
+            } catch let error as ConnectionError {
+                throw mapConnectionError(error)
+            }
+        #if DEBUG
+        case .some(.none):
+            guard let stConn = starttlsConnection else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
+            do {
+                try await stConn.send(data)
+            } catch let error as ConnectionError {
+                throw mapConnectionError(error)
+            }
+        #endif
+        case nil:
+            throw IMAPError.connectionFailed("Not connected")
         }
     }
 
@@ -393,48 +632,97 @@ actor IMAPSession {
     /// — this requires a mechanism that *detects* the timeout. Without it
     /// a stale connection would block indefinitely.
     ///
-    /// Uses the same `AtomicFlag` + `asyncAfter` pattern as `connect()`
-    /// for consistency and proven correctness.
+    /// Dispatches to NWConnection (TLS) or STARTTLSConnection (STARTTLS)
+    /// based on the active security mode.
     ///
     /// - Parameter timeout: Read timeout override. Defaults to `self.timeout`
     ///   (30s). IDLE reads pass a longer value via `readLine(timeout:)`.
     private func receiveMoreData(timeout readTimeout: TimeInterval? = nil) async throws {
-        guard let conn = connection, conn.state == .ready else {
-            throw IMAPError.connectionFailed("Not connected")
-        }
-
         let effectiveTimeout = readTimeout ?? timeout
-        let flag = AtomicFlag()
-        let queue = connectionQueue
 
-        let data: Data = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { cont in
-                // Read timeout guard (FR-SYNC-01, FR-SYNC-09)
-                queue.asyncAfter(deadline: .now() + effectiveTimeout) {
-                    guard flag.trySet() else { return }
-                    cont.resume(throwing: IMAPError.timeout)
-                }
+        switch activeSecurityMode {
+        case .tls:
+            guard let conn = connection, conn.state == .ready else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
 
-                conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, error in
-                    guard flag.trySet() else { return }
-                    if let error {
-                        cont.resume(throwing: IMAPError.connectionFailed(error.localizedDescription))
-                    } else if let data, !data.isEmpty {
-                        cont.resume(returning: data)
-                    } else {
-                        cont.resume(throwing: IMAPError.connectionFailed("Connection closed by server"))
+            let flag = AtomicFlag()
+            let queue = connectionQueue
+
+            let data: Data = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { cont in
+                    // Read timeout guard (FR-SYNC-01, FR-SYNC-09)
+                    queue.asyncAfter(deadline: .now() + effectiveTimeout) {
+                        guard flag.trySet() else { return }
+                        cont.resume(throwing: IMAPError.timeout)
+                    }
+
+                    conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, error in
+                        guard flag.trySet() else { return }
+                        if let error {
+                            cont.resume(throwing: IMAPError.connectionFailed(error.localizedDescription))
+                        } else if let data, !data.isEmpty {
+                            cont.resume(returning: data)
+                        } else {
+                            cont.resume(throwing: IMAPError.connectionFailed("Connection closed by server"))
+                        }
                     }
                 }
+            } onCancel: {
+                conn.cancel()
             }
-        } onCancel: {
-            conn.cancel()
-        }
 
-        receiveBuffer.append(data)
+            receiveBuffer.append(data)
+
+        case .starttls:
+            guard let stConn = starttlsConnection else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
+            do {
+                let data = try await stConn.receiveData(timeout: effectiveTimeout)
+                receiveBuffer.append(data)
+            } catch let error as ConnectionError {
+                throw mapConnectionError(error)
+            }
+
+        #if DEBUG
+        case .some(.none):
+            guard let stConn = starttlsConnection else {
+                throw IMAPError.connectionFailed("Not connected")
+            }
+            do {
+                let data = try await stConn.receiveData(timeout: effectiveTimeout)
+                receiveBuffer.append(data)
+            } catch let error as ConnectionError {
+                throw mapConnectionError(error)
+            }
+        #endif
+
+        case nil:
+            throw IMAPError.connectionFailed("Not connected")
+        }
     }
 
     private func makeTag() -> String {
         "A\(String(format: "%04d", tagCounter))"
+    }
+
+    // MARK: - Error Mapping
+
+    /// Maps `ConnectionError` from `STARTTLSConnection` to `IMAPError`.
+    private func mapConnectionError(_ error: ConnectionError) -> IMAPError {
+        switch error {
+        case .connectionFailed(let msg):
+            return .connectionFailed(msg)
+        case .timeout:
+            return .timeout
+        case .tlsUpgradeFailed(let msg):
+            return .tlsUpgradeFailed(msg)
+        case .certificateValidationFailed(let msg):
+            return .certificateValidationFailed(msg)
+        case .invalidResponse(let msg):
+            return .invalidResponse(msg)
+        }
     }
 }
 
