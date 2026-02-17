@@ -1141,7 +1141,7 @@ struct ThreadListView: View {
     }
 
     /// Toggle read/unread status for a thread via swipe action.
-    private func toggleReadStatus(_ thread: PrivateMailFeature.Thread) async {
+    private func toggleReadStatus(_ thread: Thread) async {
         do {
             try await manageThreadActions.toggleReadStatus(threadId: thread.id)
             await reloadThreads()
@@ -1151,7 +1151,7 @@ struct ThreadListView: View {
     }
 
     /// Toggle star/unstar status for a thread via swipe action.
-    private func toggleStarStatus(_ thread: PrivateMailFeature.Thread) async {
+    private func toggleStarStatus(_ thread: Thread) async {
         do {
             try await manageThreadActions.toggleStarStatus(threadId: thread.id)
             await reloadThreads()
