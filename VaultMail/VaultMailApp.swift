@@ -23,58 +23,7 @@ struct VaultMailApp: App {
     var body: some Scene {
         WindowGroup {
             if let deps = dependencies {
-                #if os(macOS)
-                MacOSMainView(
-                    fetchThreads: deps.fetchThreads,
-                    manageThreadActions: deps.manageThreadActions,
-                    manageAccounts: deps.manageAccounts,
-                    syncEmails: deps.syncEmails,
-                    fetchEmailDetail: deps.fetchEmailDetail,
-                    markRead: deps.markRead,
-                    downloadAttachment: deps.downloadAttachment,
-                    composeEmail: deps.composeEmail,
-                    queryContacts: deps.queryContacts,
-                    idleMonitor: deps.idleMonitor,
-                    modelManager: deps.aiModelManager,
-                    aiEngineResolver: deps.aiEngineResolver,
-                    aiProcessingQueue: deps.aiProcessingQueue,
-                    summarizeThread: deps.summarizeThread,
-                    smartReply: deps.smartReply,
-                    searchUseCase: deps.searchUseCase
-                )
-                .environment(deps.settingsStore)
-                .modelContainer(deps.modelContainer)
-                .task {
-                    await deps.searchIndexManager.openIndex()
-                    await deps.searchIndexManager.reindexIfNeeded()
-                }
-                #else
-                ContentView(
-                    manageAccounts: deps.manageAccounts,
-                    fetchThreads: deps.fetchThreads,
-                    manageThreadActions: deps.manageThreadActions,
-                    syncEmails: deps.syncEmails,
-                    fetchEmailDetail: deps.fetchEmailDetail,
-                    markRead: deps.markRead,
-                    downloadAttachment: deps.downloadAttachment,
-                    composeEmail: deps.composeEmail,
-                    queryContacts: deps.queryContacts,
-                    idleMonitor: deps.idleMonitor,
-                    appLockManager: deps.appLockManager,
-                    modelManager: deps.aiModelManager,
-                    aiEngineResolver: deps.aiEngineResolver,
-                    aiProcessingQueue: deps.aiProcessingQueue,
-                    summarizeThread: deps.summarizeThread,
-                    smartReply: deps.smartReply,
-                    searchUseCase: deps.searchUseCase
-                )
-                .environment(deps.settingsStore)
-                .modelContainer(deps.modelContainer)
-                .task {
-                    await deps.searchIndexManager.openIndex()
-                    await deps.searchIndexManager.reindexIfNeeded()
-                }
-                #endif
+                mainView(deps: deps)
             } else {
                 DatabaseErrorView(message: containerError ?? "Unknown error")
             }
@@ -96,6 +45,62 @@ struct VaultMailApp: App {
                 .environment(deps.settingsStore)
                 .modelContainer(deps.modelContainer)
             }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private func mainView(deps: AppDependencies) -> some View {
+        #if os(macOS)
+        MacOSMainView(
+            fetchThreads: deps.fetchThreads,
+            manageThreadActions: deps.manageThreadActions,
+            manageAccounts: deps.manageAccounts,
+            syncEmails: deps.syncEmails,
+            fetchEmailDetail: deps.fetchEmailDetail,
+            markRead: deps.markRead,
+            downloadAttachment: deps.downloadAttachment,
+            composeEmail: deps.composeEmail,
+            queryContacts: deps.queryContacts,
+            idleMonitor: deps.idleMonitor,
+            modelManager: deps.aiModelManager,
+            aiEngineResolver: deps.aiEngineResolver,
+            aiProcessingQueue: deps.aiProcessingQueue,
+            summarizeThread: deps.summarizeThread,
+            smartReply: deps.smartReply,
+            searchUseCase: deps.searchUseCase
+        )
+        .environment(deps.settingsStore)
+        .modelContainer(deps.modelContainer)
+        .task {
+            await deps.searchIndexManager.openIndex()
+            await deps.searchIndexManager.reindexIfNeeded()
+        }
+        #else
+        ContentView(
+            manageAccounts: deps.manageAccounts,
+            fetchThreads: deps.fetchThreads,
+            manageThreadActions: deps.manageThreadActions,
+            syncEmails: deps.syncEmails,
+            fetchEmailDetail: deps.fetchEmailDetail,
+            markRead: deps.markRead,
+            downloadAttachment: deps.downloadAttachment,
+            composeEmail: deps.composeEmail,
+            queryContacts: deps.queryContacts,
+            idleMonitor: deps.idleMonitor,
+            appLockManager: deps.appLockManager,
+            modelManager: deps.aiModelManager,
+            aiEngineResolver: deps.aiEngineResolver,
+            aiProcessingQueue: deps.aiProcessingQueue,
+            summarizeThread: deps.summarizeThread,
+            smartReply: deps.smartReply,
+            searchUseCase: deps.searchUseCase
+        )
+        .environment(deps.settingsStore)
+        .modelContainer(deps.modelContainer)
+        .task {
+            await deps.searchIndexManager.openIndex()
+            await deps.searchIndexManager.reindexIfNeeded()
         }
         #endif
     }
