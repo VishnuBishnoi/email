@@ -40,7 +40,10 @@ public actor IMAPClient: IMAPClientProtocol {
     // MARK: - IMAPClientProtocol: Connection
 
     public var isConnected: Bool {
-        _isConnected
+        get async {
+            guard _isConnected else { return false }
+            return await session.isSessionConnected
+        }
     }
 
     /// Connects to the IMAP server using TLS and authenticates with XOAUTH2.
@@ -427,6 +430,10 @@ public actor IMAPClient: IMAPClientProtocol {
     ///
     /// Reads notifications from the server during IDLE and calls the
     /// handler on EXISTS. Re-issues IDLE every 25 minutes (FR-SYNC-03).
+    ///
+    /// Timeout from `readIDLENotification()` triggers a re-issue rather
+    /// than breaking the loop — the server may simply have had no new mail.
+    /// Only genuine errors (connection drop, cancellation) exit the loop.
     private func runIDLELoop() async {
         let refreshInterval = AppConstants.imapIdleRefreshInterval
         var lastIDLEStart = Date()
@@ -447,8 +454,21 @@ public actor IMAPClient: IMAPClientProtocol {
                 if notification.contains("EXISTS") {
                     idleHandler?()
                 }
+            } catch is CancellationError {
+                // Normal shutdown — exit cleanly
+                break
+            } catch let error as IMAPError where error == .timeout {
+                // Read timeout — server had nothing to say. Re-issue IDLE.
+                do {
+                    try await session.stopIDLE()
+                    _ = try await session.startIDLE()
+                    lastIDLEStart = Date()
+                } catch {
+                    // Re-issue failed — connection is dead
+                    break
+                }
             } catch {
-                // Connection dropped or IDLE stopped — exit loop
+                // Connection dropped or other fatal error — exit loop
                 break
             }
         }
