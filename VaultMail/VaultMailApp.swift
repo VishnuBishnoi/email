@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import VaultMailFeature
 
-@main
+@main @MainActor
 struct VaultMailApp: App {
     /// Holds all app dependencies. `nil` when ModelContainer creation fails.
     private let dependencies: AppDependencies?
@@ -21,6 +21,13 @@ struct VaultMailApp: App {
     }
 
     var body: some Scene {
+        mainWindowScene
+        #if os(macOS)
+        settingsScene
+        #endif
+    }
+
+    private var mainWindowScene: some Scene {
         WindowGroup {
             if let deps = dependencies {
                 mainView(deps: deps)
@@ -33,10 +40,12 @@ struct VaultMailApp: App {
         .windowResizability(.contentMinSize)
         .commands { AppCommands() }
         #endif
+    }
 
-        #if os(macOS)
-        if let deps = dependencies {
-            Settings {
+    #if os(macOS)
+    private var settingsScene: some Scene {
+        Settings {
+            if let deps = dependencies {
                 MacSettingsView(
                     manageAccounts: deps.manageAccounts,
                     modelManager: deps.aiModelManager,
@@ -46,8 +55,8 @@ struct VaultMailApp: App {
                 .modelContainer(deps.modelContainer)
             }
         }
-        #endif
     }
+    #endif
 
     @ViewBuilder
     private func mainView(deps: AppDependencies) -> some View {
@@ -110,6 +119,7 @@ struct VaultMailApp: App {
 
 /// Encapsulates all app-level dependencies that require a valid ModelContainer.
 /// Created once at launch and passed through the view hierarchy.
+@MainActor
 private struct AppDependencies {
     let modelContainer: ModelContainer
     let settingsStore: SettingsStore
