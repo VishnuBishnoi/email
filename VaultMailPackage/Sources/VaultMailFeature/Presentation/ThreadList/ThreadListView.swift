@@ -1292,7 +1292,12 @@ struct ThreadListView: View {
             let delay = settings.undoSendDelay.rawValue
             undoSendManager.startCountdown(emailId: emailId, delaySeconds: delay) { emailId in
                 // Timer expired — execute the actual send
-                try? await composeEmail.executeSend(emailId: emailId)
+                do {
+                    try await composeEmail.executeSend(emailId: emailId)
+                    NSLog("[UI] executeSend completed successfully for \(emailId)")
+                } catch {
+                    NSLog("[UI] executeSend FAILED for \(emailId): \(error)")
+                }
             }
         case .savedDraft:
             // Could show a "Draft saved" toast here

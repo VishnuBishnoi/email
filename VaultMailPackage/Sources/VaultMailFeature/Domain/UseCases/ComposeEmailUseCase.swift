@@ -387,6 +387,7 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
             )
 
             // Connect to SMTP and send
+            NSLog("[ComposeSend] Connecting SMTP: \(account.smtpHost):\(account.smtpPort) security=\(account.resolvedSmtpSecurity.rawValue)")
             do {
                 try await smtpClient.connect(
                     host: account.smtpHost,
@@ -394,15 +395,18 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
                     security: account.resolvedSmtpSecurity,
                     credential: smtpCredential
                 )
+                NSLog("[ComposeSend] SMTP connected, sending to \(allRecipients)")
 
                 try await smtpClient.sendMessage(
                     from: account.email,
                     recipients: allRecipients,
                     messageData: messageData
                 )
+                NSLog("[ComposeSend] SMTP send succeeded")
 
                 await smtpClient.disconnect()
             } catch {
+                NSLog("[ComposeSend] SMTP send FAILED: \(error)")
                 await smtpClient.disconnect()
 
                 // Retry logic
@@ -423,14 +427,20 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
             email.sendState = SendState.sent.rawValue
             email.dateSent = Date()
             try await repository.saveEmail(email)
+            NSLog("[ComposeSend] Email marked as sent: \(email.id)")
 
             // Move from Drafts to Sent folder
             let accountId = email.accountId
             let folders = try await repository.getFolders(accountId: accountId)
+            NSLog("[ComposeSend] Found \(folders.count) folders for account \(accountId)")
+            for f in folders {
+                NSLog("[ComposeSend]   folder: \(f.name) type=\(f.folderType) id=\(f.id)")
+            }
 
             // Remove from Drafts folder
             let draftsType = FolderType.drafts.rawValue
             let draftsEFs = email.emailFolders.filter { $0.folder?.folderType == draftsType }
+            NSLog("[ComposeSend] Removing \(draftsEFs.count) Drafts folder associations")
             for ef in draftsEFs {
                 email.emailFolders.removeAll { $0.id == ef.id }
             }
@@ -438,17 +448,28 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
             // Add to Sent folder
             if let sentFolder = folders.first(where: { $0.folderType == FolderType.sent.rawValue }) {
                 let alreadyInSent = email.emailFolders.contains { $0.folder?.id == sentFolder.id }
+                NSLog("[ComposeSend] Sent folder found: \(sentFolder.name) (id=\(sentFolder.id)), alreadyInSent=\(alreadyInSent)")
                 if !alreadyInSent {
                     let sentEF = EmailFolder(imapUID: 0)
                     sentEF.email = email
                     sentEF.folder = sentFolder
                     try await repository.saveEmailFolder(sentEF)
+                    NSLog("[ComposeSend] Email added to Sent folder")
                 }
+            } else {
+                NSLog("[ComposeSend] WARNING: No Sent folder found for account \(accountId)")
+            }
+
+            // Ensure email.thread relationship is set (needed for thread-based queries)
+            if email.thread == nil, let thread = try await repository.getThread(id: email.threadId) {
+                email.thread = thread
+                NSLog("[ComposeSend] Linked email to thread \(thread.id)")
             }
 
             // IMAP APPEND to Sent folder if required by provider (FR-MPROV-12).
             // Gmail auto-copies sent messages; Yahoo/iCloud/Outlook need explicit APPEND.
             let providerConfig = ProviderRegistry.provider(for: account.resolvedProvider)
+            NSLog("[ComposeSend] Provider=\(account.resolvedProvider.rawValue), requiresSentAppend=\(providerConfig?.requiresSentAppend ?? true), hasConnectionProvider=\(connectionProvider != nil)")
             if providerConfig?.requiresSentAppend ?? true,
                let provider = connectionProvider {
                 await appendToSentFolder(
@@ -464,6 +485,9 @@ public final class ComposeEmailUseCase: ComposeEmailUseCaseProtocol {
             if let thread = email.thread {
                 thread.latestDate = email.dateSent
                 try await repository.saveThread(thread)
+                NSLog("[ComposeSend] Thread \(thread.id) updated with latestDate")
+            } else {
+                NSLog("[ComposeSend] WARNING: email.thread is nil, thread won't appear in folder view")
             }
 
         } catch let error as ComposerError {
