@@ -27,8 +27,8 @@ struct DownloadAttachmentUseCaseTests {
             accountId: String,
             host: String,
             port: Int,
-            email: String,
-            accessToken: String
+            security: ConnectionSecurity,
+            credential: IMAPCredential
         ) async throws -> any IMAPClientProtocol {
             checkoutCount += 1
             return client

@@ -90,11 +90,19 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
             throw ThreadListError.actionFailed(error.localizedDescription)
         }
 
-        // Push to IMAP: COPY to All Mail, EXPUNGE from source
-        await syncMoveToServer(
-            operations: imapOps,
-            destinationImapPath: "[Gmail]/All Mail"
-        )
+        // Resolve archive behavior based on provider (FR-MPROV-12).
+        // Gmail uses label semantics (remove from INBOX = archive).
+        // Other providers need COPY to Archive + EXPUNGE from source.
+        let archivePath = await resolveArchivePath(for: imapOps)
+        if let archivePath {
+            await syncMoveToServer(
+                operations: imapOps,
+                destinationImapPath: archivePath
+            )
+        } else {
+            // Gmail label behavior: just EXPUNGE from INBOX (the "remove label" approach)
+            await syncExpungeFromInbox(operations: imapOps)
+        }
     }
 
     public func deleteThread(id: String) async throws {
@@ -108,10 +116,11 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
             throw ThreadListError.actionFailed(error.localizedDescription)
         }
 
-        // Push to IMAP: COPY to Trash, EXPUNGE from source
+        // Resolve trash folder path based on provider
+        let trashPath = await resolveTrashPath(for: imapOps)
         await syncMoveToServer(
             operations: imapOps,
-            destinationImapPath: "[Gmail]/Trash"
+            destinationImapPath: trashPath
         )
     }
 
@@ -235,12 +244,15 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
             throw ThreadListError.actionFailed(error.localizedDescription)
         }
 
-        // Push each thread to IMAP
+        // Push each thread to IMAP using provider-aware archive path
         for id in ids {
-            await syncMoveToServer(
-                operations: allOps[id] ?? [],
-                destinationImapPath: "[Gmail]/All Mail"
-            )
+            let ops = allOps[id] ?? []
+            let archivePath = await resolveArchivePath(for: ops)
+            if let archivePath {
+                await syncMoveToServer(operations: ops, destinationImapPath: archivePath)
+            } else {
+                await syncExpungeFromInbox(operations: ops)
+            }
         }
     }
 
@@ -257,10 +269,9 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
         }
 
         for id in ids {
-            await syncMoveToServer(
-                operations: allOps[id] ?? [],
-                destinationImapPath: "[Gmail]/Trash"
-            )
+            let ops = allOps[id] ?? []
+            let trashPath = await resolveTrashPath(for: ops)
+            await syncMoveToServer(operations: ops, destinationImapPath: trashPath)
         }
     }
 
@@ -472,36 +483,100 @@ public final class ManageThreadActionsUseCase: ManageThreadActionsUseCaseProtoco
         }
     }
 
-    /// Gets an authenticated IMAP client from the connection pool.
-    private func getIMAPClient(accountId: String) async throws -> any IMAPClientProtocol {
-        let accounts = try await accountRepository.getAccounts()
-        guard let account = accounts.first(where: { $0.id == accountId }) else {
-            throw ThreadListError.actionFailed("Account not found: \(accountId)")
+    /// Resolves the archive IMAP path for the given operations' account.
+    ///
+    /// Returns `nil` for Gmail (which uses label semantics — no COPY needed).
+    /// Returns the Archive folder path for other providers.
+    private func resolveArchivePath(for operations: [IMAPOperation]) async -> String? {
+        guard let accountId = operations.first?.accountId else { return nil }
+        guard let account = try? await findAccount(id: accountId) else { return nil }
+
+        let providerConfig = ProviderRegistry.provider(for: account.resolvedProvider)
+
+        // Gmail uses label semantics — archiving = removing from INBOX label.
+        // No COPY to Archive needed.
+        if providerConfig?.archiveBehavior == .gmailLabel {
+            return nil
         }
 
-        let accessToken = try await getAccessToken(for: account)
+        // For other providers, find the Archive folder
+        guard let folders = try? await repository.getFolders(accountId: accountId) else {
+            return "Archive" // Reasonable default
+        }
+        return folders.first(where: { $0.folderType == FolderType.archive.rawValue })?.imapPath ?? "Archive"
+    }
+
+    /// Resolves the Trash folder IMAP path for the given operations' account.
+    private func resolveTrashPath(for operations: [IMAPOperation]) async -> String {
+        guard let accountId = operations.first?.accountId else { return "Trash" }
+
+        guard let folders = try? await repository.getFolders(accountId: accountId) else {
+            return "Trash" // Provider-agnostic fallback
+        }
+        return folders.first(where: { $0.folderType == FolderType.trash.rawValue })?.imapPath ?? "Trash"
+    }
+
+    /// Expunges emails from INBOX without copying (Gmail label semantics).
+    ///
+    /// On Gmail, "archive" means removing the INBOX label. The email stays in All Mail.
+    /// We just need to mark as \Deleted + EXPUNGE from INBOX.
+    private func syncExpungeFromInbox(operations: [IMAPOperation]) async {
+        let inboxOps = operations.filter { $0.sourceFolderImapPath.uppercased() == "INBOX" }
+        guard !inboxOps.isEmpty else { return }
+
+        var grouped: [String: [UInt32]] = [:]
+        for op in inboxOps {
+            grouped[op.accountId, default: []].append(op.imapUID)
+        }
+
+        for (accountId, uids) in grouped {
+            do {
+                let client = try await getIMAPClient(accountId: accountId)
+                defer { Task { await self.connectionProvider.checkinConnection(client, accountId: accountId) } }
+
+                _ = try await client.selectFolder("INBOX")
+                try await client.expungeMessages(uids: uids)
+            } catch {
+                NSLog("[ThreadActions] IMAP expunge from INBOX failed: \(error)")
+            }
+        }
+    }
+
+    private func findAccount(id: String) async throws -> Account {
+        let accounts = try await accountRepository.getAccounts()
+        guard let account = accounts.first(where: { $0.id == id }) else {
+            throw ThreadListError.actionFailed("Account not found: \(id)")
+        }
+        return account
+    }
+
+    /// Gets an authenticated IMAP client from the connection pool.
+    ///
+    /// Resolves credentials (OAuth or app password) from Keychain and uses
+    /// provider-aware security settings from the account model.
+    private func getIMAPClient(accountId: String) async throws -> any IMAPClientProtocol {
+        let account = try await findAccount(id: accountId)
+        let credential = try await resolveIMAPCredential(for: account)
 
         return try await connectionProvider.checkoutConnection(
             accountId: account.id,
             host: account.imapHost,
             port: account.imapPort,
-            email: account.email,
-            accessToken: accessToken
+            security: account.resolvedImapSecurity,
+            credential: credential
         )
     }
 
-    /// Gets an OAuth access token, refreshing if needed.
-    private func getAccessToken(for account: Account) async throws -> String {
+    /// Resolves IMAP credential from Keychain based on account auth type.
+    private func resolveIMAPCredential(for account: Account) async throws -> IMAPCredential {
+        let resolver = CredentialResolver(
+            keychainManager: keychainManager,
+            accountRepository: accountRepository
+        )
         do {
-            let token = try await accountRepository.refreshToken(for: account.id)
-            return token.accessToken
+            return try await resolver.resolveIMAPCredential(for: account, refreshIfNeeded: true)
         } catch {
-            // If refresh fails, try existing token from keychain
-            if let existing = try await keychainManager.retrieve(for: account.id),
-               !existing.isExpired {
-                return existing.accessToken
-            }
-            throw ThreadListError.actionFailed("Token refresh failed: \(error.localizedDescription)")
+            throw ThreadListError.actionFailed("Credential resolution failed: \(error.localizedDescription)")
         }
     }
 }

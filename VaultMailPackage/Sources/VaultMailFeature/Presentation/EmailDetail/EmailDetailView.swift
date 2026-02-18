@@ -2,6 +2,8 @@ import SwiftUI
 #if os(iOS)
 import QuickLook
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 /// The threaded conversation detail screen.
@@ -56,6 +58,7 @@ public struct EmailDetailView: View {
     @State private var thread: Thread?
     @State private var sortedEmails: [Email] = []
     @State private var expandedEmailIds: Set<String> = []
+    @State private var isLoadingBodies = false
 
     // MARK: - AI State
 
@@ -228,6 +231,7 @@ public struct EmailDetailView: View {
                             email: email,
                             isExpanded: expandedEmailIds.contains(email.id),
                             isTrustedSender: trustedSenderEmails.contains(email.fromAddress),
+                            isLoadingBody: isLoadingBodies && email.bodyPlain == nil && email.bodyHTML == nil,
                             onToggleExpand: { toggleExpand(email.id) },
                             onStarToggle: { Task { await toggleStar(email) } },
                             onPreviewAttachment: { previewAttachment($0) },
@@ -550,6 +554,19 @@ public struct EmailDetailView: View {
 
             viewState = .loaded
 
+            // Lazy-fetch missing bodies (headers-only sync for non-inbox folders).
+            // Runs after .loaded so the UI renders immediately with what we have,
+            // then updates in-place when bodies arrive from IMAP.
+            let needsBodies = emails.contains { $0.bodyPlain == nil && $0.bodyHTML == nil }
+            if needsBodies { isLoadingBodies = true }
+
+            if let count = try? await fetchEmailDetail.fetchBodiesIfNeeded(for: emails), count > 0 {
+                // Re-sort to pick up updated body content via SwiftData observation
+                sortedEmails = loadedThread.emails
+                    .sorted { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) }
+            }
+            isLoadingBodies = false
+
             // Mark as read (FR-ED-01: immediate on open)
             await markAllRead()
 
@@ -778,6 +795,7 @@ public struct EmailDetailView: View {
     // MARK: - Attachment Actions
 
     private func previewAttachment(_ attachment: Attachment) {
+        #if os(iOS)
         let scopedAttachments = attachment.email?.attachments ?? sortedEmails.flatMap(\.attachments)
         let localFiles: [AttachmentPreviewContextFile] = scopedAttachments.compactMap { item in
             guard let localPath = item.localPath else { return nil }
@@ -793,14 +811,26 @@ public struct EmailDetailView: View {
         previewFiles = localFiles
         previewInitialIndex = localFiles.firstIndex(where: { $0.id == attachment.id }) ?? 0
         showPreview = true
+        #elseif os(macOS)
+        guard let localPath = attachment.localPath else {
+            errorToast = "Attachment file is no longer available locally. Please download again."
+            return
+        }
+        let fileURL = URL(fileURLWithPath: localPath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            errorToast = "Attachment file is no longer available locally. Please download again."
+            return
+        }
+        NSWorkspace.shared.open(fileURL)
+        #endif
     }
 
     private func shareAttachment(_ url: URL) {
-        #if os(iOS)
         guard FileManager.default.fileExists(atPath: url.path) else {
             errorToast = "Attachment file is no longer available locally. Please download again."
             return
         }
+        #if os(iOS)
         guard let windowScene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first,
               let rootVC = windowScene.windows.first?.rootViewController else {
@@ -820,6 +850,9 @@ public struct EmailDetailView: View {
             height: 1
         )
         presenter.present(activityVC, animated: true)
+        #elseif os(macOS)
+        // Fallback: open with default app (primary share handled in AttachmentRowView)
+        NSWorkspace.shared.open(url)
         #endif
     }
 

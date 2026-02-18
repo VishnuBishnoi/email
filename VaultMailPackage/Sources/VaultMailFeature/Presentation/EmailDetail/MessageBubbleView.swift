@@ -21,6 +21,7 @@ struct MessageBubbleView: View {
     let email: Email
     let isExpanded: Bool
     let isTrustedSender: Bool
+    var isLoadingBody: Bool = false
     let onToggleExpand: () -> Void
     let onStarToggle: () -> Void
     let onPreviewAttachment: (Attachment) -> Void
@@ -45,9 +46,14 @@ struct MessageBubbleView: View {
     @State private var baseProcessedHTML: String?
     /// Cache key tracking which email + remote-image state produced `baseProcessedHTML`.
     @State private var baseCacheKey: String?
+    /// True while `processEmailBody()` is running — drives shimmer for HTML rendering.
+    @State private var isProcessingBody = false
+    /// True until the WKWebView fires `didFinish` — keeps shimmer visible during WebView render.
+    @State private var isWebViewLoading = false
 
     // MARK: - Environment
 
+    @Environment(SettingsStore.self) private var settingsStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -125,14 +131,14 @@ struct MessageBubbleView: View {
             .padding(.horizontal, 12)
             .padding(.top, 12)
 
-            // Remote content banner
-            if hasBlockedRemoteContent && !loadRemoteImages {
+            // Remote content banner (only when blocking is enabled in settings)
+            if settingsStore.blockRemoteImages && hasBlockedRemoteContent && !loadRemoteImages {
                 remoteContentBanner
                     .padding(.horizontal, 12)
             }
 
-            // Tracker badge
-            if trackerCount > 0 {
+            // Tracker badge (only when blocking is enabled in settings)
+            if settingsStore.blockTrackingPixels && trackerCount > 0 {
                 trackerBadge
                     .padding(.horizontal, 12)
             }
@@ -155,7 +161,7 @@ struct MessageBubbleView: View {
             }
         }
         .padding(.bottom, 12)
-        .task(id: "\(email.id)-\(loadRemoteImages)-\(showQuotedText)-\(dynamicTypeSize)") {
+        .task(id: "\(email.id)-\(loadRemoteImages)-\(showQuotedText)-\(dynamicTypeSize)-\(settingsStore.blockRemoteImages)-\(settingsStore.blockTrackingPixels)") {
             await processEmailBody()
         }
     }
@@ -164,46 +170,77 @@ struct MessageBubbleView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
+        let hasHTMLBody = email.bodyHTML != nil && email.bodyHTML?.isEmpty == false
+        let showShimmer = isLoadingBody || (isProcessingBody && hasHTMLBody && processedHTML == nil)
+
         #if os(iOS)
         if let html = processedHTML, !html.isEmpty {
-            HTMLEmailView(
-                htmlContent: html,
-                contentHeight: $htmlContentHeight,
-                onLinkTapped: { url in
-                    // PR #8 Comment 4: Only allow http/https links.
-                    guard let scheme = url.scheme?.lowercased(),
-                          scheme == "http" || scheme == "https" else { return }
-                    UIApplication.shared.open(url)
+            ZStack(alignment: .top) {
+                HTMLEmailView(
+                    htmlContent: html,
+                    contentHeight: $htmlContentHeight,
+                    onLinkTapped: { url in
+                        // PR #8 Comment 4: Only allow http/https links.
+                        guard let scheme = url.scheme?.lowercased(),
+                              scheme == "http" || scheme == "https" else { return }
+                        UIApplication.shared.open(url)
+                    },
+                    onLoaded: {
+                        isWebViewLoading = false
+                    }
+                )
+                .opacity(isWebViewLoading ? 0 : 1)
+
+                if isWebViewLoading {
+                    bodyShimmer
+                        .transition(.opacity)
                 }
-            )
+            }
             .frame(height: max(htmlContentHeight, 44))
             .clipped()
             .animation(.easeInOut(duration: 0.15), value: htmlContentHeight)
-        } else if let plainText = email.bodyPlain, !plainText.isEmpty {
+            .animation(.easeInOut(duration: 0.2), value: isWebViewLoading)
+        } else if !showShimmer, let plainText = email.bodyPlain, !plainText.isEmpty {
             Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
                 .textSelection(.enabled)
+        } else if showShimmer {
+            bodyShimmer
         } else {
             noContentPlaceholder
         }
         #elseif os(macOS)
         if let html = processedHTML, !html.isEmpty {
-            HTMLEmailView_macOS(
-                htmlContent: html,
-                contentHeight: $htmlContentHeight,
-                onLinkTapped: { url in
-                    guard let scheme = url.scheme?.lowercased(),
-                          scheme == "http" || scheme == "https" else { return }
-                    NSWorkspace.shared.open(url)
+            ZStack(alignment: .top) {
+                HTMLEmailView_macOS(
+                    htmlContent: html,
+                    contentHeight: $htmlContentHeight,
+                    onLinkTapped: { url in
+                        guard let scheme = url.scheme?.lowercased(),
+                              scheme == "http" || scheme == "https" else { return }
+                        NSWorkspace.shared.open(url)
+                    },
+                    onLoaded: {
+                        isWebViewLoading = false
+                    }
+                )
+                .opacity(isWebViewLoading ? 0 : 1)
+
+                if isWebViewLoading {
+                    bodyShimmer
+                        .transition(.opacity)
                 }
-            )
+            }
             .frame(height: max(htmlContentHeight, 44))
             .clipped()
             .animation(.easeInOut(duration: 0.15), value: htmlContentHeight)
-        } else if let plainText = email.bodyPlain, !plainText.isEmpty {
+            .animation(.easeInOut(duration: 0.2), value: isWebViewLoading)
+        } else if !showShimmer, let plainText = email.bodyPlain, !plainText.isEmpty {
             Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
                 .textSelection(.enabled)
+        } else if showShimmer {
+            bodyShimmer
         } else {
             noContentPlaceholder
         }
@@ -215,6 +252,18 @@ struct MessageBubbleView: View {
             .font(.body)
             .foregroundStyle(.secondary)
             .italic()
+    }
+
+    /// Shimmer skeleton shown while email body is being fetched from IMAP.
+    private var bodyShimmer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ShimmerLine(widthFraction: 1.0)
+            ShimmerLine(widthFraction: 0.92)
+            ShimmerLine(widthFraction: 0.97)
+            ShimmerLine(widthFraction: 0.6)
+        }
+        .padding(.horizontal, 8)
+        .accessibilityLabel("Loading email content")
     }
 
     // MARK: - Remote Content Banner
@@ -310,12 +359,17 @@ struct MessageBubbleView: View {
     // MARK: - Processing
 
     private func processEmailBody() async {
-        let shouldLoadRemote = loadRemoteImages || isTrustedSender
+        isProcessingBody = true
+        defer { isProcessingBody = false }
+
+        // When blockRemoteImages is OFF (default), always load remote images.
+        // When ON, respect per-message toggle and trusted sender overrides.
+        let shouldLoadRemote = !settingsStore.blockRemoteImages || loadRemoteImages || isTrustedSender
 
         // Cache key for the expensive steps (sanitize + tracking + quoted detection).
         // Only re-run these when the email content or remote-image preference changes.
         // Quoted text toggle and Dynamic Type changes only need the cheap CSS step.
-        let currentCacheKey = "\(email.id)-\(shouldLoadRemote)"
+        let currentCacheKey = "\(email.id)-\(shouldLoadRemote)-\(settingsStore.blockTrackingPixels)"
 
         // Only reset height when the base HTML content actually changes
         // (new email or remote-image toggle). This prevents the "partial render"
@@ -360,12 +414,19 @@ struct MessageBubbleView: View {
             hasBlockedRemoteContent = sanitized.hasBlockedRemoteContent
             remoteImageCount = sanitized.remoteImageCount
 
-            // Step 2: Strip tracking pixels (always, even with remote images loaded)
-            let tracked = TrackingPixelDetector.detect(in: sanitized.html)
-            trackerCount = tracked.trackerCount
+            // Step 2: Strip tracking pixels (only when enabled in settings)
+            let htmlAfterTracking: String
+            if settingsStore.blockTrackingPixels {
+                let tracked = TrackingPixelDetector.detect(in: sanitized.html)
+                trackerCount = tracked.trackerCount
+                htmlAfterTracking = tracked.sanitizedHTML
+            } else {
+                trackerCount = 0
+                htmlAfterTracking = sanitized.html
+            }
 
             // Step 3: Detect quoted text
-            let quoted = QuotedTextDetector.detectInHTML(tracked.sanitizedHTML)
+            let quoted = QuotedTextDetector.detectInHTML(htmlAfterTracking)
             hasQuotedText = quoted.hasQuotedText
 
             // Cache the base result — quoted text CSS & Dynamic Type are cheap to apply
@@ -394,11 +455,17 @@ struct MessageBubbleView: View {
         #else
         let fontSize: CGFloat = 16
         #endif
-        processedHTML = HTMLSanitizer.injectDynamicTypeCSS(
+        let newHTML = HTMLSanitizer.injectDynamicTypeCSS(
             finalHTML,
             fontSizePoints: fontSize,
-            allowRemoteImages: loadRemoteImages || isTrustedSender
+            allowRemoteImages: shouldLoadRemote
         )
+
+        // If the HTML content changed, show shimmer until WebView finishes rendering
+        if newHTML != processedHTML {
+            isWebViewLoading = true
+        }
+        processedHTML = newHTML
     }
 
     // MARK: - Helpers
@@ -474,6 +541,46 @@ struct MessageBubbleView: View {
         let status = email.isRead ? "Read" : "Unread"
         let star = email.isStarred ? ", Starred" : ""
         return "\(status) message from \(senderDisplayName), \(formattedDate)\(star)"
+    }
+}
+
+// MARK: - Shimmer Effect
+
+/// A single animated shimmer line used as a loading skeleton placeholder.
+private struct ShimmerLine: View {
+    let widthFraction: CGFloat
+
+    @State private var animating = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color.gray.opacity(0.15))
+            .frame(height: 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .scaleEffect(x: widthFraction, y: 1, anchor: .leading)
+            .overlay(
+                GeometryReader { geo in
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(
+                            LinearGradient(
+                                colors: [.clear, Color.gray.opacity(0.15), .clear],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * 0.4)
+                        .offset(x: animating ? geo.size.width : -geo.size.width * 0.4)
+                }
+                .clipped()
+            )
+            .onAppear {
+                withAnimation(
+                    .linear(duration: 1.2)
+                    .repeatForever(autoreverses: false)
+                ) {
+                    animating = true
+                }
+            }
     }
 }
 

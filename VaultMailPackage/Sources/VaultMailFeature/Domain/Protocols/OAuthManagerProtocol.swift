@@ -7,6 +7,12 @@ import Foundation
 ///
 /// Spec ref: Account Management spec FR-ACCT-03, FR-ACCT-04
 public protocol OAuthManagerProtocol: Sendable {
+    /// Which provider this OAuth manager is configured for.
+    ///
+    /// Used by `ManageAccountsUseCase` to look up the correct server
+    /// config from `ProviderRegistry` instead of hardcoding Gmail.
+    var provider: ProviderIdentifier { get }
+
     /// Authenticate a user via OAuth 2.0 with PKCE.
     /// Presents a system browser for Google login and consent.
     func authenticate() async throws -> OAuthToken

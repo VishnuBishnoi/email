@@ -62,45 +62,72 @@ public final class IDLEMonitorUseCase: IDLEMonitorUseCaseProtocol {
 
         return AsyncStream { continuation in
             let task = Task { @MainActor in
+                var client: (any IMAPClientProtocol)?
+                var resolvedAccountId: String?
+
+                defer {
+                    // Synchronous defer ensures cleanup runs before the
+                    // enclosing scope returns — no race with pool reuse.
+                    if let client, let accountId = resolvedAccountId {
+                        Task {
+                            try? await client.stopIDLE()
+                            await provider.checkinConnection(client, accountId: accountId)
+                        }
+                    }
+                    continuation.finish()
+                }
+
                 do {
                     // 1. Resolve account credentials
                     let accounts = try await accountRepo.getAccounts()
                     guard let account = accounts.first(where: { $0.id == accountId }) else {
                         NSLog("[IDLE] Account \(accountId) not found")
                         continuation.yield(.disconnected)
-                        continuation.finish()
                         return
                     }
+                    resolvedAccountId = account.id
 
-                    guard let token = try await keychain.retrieve(for: account.id) else {
-                        NSLog("[IDLE] No credentials found for account \(accountId)")
+                    // 2. Resolve IMAP credential via shared CredentialResolver
+                    let credentialResolver = CredentialResolver(
+                        keychainManager: keychain,
+                        accountRepository: accountRepo
+                    )
+                    let imapCredential: IMAPCredential
+                    do {
+                        imapCredential = try await credentialResolver.resolveIMAPCredential(
+                            for: account,
+                            refreshIfNeeded: true
+                        )
+                    } catch {
+                        NSLog("[IDLE] No credentials found for account \(accountId): \(error)")
                         continuation.yield(.disconnected)
-                        continuation.finish()
                         return
                     }
 
-                    // 2. Checkout a dedicated IDLE connection
-                    let client = try await provider.checkoutConnection(
+                    client = try await provider.checkoutConnection(
                         accountId: account.id,
                         host: account.imapHost,
                         port: account.imapPort,
-                        email: account.email,
-                        accessToken: token.accessToken
+                        security: account.resolvedImapSecurity,
+                        credential: imapCredential
                     )
 
-                    // Always return the connection to the pool, even if
-                    // selectFolder or startIDLE throws.
-                    defer {
-                        Task {
-                            await provider.checkinConnection(client, accountId: account.id)
-                        }
+                    guard let c = client else {
+                        continuation.yield(.disconnected)
+                        return
+                    }
+
+                    // 2b. Set provider-specific IDLE refresh interval (MP-13)
+                    if let providerConfig = ProviderRegistry.provider(for: account.resolvedProvider) {
+                        // idleRefreshInterval uses thread-safe LockedValue storage
+                        client?.idleRefreshInterval = providerConfig.idleRefreshInterval
                     }
 
                     // 3. Select the folder for IDLE
-                    _ = try await client.selectFolder(folderImapPath)
+                    _ = try await c.selectFolder(folderImapPath)
 
                     // 4. Start IDLE — the callback fires on each EXISTS notification
-                    try await client.startIDLE {
+                    try await c.startIDLE {
                         continuation.yield(.newMail)
                     }
 
@@ -109,15 +136,15 @@ public final class IDLEMonitorUseCase: IDLEMonitorUseCaseProtocol {
                         try await Task.sleep(for: .seconds(1))
                     }
 
-                    // Cleanup: stop IDLE (checkin handled by defer)
-                    try? await client.stopIDLE()
-
+                } catch is CancellationError {
+                    // Normal cancellation (folder change, view disappear) —
+                    // NOT a disconnect. Don't yield .disconnected so the
+                    // caller's retry loop doesn't fire unnecessarily.
+                    NSLog("[IDLE] Monitor cancelled for \(accountId)")
                 } catch {
                     NSLog("[IDLE] Monitor error for \(accountId): \(error)")
                     continuation.yield(.disconnected)
                 }
-
-                continuation.finish()
             }
 
             continuation.onTermination = { _ in

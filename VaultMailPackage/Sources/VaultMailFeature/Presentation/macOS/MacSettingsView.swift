@@ -18,17 +18,28 @@ public struct MacSettingsView: View {
     let manageAccounts: ManageAccountsUseCaseProtocol
     let modelManager: ModelManager
     var aiEngineResolver: AIEngineResolver?
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @State private var accounts: [Account] = []
+
+    /// Whether multi-provider support is available.
+    private var hasMultiProvider: Bool {
+        providerDiscovery != nil && connectionTestUseCase != nil
+    }
 
     public init(
         manageAccounts: ManageAccountsUseCaseProtocol,
         modelManager: ModelManager = ModelManager(),
-        aiEngineResolver: AIEngineResolver? = nil
+        aiEngineResolver: AIEngineResolver? = nil,
+        providerDiscovery: ProviderDiscovery? = nil,
+        connectionTestUseCase: ConnectionTestUseCaseProtocol? = nil
     ) {
         self.manageAccounts = manageAccounts
         self.modelManager = modelManager
         self.aiEngineResolver = aiEngineResolver
+        self.providerDiscovery = providerDiscovery
+        self.connectionTestUseCase = connectionTestUseCase
     }
 
     public var body: some View {
@@ -36,7 +47,9 @@ public struct MacSettingsView: View {
             // Accounts Tab
             MacAccountsSettingsTab(
                 accounts: $accounts,
-                manageAccounts: manageAccounts
+                manageAccounts: manageAccounts,
+                providerDiscovery: providerDiscovery,
+                connectionTestUseCase: connectionTestUseCase
             )
             .tabItem {
                 Label("Accounts", systemImage: "person.crop.circle")
@@ -104,11 +117,19 @@ struct MacAccountsSettingsTab: View {
     @Environment(SettingsStore.self) private var settings
     @Binding var accounts: [Account]
     let manageAccounts: ManageAccountsUseCaseProtocol
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @State private var selectedAccountID: String?
     @State private var isAddingAccount = false
     @State private var showRemoveConfirmation = false
     @State private var accountToRemove: Account?
+    @State private var showProviderSelection = false
+
+    /// Whether multi-provider support is available.
+    private var hasMultiProvider: Bool {
+        providerDiscovery != nil && connectionTestUseCase != nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -169,7 +190,11 @@ struct MacAccountsSettingsTab: View {
             // Bottom bar with add/remove buttons
             HStack {
                 Button {
-                    addAccount()
+                    if hasMultiProvider {
+                        showProviderSelection = true
+                    } else {
+                        addAccount()
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -205,6 +230,21 @@ struct MacAccountsSettingsTab: View {
         } message: {
             if let account = accountToRemove {
                 Text("Remove \(account.email)? All local emails, drafts, and cached data for this account will be deleted.")
+            }
+        }
+        .sheet(isPresented: $showProviderSelection) {
+            if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
+                MacAddAccountView(
+                    manageAccounts: manageAccounts,
+                    connectionTestUseCase: connTest,
+                    providerDiscovery: discovery,
+                    onAccountAdded: { _ in
+                        showProviderSelection = false
+                        Task { await loadAccounts() }
+                        NotificationCenter.default.post(name: AppConstants.accountsDidChangeNotification, object: nil)
+                    },
+                    onCancel: { showProviderSelection = false }
+                )
             }
         }
         .task { await loadAccounts() }
@@ -269,6 +309,9 @@ struct MacAccountDetailView: View {
     @State private var syncWindowDays: Int = 30
     @State private var cacheLimit: Int = 500
     @State private var isReAuthenticating = false
+    @State private var showPasswordUpdate = false
+    @State private var newAppPassword = ""
+    @State private var reAuthError: String?
     @State private var showSyncWindowConfirmation = false
     @State private var pendingSyncWindow: Int?
 
@@ -277,6 +320,12 @@ struct MacAccountDetailView: View {
             // Account Info
             Section {
                 LabeledContent("Email", value: account.email)
+                if let provider = account.provider {
+                    LabeledContent("Provider", value: provider.capitalized)
+                }
+                if let authType = account.authType == "plain" ? "App Password" : account.authType == "xoauth2" ? "OAuth" : nil {
+                    LabeledContent("Authentication", value: authType)
+                }
                 if !account.isActive {
                     HStack {
                         Label("Account Inactive", systemImage: "exclamationmark.triangle.fill")
@@ -286,6 +335,17 @@ struct MacAccountDetailView: View {
                             reAuthenticate()
                         }
                         .disabled(isReAuthenticating)
+                    }
+                }
+                if let error = reAuthError {
+                    Label(error, systemImage: "xmark.circle")
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                }
+                // Manual app-password update for PLAIN-auth accounts
+                if account.authType == "plain" && account.isActive {
+                    Button("Update App Password…") {
+                        showPasswordUpdate = true
                     }
                 }
             }
@@ -360,6 +420,17 @@ struct MacAccountDetailView: View {
         } message: {
             Text("Reducing the sync window will remove local copies of older emails. Server emails are not affected.")
         }
+        .alert("Update App Password", isPresented: $showPasswordUpdate) {
+            SecureField("New App Password", text: $newAppPassword)
+            Button("Update") {
+                updatePassword()
+            }
+            Button("Cancel", role: .cancel) {
+                newAppPassword = ""
+            }
+        } message: {
+            Text("Enter the new app password for \(account.email).")
+        }
     }
 
     private func saveSyncWindow() {
@@ -374,9 +445,37 @@ struct MacAccountDetailView: View {
 
     private func reAuthenticate() {
         isReAuthenticating = true
+        reAuthError = nil
         Task {
             defer { isReAuthenticating = false }
-            try? await manageAccounts.reAuthenticateAccount(id: account.id)
+            do {
+                try await manageAccounts.reAuthenticateAccount(id: account.id)
+            } catch let accountError as AccountError {
+                if case .appPasswordReAuthRequired = accountError {
+                    showPasswordUpdate = true
+                } else {
+                    reAuthError = accountError.localizedDescription
+                }
+            } catch {
+                reAuthError = error.localizedDescription
+            }
+        }
+    }
+
+    private func updatePassword() {
+        guard !newAppPassword.isEmpty else { return }
+        isReAuthenticating = true
+        reAuthError = nil
+        Task {
+            defer {
+                isReAuthenticating = false
+                newAppPassword = ""
+            }
+            do {
+                try await manageAccounts.updateAppPassword(for: account.id, newPassword: newAppPassword)
+            } catch {
+                reAuthError = error.localizedDescription
+            }
         }
     }
 }
@@ -689,6 +788,18 @@ struct MacSecuritySettingsTab: View {
             Section("App Lock") {
                 Toggle("Require authentication to open VaultMail", isOn: $settings.appLockEnabled)
                 Text("Uses Touch ID or your system password to protect access to VaultMail.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Privacy") {
+                Toggle("Block Remote Images", isOn: $settings.blockRemoteImages)
+                Text("Prevents senders from knowing when you read an email.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Block Tracking Pixels", isOn: $settings.blockTrackingPixels)
+                Text("Removes invisible tracking images from emails.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

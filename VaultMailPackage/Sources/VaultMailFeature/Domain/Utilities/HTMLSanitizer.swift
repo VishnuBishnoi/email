@@ -13,6 +13,7 @@ import Foundation
 final class SanitizationCache: @unchecked Sendable {
     static let shared = SanitizationCache()
 
+    private let lock = NSLock()
     private var storage: [Int: String] = [:]
     private var insertionOrder: [Int] = []
     private let maxSize = 32
@@ -20,24 +21,28 @@ final class SanitizationCache: @unchecked Sendable {
     private init() {}
 
     func get(_ key: Int) -> String? {
-        storage[key]
+        lock.withLock { storage[key] }
     }
 
     func store(_ html: String, forKey key: Int) {
-        if storage[key] == nil {
-            insertionOrder.append(key)
-        }
-        storage[key] = html
+        lock.withLock {
+            if storage[key] == nil {
+                insertionOrder.append(key)
+            }
+            storage[key] = html
 
-        while insertionOrder.count > maxSize {
-            let evictedKey = insertionOrder.removeFirst()
-            storage.removeValue(forKey: evictedKey)
+            while insertionOrder.count > maxSize {
+                let evictedKey = insertionOrder.removeFirst()
+                storage.removeValue(forKey: evictedKey)
+            }
         }
     }
 
     func clear() {
-        storage.removeAll()
-        insertionOrder.removeAll()
+        lock.withLock {
+            storage.removeAll()
+            insertionOrder.removeAll()
+        }
     }
 }
 
@@ -123,7 +128,7 @@ public enum HTMLSanitizer {
 
         // --- Phase 1: Strip tags WITH their content ---
         result = stripTagsWithContent(result, tags: ["script", "noscript"])
-        result = stripTagsWithContent(result, tags: ["style"])
+        result = sanitizeStyleBlocks(result)
         result = stripTagsWithContent(result, tags: ["object", "embed", "applet"])
         result = stripTagsWithContent(result, tags: ["svg", "math", "template"])
 
@@ -240,10 +245,46 @@ public enum HTMLSanitizer {
             options: [.regularExpression, .caseInsensitive]
         )
 
-        // Remove <head>...</head> (content already stripped by sanitizer phases)
+        // Extract <style> blocks from <head> before removing it.
+        // These contain the email's CSS layout rules (already sanitized by Phase 1).
+        var preservedStyles = ""
+        if let headRegex = try? NSRegularExpression(
+            pattern: "<head[^>]*>([\\s\\S]*?)</head\\s*>",
+            options: .caseInsensitive
+        ) {
+            let nsResult = result as NSString
+            let matches = headRegex.matches(
+                in: result,
+                range: NSRange(location: 0, length: nsResult.length)
+            )
+            for match in matches {
+                if match.range(at: 1).location != NSNotFound,
+                   let contentRange = Range(match.range(at: 1), in: result) {
+                    let headContent = String(result[contentRange])
+                    // Extract only <style>...</style> blocks from head content
+                    if let styleRegex = try? NSRegularExpression(
+                        pattern: "<style\\b[^>]*>[\\s\\S]*?</style\\s*>",
+                        options: .caseInsensitive
+                    ) {
+                        let nsHead = headContent as NSString
+                        let styleMatches = styleRegex.matches(
+                            in: headContent,
+                            range: NSRange(location: 0, length: nsHead.length)
+                        )
+                        for styleMatch in styleMatches {
+                            if let styleRange = Range(styleMatch.range, in: headContent) {
+                                preservedStyles += String(headContent[styleRange])
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove <head>...</head>
         result = result.replacingOccurrences(
             of: "<head[^>]*>[\\s\\S]*?</head\\s*>",
-            with: "",
+            with: preservedStyles,
             options: [.regularExpression, .caseInsensitive]
         )
         // Remove orphan <head> tags
@@ -367,6 +408,102 @@ public enum HTMLSanitizer {
             with: "",
             options: [.regularExpression, .caseInsensitive]
         )
+    }
+
+    /// Sanitize `<style>` blocks: keep safe CSS rules, strip dangerous ones.
+    ///
+    /// Many HTML emails (Facebook, banks, newsletters) rely on `<style>` blocks
+    /// for their table-based layouts. Stripping all `<style>` tags breaks rendering.
+    /// Instead, we preserve the CSS but remove dangerous constructs:
+    /// - `@import` rules (remote stylesheet loading)
+    /// - `url(...)` values (remote resource loading)
+    /// - `expression(...)` (IE-specific JS-in-CSS)
+    /// - `javascript:` URIs
+    /// - `-moz-binding` (Firefox XBL injection)
+    /// - `behavior:` (IE HTC)
+    private static func sanitizeStyleBlocks(_ html: String) -> String {
+        let pattern = "<style\\b[^>]*>([\\s\\S]*?)</style\\s*>"
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: .caseInsensitive
+        ) else {
+            return html
+        }
+
+        let nsHTML = html as NSString
+        let matches = regex.matches(
+            in: html,
+            range: NSRange(location: 0, length: nsHTML.length)
+        )
+        guard !matches.isEmpty else { return html }
+
+        var result = html
+        for match in matches.reversed() {
+            guard let fullRange = Range(match.range, in: result) else { continue }
+
+            let contentRange = match.range(at: 1)
+            guard contentRange.location != NSNotFound,
+                  let resolvedRange = Range(contentRange, in: result) else {
+                // No content — remove empty style tag
+                result.removeSubrange(fullRange)
+                continue
+            }
+
+            var css = String(result[resolvedRange])
+
+            // Strip @import rules
+            css = css.replacingOccurrences(
+                of: "@import\\s+[^;]+;",
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+
+            // Strip url(...) values (could load remote resources)
+            css = css.replacingOccurrences(
+                of: "url\\s*\\([^)]*\\)",
+                with: "none",
+                options: [.regularExpression, .caseInsensitive]
+            )
+
+            // Strip expression(...) (IE JS-in-CSS)
+            css = css.replacingOccurrences(
+                of: "expression\\s*\\([^)]*\\)",
+                with: "none",
+                options: [.regularExpression, .caseInsensitive]
+            )
+
+            // Strip javascript: URIs
+            css = css.replacingOccurrences(
+                of: "javascript\\s*:",
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+
+            // Strip -moz-binding (Firefox XBL)
+            css = css.replacingOccurrences(
+                of: "-moz-binding\\s*:[^;]+;?",
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+
+            // Strip behavior: (IE HTC)
+            css = css.replacingOccurrences(
+                of: "behavior\\s*:[^;]+;?",
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+
+            // If CSS is now effectively empty, remove the whole block
+            let trimmed = css.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                result.removeSubrange(fullRange)
+            } else {
+                // Replace the style content with sanitized version
+                result.replaceSubrange(fullRange, with: "<style>\(css)</style>")
+            }
+        }
+
+        return result
     }
 
     /// Remove CSS `@import` rules that might appear in inline styles.

@@ -19,6 +19,7 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     private(set) var listFoldersCallCount = 0
     private(set) var selectFolderCallCount = 0
     private(set) var searchUIDsCallCount = 0
+    private(set) var searchAllUIDsCallCount = 0
     private(set) var fetchHeadersCallCount = 0
     private(set) var fetchBodiesCallCount = 0
     private(set) var fetchFlagsCallCount = 0
@@ -36,6 +37,8 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     private(set) var lastConnectPort: Int?
     private(set) var lastConnectEmail: String?
     private(set) var lastConnectAccessToken: String?
+    private(set) var lastConnectSecurity: ConnectionSecurity?
+    private(set) var lastConnectCredential: IMAPCredential?
     private(set) var lastSelectedPath: String?
     private(set) var lastSearchDate: Date?
     private(set) var lastFetchedUIDs: [UInt32]?
@@ -58,6 +61,9 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     var listFoldersResult: Result<[IMAPFolderInfo], IMAPError> = .success([])
     var selectFolderResult: Result<(uidValidity: UInt32, messageCount: UInt32), IMAPError> = .success((1, 0))
     var searchUIDsResult: Result<[UInt32], IMAPError> = .success([])
+    /// When nil, falls back to `searchUIDsResult` for backward compatibility
+    /// with existing tests that only configure `searchUIDsResult`.
+    var searchAllUIDsResult: Result<[UInt32], IMAPError>?
     var fetchHeadersResult: Result<[IMAPEmailHeader], IMAPError> = .success([])
     var fetchBodiesResult: Result<[IMAPEmailBody], IMAPError> = .success([])
     var fetchFlagsResult: Result<[UInt32: [String]], IMAPError> = .success([:])
@@ -68,6 +74,10 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     var fetchBodyPartResult: Result<Data, IMAPError> = .success(Data())
     var startIDLEError: IMAPError?
     var stopIDLEError: IMAPError?
+
+    // MARK: - IDLE Configuration
+
+    var idleRefreshInterval: TimeInterval = 25 * 60
 
     // MARK: - IDLE Callback
 
@@ -84,17 +94,35 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
         get async { connected }
     }
 
-    func connect(host: String, port: Int, email: String, accessToken: String) async throws {
+    func connect(host: String, port: Int, security: ConnectionSecurity, credential: IMAPCredential) async throws {
         connectCallCount += 1
         lastConnectHost = host
         lastConnectPort = port
-        lastConnectEmail = email
-        lastConnectAccessToken = accessToken
+        lastConnectSecurity = security
+        lastConnectCredential = credential
+
+        // Also populate legacy fields for backward-compat assertions
+        switch credential {
+        case .xoauth2(let email, let accessToken):
+            lastConnectEmail = email
+            lastConnectAccessToken = accessToken
+        case .plain(let username, _):
+            lastConnectEmail = username
+        }
 
         if let error = connectError {
             throw error
         }
         connected = true
+    }
+
+    func connect(host: String, port: Int, email: String, accessToken: String) async throws {
+        try await connect(
+            host: host,
+            port: port,
+            security: .tls,
+            credential: .xoauth2(email: email, accessToken: accessToken)
+        )
     }
 
     func disconnect() async throws {
@@ -122,6 +150,13 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
         searchUIDsCallCount += 1
         lastSearchDate = date
         return try searchUIDsResult.get()
+    }
+
+    func searchAllUIDs() async throws -> [UInt32] {
+        searchAllUIDsCallCount += 1
+        // Fall back to searchUIDsResult if searchAllUIDsResult was not explicitly set.
+        // This preserves backward compatibility with tests that only configure searchUIDsResult.
+        return try (searchAllUIDsResult ?? searchUIDsResult).get()
     }
 
     func fetchHeaders(uids: [UInt32]) async throws -> [IMAPEmailHeader] {

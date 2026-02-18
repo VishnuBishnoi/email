@@ -23,8 +23,8 @@ struct IDLEMonitorUseCaseTests {
             accountId: String,
             host: String,
             port: Int,
-            email: String,
-            accessToken: String
+            security: ConnectionSecurity,
+            credential: IMAPCredential
         ) async throws -> any IMAPClientProtocol {
             checkoutCount += 1
             if shouldThrowOnCheckout {
@@ -92,22 +92,38 @@ struct IDLEMonitorUseCaseTests {
 
         let stream = sut.monitor(accountId: account.id, folderImapPath: "INBOX")
 
-        // Give the IDLE setup a moment to register
-        try await Task.sleep(for: .milliseconds(100))
+        // Wait for the internal task to finish IDLE setup.
+        // The spawned @MainActor task needs executor time to run through
+        // account lookup, token retrieval, connection checkout, selectFolder,
+        // and startIDLE (which stores the idleHandler).
+        for _ in 0..<20 {
+            try await Task.sleep(for: .milliseconds(50))
+            if mockIMAPClient.startIDLECallCount > 0 { break }
+        }
 
-        // Simulate new mail
+        // Simulate new mail (fires the idleHandler stored by startIDLE)
         mockIMAPClient.simulateNewMail()
 
+        // Consume stream in a child task so we can cancel it to stop the
+        // internal IDLE loop, preventing the task from leaking.
         var events: [IDLEEvent] = []
-        for await event in stream {
-            events.append(event)
-            if events.count >= 1 { break }
+        let consumeTask = Task { @MainActor in
+            var collected: [IDLEEvent] = []
+            for await event in stream {
+                collected.append(event)
+                if collected.count >= 1 { break }
+            }
+            return collected
         }
+        events = await consumeTask.value
+        consumeTask.cancel()
 
         #expect(events.contains(.newMail))
         #expect(mockIMAPClient.startIDLECallCount == 1)
         #expect(mockIMAPClient.selectFolderCallCount == 1)
         #expect(mockIMAPClient.lastSelectedPath == "INBOX")
+        // Allow the internal IDLE task to process cancellation
+        try await Task.sleep(for: .milliseconds(100))
     }
 
     @Test("Monitor emits .disconnected when account not found")
@@ -122,10 +138,16 @@ struct IDLEMonitorUseCaseTests {
 
         let stream = sut.monitor(accountId: "nonexistent", folderImapPath: "INBOX")
 
-        var events: [IDLEEvent] = []
-        for await event in stream {
-            events.append(event)
+        let consumeTask = Task { @MainActor in
+            var collected: [IDLEEvent] = []
+            for await event in stream {
+                collected.append(event)
+                if collected.count >= 1 { break }
+            }
+            return collected
         }
+        let events = await consumeTask.value
+        consumeTask.cancel()
 
         #expect(events == [.disconnected])
         #expect(mockIMAPClient.startIDLECallCount == 0)
@@ -146,10 +168,16 @@ struct IDLEMonitorUseCaseTests {
 
         let stream = sut.monitor(accountId: account.id, folderImapPath: "INBOX")
 
-        var events: [IDLEEvent] = []
-        for await event in stream {
-            events.append(event)
+        let consumeTask = Task { @MainActor in
+            var collected: [IDLEEvent] = []
+            for await event in stream {
+                collected.append(event)
+                if collected.count >= 1 { break }
+            }
+            return collected
         }
+        let events = await consumeTask.value
+        consumeTask.cancel()
 
         #expect(events == [.disconnected])
     }
@@ -170,10 +198,16 @@ struct IDLEMonitorUseCaseTests {
 
         let stream = sut.monitor(accountId: account.id, folderImapPath: "INBOX")
 
-        var events: [IDLEEvent] = []
-        for await event in stream {
-            events.append(event)
+        let consumeTask = Task { @MainActor in
+            var collected: [IDLEEvent] = []
+            for await event in stream {
+                collected.append(event)
+                if collected.count >= 1 { break }
+            }
+            return collected
         }
+        let events = await consumeTask.value
+        consumeTask.cancel()
 
         #expect(events == [.disconnected])
     }
@@ -195,10 +229,16 @@ struct IDLEMonitorUseCaseTests {
 
         let stream = sut.monitor(accountId: account.id, folderImapPath: "INBOX")
 
-        var events: [IDLEEvent] = []
-        for await event in stream {
-            events.append(event)
+        let consumeTask = Task { @MainActor in
+            var collected: [IDLEEvent] = []
+            for await event in stream {
+                collected.append(event)
+                if collected.count >= 1 { break }
+            }
+            return collected
         }
+        let events = await consumeTask.value
+        consumeTask.cancel()
 
         #expect(events == [.disconnected])
         #expect(provider.checkoutCount == 1)
@@ -222,15 +262,33 @@ struct IDLEMonitorUseCaseTests {
 
         let stream = sut.monitor(accountId: account.id, folderImapPath: "[Gmail]/Sent Mail")
 
-        // Give setup a moment
-        try await Task.sleep(for: .milliseconds(100))
+        // Wait for the internal task to progress through setup by
+        // yielding the main actor multiple times. The spawned @MainActor
+        // task needs executor time to run through account lookup,
+        // token retrieval, connection checkout, selectFolder, and startIDLE.
+        for _ in 0..<10 {
+            try await Task.sleep(for: .milliseconds(50))
+            if mockIMAPClient.selectFolderCallCount > 0 { break }
+        }
 
         // Verify folder was selected before IDLE started
         #expect(mockIMAPClient.selectFolderCallCount == 1)
         #expect(mockIMAPClient.lastSelectedPath == "[Gmail]/Sent Mail")
 
-        // Cancel the stream to clean up
-        _ = stream // keep reference
+        // Trigger an event so we can cleanly consume and end the stream
+        mockIMAPClient.simulateNewMail()
+        let consumeTask = Task { @MainActor in
+            var collected: [IDLEEvent] = []
+            for await event in stream {
+                collected.append(event)
+                if collected.count >= 1 { break }
+            }
+            return collected
+        }
+        _ = await consumeTask.value
+        consumeTask.cancel()
+        // Allow the internal IDLE task to process cancellation
+        try await Task.sleep(for: .milliseconds(100))
     }
 
     @Test("Monitor emits .disconnected when connection checkout fails")
@@ -249,10 +307,16 @@ struct IDLEMonitorUseCaseTests {
 
         let stream = sut.monitor(accountId: account.id, folderImapPath: "INBOX")
 
-        var events: [IDLEEvent] = []
-        for await event in stream {
-            events.append(event)
+        let consumeTask = Task { @MainActor in
+            var collected: [IDLEEvent] = []
+            for await event in stream {
+                collected.append(event)
+                if collected.count >= 1 { break }
+            }
+            return collected
         }
+        let events = await consumeTask.value
+        consumeTask.cancel()
 
         #expect(events == [.disconnected])
         #expect(provider.checkoutCount == 1)

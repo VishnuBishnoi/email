@@ -3,6 +3,7 @@ import Foundation
 
 /// Controllable mock of OAuthManagerProtocol for testing.
 final class MockOAuthManager: OAuthManagerProtocol, @unchecked Sendable {
+    var provider: ProviderIdentifier = .gmail
     var authenticateResult: Result<OAuthToken, Error> = .failure(OAuthError.authenticationCancelled)
     var refreshResult: Result<OAuthToken, Error> = .failure(OAuthError.maxRetriesExceeded)
     var authenticateCallCount = 0

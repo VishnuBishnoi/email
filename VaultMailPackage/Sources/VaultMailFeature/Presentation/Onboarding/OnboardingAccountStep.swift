@@ -1,25 +1,36 @@
 import SwiftUI
 
-/// Onboarding Step 2: Gmail account setup via OAuth.
+/// Onboarding Step 2: Email account setup.
 ///
-/// Displays "Add your Gmail account" with an Add Account button that invokes
-/// the OAuth 2.0 PKCE flow. Shows added accounts with success indicators.
+/// Multi-provider mode: Shows added accounts and an "Add Account" button that
+/// presents ProviderSelectionView as a sheet (email-first flow with auto-discovery).
+///
+/// Legacy mode (no ProviderDiscovery): Falls back to Gmail-only OAuth flow.
+///
 /// The Next button is disabled until at least one account is added.
 ///
 /// Error handling follows the spec error table (FR-OB-01):
 /// - OAuth cancelled → return to this screen, allow retry
 /// - Network failure → "Network unavailable. Check your connection and try again."
 /// - Token exchange failure → "Authentication failed. Please try again."
-/// - IMAP/SMTP validation failure → "Couldn't connect to Gmail. Please check account permissions."
+/// - IMAP/SMTP validation failure → "Couldn't connect. Please check account settings."
 ///
-/// Spec ref: FR-OB-01 step 2, FR-ACCT-01, FR-ACCT-03
+/// Spec ref: FR-OB-01 step 2, FR-ACCT-01, FR-ACCT-03, FR-MPROV-10
 struct OnboardingAccountStep: View {
     let manageAccounts: ManageAccountsUseCaseProtocol
     @Binding var addedAccounts: [Account]
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
     let onNext: () -> Void
 
     @State private var isAddingAccount = false
+    @State private var showProviderSelection = false
     @State private var errorMessage: String?
+
+    /// Whether multi-provider support is available.
+    private var hasMultiProvider: Bool {
+        providerDiscovery != nil && connectionTestUseCase != nil
+    }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -30,10 +41,12 @@ struct OnboardingAccountStep: View {
                 .foregroundStyle(.tint)
                 .accessibilityHidden(true)
 
-            Text("Add your Gmail account")
+            Text(hasMultiProvider ? "Add Email Account" : "Add your Gmail account")
                 .font(.title2.bold())
 
-            Text("Sign in with Google to access your email securely on this device.")
+            Text(hasMultiProvider
+                ? "Add one or more email accounts to get started."
+                : "Sign in with Google to access your email securely on this device.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -76,7 +89,11 @@ struct OnboardingAccountStep: View {
 
             // Add Account button
             Button {
-                addAccount()
+                if hasMultiProvider {
+                    showProviderSelection = true
+                } else {
+                    addGmailAccount()
+                }
             } label: {
                 Label("Add Account", systemImage: "plus.circle")
             }
@@ -101,6 +118,22 @@ struct OnboardingAccountStep: View {
         .task {
             await loadExistingAccounts()
         }
+        .sheet(isPresented: $showProviderSelection) {
+            if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
+                ProviderSelectionView(
+                    manageAccounts: manageAccounts,
+                    connectionTestUseCase: connTest,
+                    providerDiscovery: discovery,
+                    onAccountAdded: { account in
+                        showProviderSelection = false
+                        if !addedAccounts.contains(where: { $0.id == account.id }) {
+                            addedAccounts.append(account)
+                        }
+                    },
+                    onCancel: { showProviderSelection = false }
+                )
+            }
+        }
     }
 
     /// Load any accounts already persisted in SwiftData so they appear in the list.
@@ -120,9 +153,9 @@ struct OnboardingAccountStep: View {
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Legacy Gmail-only flow
 
-    private func addAccount() {
+    private func addGmailAccount() {
         isAddingAccount = true
         errorMessage = nil
         Task {
@@ -144,7 +177,6 @@ struct OnboardingAccountStep: View {
     private func mapOAuthError(_ error: OAuthError) -> String? {
         switch error {
         case .authenticationCancelled:
-            // User intentionally cancelled — no error message, allow retry
             return nil
         case .networkError:
             return "Network unavailable. Check your connection and try again."

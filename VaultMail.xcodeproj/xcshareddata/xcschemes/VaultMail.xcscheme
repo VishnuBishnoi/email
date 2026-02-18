@@ -30,14 +30,21 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:VaultMail.xctestplan">
-         </TestPlanReference>
-         <TestPlanReference
             reference = "container:VaultMail/VaultMail.xctestplan"
             default = "YES">
          </TestPlanReference>
       </TestPlans>
       <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "VaultMailFeatureTests"
+               BuildableName = "VaultMailFeatureTests"
+               BlueprintName = "VaultMailFeatureTests"
+               ReferencedContainer = "container:VaultMailPackage">
+            </BuildableReference>
+         </TestableReference>
          <TestableReference
             skipped = "NO">
             <BuildableReference

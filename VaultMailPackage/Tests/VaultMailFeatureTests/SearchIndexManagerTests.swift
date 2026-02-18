@@ -93,6 +93,7 @@ struct SearchIndexManagerTests {
     func indexEmailCreatesEntries() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 
@@ -125,6 +126,7 @@ struct SearchIndexManagerTests {
     func indexEmailNilEngine() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 
@@ -152,6 +154,7 @@ struct SearchIndexManagerTests {
     func indexEmailUpserts() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 
@@ -192,6 +195,7 @@ struct SearchIndexManagerTests {
     func removeEmailRemovesBoth() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 
@@ -222,6 +226,7 @@ struct SearchIndexManagerTests {
     func removeEmailNonExistent() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 
@@ -244,6 +249,7 @@ struct SearchIndexManagerTests {
     func removeAllForAccount() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 
@@ -286,6 +292,7 @@ struct SearchIndexManagerTests {
     func backfillAccountIds() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 
@@ -320,6 +327,7 @@ struct SearchIndexManagerTests {
     func openCloseLifecycle() async throws {
         let container = try makeContainer()
         let tempDir = try makeTempFTS5Dir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
         let fts5 = FTS5Manager(databaseDirectoryURL: tempDir)
         let manager = SearchIndexManager(fts5Manager: fts5, modelContainer: container)
 

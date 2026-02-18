@@ -164,12 +164,14 @@ struct SearchEmailsUseCaseTests {
     func emptyQueryReturnsEmpty() async throws {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
-        let (useCase, _, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         let query = SearchQuery(text: "", filters: SearchFilters())
         let results = await useCase.execute(query: query, engine: nil)
 
         #expect(results.isEmpty)
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Keyword search returns matching results
@@ -179,6 +181,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         // Insert matching email
         try await insertEmail(
@@ -204,6 +207,7 @@ struct SearchEmailsUseCaseTests {
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-1")
         #expect(results[0].matchSource == .keyword)
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Sender filter narrows results
@@ -213,6 +217,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         try await insertEmail(
             id: "email-1",
@@ -241,6 +246,7 @@ struct SearchEmailsUseCaseTests {
 
         #expect(results.count == 1)
         #expect(results[0].senderEmail == "alice@example.com")
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Date range filter works
@@ -250,6 +256,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         let now = Date()
         let twoDaysAgo = Calendar.current.date(byAdding: .day, value: -2, to: now)!
@@ -281,6 +288,7 @@ struct SearchEmailsUseCaseTests {
 
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-recent")
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Attachment filter works
@@ -290,6 +298,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         let emailWithAttachment = try await insertEmail(
             id: "email-attach",
@@ -316,6 +325,7 @@ struct SearchEmailsUseCaseTests {
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-attach")
         #expect(results[0].hasAttachment == true)
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Category filter works
@@ -325,6 +335,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         try await insertEmail(
             id: "email-promo",
@@ -351,6 +362,7 @@ struct SearchEmailsUseCaseTests {
 
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-promo")
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Scope filtering (currentFolder) works
@@ -360,6 +372,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         let emailInFolder = try await insertEmail(
             id: "email-inbox",
@@ -397,6 +410,7 @@ struct SearchEmailsUseCaseTests {
 
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-inbox")
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Keyword-only fallback when engine unavailable
@@ -406,6 +420,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         try await insertEmail(
             id: "email-1",
@@ -422,6 +437,7 @@ struct SearchEmailsUseCaseTests {
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-1")
         #expect(results[0].matchSource == .keyword)
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Read status filter works
@@ -431,6 +447,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         try await insertEmail(
             id: "email-read",
@@ -458,6 +475,7 @@ struct SearchEmailsUseCaseTests {
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-unread")
         #expect(results[0].isRead == false)
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Filter-only search without text
@@ -467,6 +485,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         try await insertEmail(
             id: "email-promo-1",
@@ -493,6 +512,7 @@ struct SearchEmailsUseCaseTests {
 
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-promo-1")
+        await fts5Manager.close()
     }
 
     // MARK: - Test: SearchRepositoryImpl delegates correctly
@@ -502,6 +522,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         try await insertEmail(
             id: "email-repo",
@@ -517,6 +538,7 @@ struct SearchEmailsUseCaseTests {
 
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-repo")
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Multiple filters combine with AND logic
@@ -526,6 +548,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         // Email matching both filters
         try await insertEmail(
@@ -559,6 +582,7 @@ struct SearchEmailsUseCaseTests {
 
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-match")
+        await fts5Manager.close()
     }
 
     // MARK: - Test: Semantic search with available engine
@@ -568,6 +592,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         // Insert email in SwiftData and FTS5
         try await insertEmail(
@@ -604,6 +629,7 @@ struct SearchEmailsUseCaseTests {
         // The email should appear via keyword match and/or semantic similarity
         #expect(!results.isEmpty)
         #expect(results.contains { $0.emailId == "email-semantic" })
+        await fts5Manager.close()
     }
 
     @Test("Semantic search falls back to keyword-only when embed fails")
@@ -611,6 +637,7 @@ struct SearchEmailsUseCaseTests {
         let container = try makeContainer()
         let fts5Dir = try makeTempFTS5Dir()
         let (useCase, fts5Manager, _) = try await makeSUT(container: container, fts5Dir: fts5Dir)
+        defer { try? FileManager.default.removeItem(at: fts5Dir) }
 
         try await insertEmail(
             id: "email-fallback",
@@ -629,5 +656,6 @@ struct SearchEmailsUseCaseTests {
         #expect(results.count == 1)
         #expect(results[0].emailId == "email-fallback")
         #expect(results[0].matchSource == .keyword)
+        await fts5Manager.close()
     }
 }

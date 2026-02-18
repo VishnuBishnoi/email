@@ -245,8 +245,8 @@ struct ManageAccountsUseCaseTests {
             accountId: String,
             host: String,
             port: Int,
-            email: String,
-            accessToken: String
+            security: ConnectionSecurity,
+            credential: IMAPCredential
         ) async throws -> any IMAPClientProtocol {
             throw NSError(domain: "IMAP", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connection refused"])
         }
@@ -287,5 +287,202 @@ struct ManageAccountsUseCaseTests {
         #expect(deleteCount == 1)
         let storageCount = await keychain.storage.count
         #expect(storageCount == 0)
+    }
+
+    // MARK: - addAccountViaAppPassword
+
+    @Test("addAccountViaAppPassword creates iCloud account with correct config")
+    @MainActor
+    func addAccountViaAppPasswordICloud() async throws {
+        let repo = MockAccountRepository()
+        let oauth = MockOAuthManager()
+        let keychain = MockKeychainManager()
+        let config = ProviderRegistry.provider(for: .icloud)!
+
+        let useCase = ManageAccountsUseCase(
+            repository: repo,
+            oauthManager: oauth,
+            keychainManager: keychain,
+            resolveEmail: { _ in "unused" }
+        )
+
+        let account = try await useCase.addAccountViaAppPassword(
+            email: "user@icloud.com",
+            password: "abcd-efgh-ijkl-mnop",
+            providerConfig: config
+        )
+
+        // Verify account properties match iCloud config
+        #expect(account.email == "user@icloud.com")
+        #expect(account.displayName == "user")
+        #expect(account.imapHost == "imap.mail.me.com")
+        #expect(account.imapPort == 993)
+        #expect(account.smtpHost == "smtp.mail.me.com")
+        #expect(account.smtpPort == 587)
+        #expect(account.resolvedAuthMethod == .plain)
+        #expect(account.isActive == true)
+
+        // Verify password stored in Keychain as .password credential
+        let credential = await keychain.credentialStorage[account.id]
+        if case .password(let pw) = credential {
+            #expect(pw == "abcd-efgh-ijkl-mnop")
+        } else {
+            Issue.record("Expected .password credential, got \(String(describing: credential))")
+        }
+        let storeCredentialCount = await keychain.storeCredentialCallCount
+        #expect(storeCredentialCount == 1)
+
+        // Verify account persisted in repository
+        #expect(repo.accounts.count == 1)
+        #expect(repo.addCallCount == 1)
+    }
+
+    @Test("addAccountViaAppPassword creates Yahoo account with correct config")
+    @MainActor
+    func addAccountViaAppPasswordYahoo() async throws {
+        let repo = MockAccountRepository()
+        let oauth = MockOAuthManager()
+        let keychain = MockKeychainManager()
+        let config = ProviderRegistry.provider(for: .yahoo)!
+
+        let useCase = ManageAccountsUseCase(
+            repository: repo,
+            oauthManager: oauth,
+            keychainManager: keychain,
+            resolveEmail: { _ in "unused" }
+        )
+
+        let account = try await useCase.addAccountViaAppPassword(
+            email: "user@yahoo.com",
+            password: "yahoo-app-password",
+            providerConfig: config
+        )
+
+        // Verify account properties match Yahoo config
+        #expect(account.email == "user@yahoo.com")
+        #expect(account.displayName == "user")
+        #expect(account.imapHost == "imap.mail.yahoo.com")
+        #expect(account.imapPort == 993)
+        #expect(account.smtpHost == "smtp.mail.yahoo.com")
+        #expect(account.smtpPort == 465)
+        #expect(account.resolvedAuthMethod == .plain)
+        #expect(account.isActive == true)
+
+        // Verify password stored in Keychain
+        let credential = await keychain.credentialStorage[account.id]
+        if case .password(let pw) = credential {
+            #expect(pw == "yahoo-app-password")
+        } else {
+            Issue.record("Expected .password credential, got \(String(describing: credential))")
+        }
+
+        // Verify account persisted in repository
+        #expect(repo.accounts.count == 1)
+        #expect(repo.addCallCount == 1)
+    }
+
+    @Test("addAccountViaAppPassword rolls back on IMAP validation failure")
+    @MainActor
+    func addAccountViaAppPasswordIMAPValidationFailureRollsBack() async throws {
+        let repo = MockAccountRepository()
+        let oauth = MockOAuthManager()
+        let keychain = MockKeychainManager()
+        let failingProvider = FailingConnectionProvider()
+        let config = ProviderRegistry.provider(for: .icloud)!
+
+        let useCase = ManageAccountsUseCase(
+            repository: repo,
+            oauthManager: oauth,
+            keychainManager: keychain,
+            connectionProvider: failingProvider,
+            resolveEmail: { _ in "unused" }
+        )
+
+        await #expect(throws: AccountError.self) {
+            _ = try await useCase.addAccountViaAppPassword(
+                email: "user@icloud.com",
+                password: "bad-password",
+                providerConfig: config
+            )
+        }
+
+        // Account should have been rolled back (added then removed)
+        #expect(repo.addCallCount == 1)
+        #expect(repo.removeCallCount == 1)
+        #expect(repo.accounts.isEmpty)
+
+        // Keychain should have been cleaned up (storeCredential then deleteCredential)
+        let storeCredentialCount = await keychain.storeCredentialCallCount
+        let deleteCredentialCount = await keychain.deleteCredentialCallCount
+        #expect(storeCredentialCount == 1)
+        #expect(deleteCredentialCount == 1)
+        let storageCount = await keychain.credentialStorage.count
+        #expect(storageCount == 0)
+    }
+
+    @Test("addAccountViaAppPassword rolls back Keychain on persistence failure")
+    @MainActor
+    func addAccountViaAppPasswordPersistenceFailureRollsBackKeychain() async throws {
+        let repo = MockAccountRepository()
+        repo.shouldThrowOnAdd = true
+        let oauth = MockOAuthManager()
+        let keychain = MockKeychainManager()
+        let config = ProviderRegistry.provider(for: .yahoo)!
+
+        let useCase = ManageAccountsUseCase(
+            repository: repo,
+            oauthManager: oauth,
+            keychainManager: keychain,
+            resolveEmail: { _ in "unused" }
+        )
+
+        await #expect(throws: Error.self) {
+            _ = try await useCase.addAccountViaAppPassword(
+                email: "user@yahoo.com",
+                password: "yahoo-app-password",
+                providerConfig: config
+            )
+        }
+
+        // Keychain should have been cleaned up (storeCredential then deleteCredential)
+        let storeCredentialCount = await keychain.storeCredentialCallCount
+        let deleteCredentialCount = await keychain.deleteCredentialCallCount
+        #expect(storeCredentialCount == 1)
+        #expect(deleteCredentialCount == 1)
+        let storageCount = await keychain.credentialStorage.count
+        #expect(storageCount == 0)
+    }
+
+    @Test("reAuthenticateAccount throws appPasswordReAuthRequired for PLAIN auth accounts")
+    @MainActor
+    func reAuthenticateAccountThrowsForAppPasswordProvider() async throws {
+        let repo = MockAccountRepository()
+        let oauth = MockOAuthManager()
+        oauth.authenticateResult = .success(Self.makeToken())
+        let keychain = MockKeychainManager()
+
+        let useCase = ManageAccountsUseCase(
+            repository: repo,
+            oauthManager: oauth,
+            keychainManager: keychain,
+            resolveEmail: { _ in "unused" }
+        )
+
+        // Create an iCloud account (authType = "plain")
+        let config = ProviderRegistry.provider(for: .icloud)!
+        let account = Account(
+            email: "user@icloud.com",
+            displayName: "user",
+            providerConfig: config
+        )
+        repo.accounts.append(account)
+
+        // reAuthenticateAccount should throw for PLAIN auth accounts
+        await #expect(throws: AccountError.self) {
+            try await useCase.reAuthenticateAccount(id: account.id)
+        }
+
+        // OAuth should NOT have been called
+        #expect(oauth.authenticateCallCount == 0)
     }
 }

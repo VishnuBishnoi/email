@@ -66,8 +66,8 @@ struct ConnectionPoolTests {
             accountId: "acct-1",
             host: "imap.gmail.com",
             port: 993,
-            email: "user@gmail.com",
-            accessToken: "token"
+            security: .tls,
+            credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
         )
 
         // Pool now has 1 connection, checked out
@@ -90,8 +90,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
             clients.append(client)
         }
@@ -117,8 +117,8 @@ struct ConnectionPoolTests {
             accountId: "acct-1",
             host: "imap.gmail.com",
             port: 993,
-            email: "user@gmail.com",
-            accessToken: "token"
+            security: .tls,
+            credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
         )
 
         await pool.checkin(client1, accountId: "acct-1")
@@ -180,8 +180,8 @@ struct ConnectionPoolTests {
             accountId: "acct-1",
             host: "imap.gmail.com",
             port: 993,
-            email: "user@gmail.com",
-            accessToken: "token"
+            security: .tls,
+            credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
         )
 
         // Second checkout should queue (not throw)
@@ -190,8 +190,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
         }
 
@@ -226,8 +226,8 @@ struct ConnectionPoolTests {
             accountId: "acct-1",
             host: "imap.gmail.com",
             port: 993,
-            email: "user@gmail.com",
-            accessToken: "token"
+            security: .tls,
+            credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
         )
 
         // Queue two waiters
@@ -236,8 +236,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
         }
 
@@ -249,8 +249,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
         }
 
@@ -282,8 +282,8 @@ struct ConnectionPoolTests {
             accountId: "acct-1",
             host: "imap.gmail.com",
             port: 993,
-            email: "user@gmail.com",
-            accessToken: "token"
+            security: .tls,
+            credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
         )
 
         // Second checkout should queue and then timeout
@@ -292,8 +292,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
         }
 
@@ -313,8 +313,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
         }
     }
@@ -329,8 +329,8 @@ struct ConnectionPoolTests {
             accountId: "acct-1",
             host: "imap.gmail.com",
             port: 993,
-            email: "user@gmail.com",
-            accessToken: "token"
+            security: .tls,
+            credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
         )
 
         // Queue a waiter
@@ -339,8 +339,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
         }
 
@@ -370,8 +370,8 @@ struct ConnectionPoolTests {
             accountId: "acct-1",
             host: "imap.gmail.com",
             port: 993,
-            email: "user@gmail.com",
-            accessToken: "token"
+            security: .tls,
+            credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
         )
 
         // Exhaust account-2
@@ -379,8 +379,8 @@ struct ConnectionPoolTests {
             accountId: "acct-2",
             host: "imap.gmail.com",
             port: 993,
-            email: "other@gmail.com",
-            accessToken: "token2"
+            security: .tls,
+            credential: .xoauth2(email: "other@gmail.com", accessToken: "token2")
         )
 
         // Queue waiters for both accounts
@@ -389,8 +389,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-1",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "user@gmail.com",
-                accessToken: "token"
+                security: .tls,
+                credential: .xoauth2(email: "user@gmail.com", accessToken: "token")
             )
         }
         let waiter2 = Task<IMAPClient, Error> {
@@ -398,8 +398,8 @@ struct ConnectionPoolTests {
                 accountId: "acct-2",
                 host: "imap.gmail.com",
                 port: 993,
-                email: "other@gmail.com",
-                accessToken: "token2"
+                security: .tls,
+                credential: .xoauth2(email: "other@gmail.com", accessToken: "token2")
             )
         }
 
@@ -493,8 +493,8 @@ struct ConnectionPoolTests {
             accountId: "acct-A",
             host: "imap.gmail.com",
             port: 993,
-            email: "a@gmail.com",
-            accessToken: "tokenA"
+            security: .tls,
+            credential: .xoauth2(email: "a@gmail.com", accessToken: "tokenA")
         )
 
         let countA = await pool.connectionCount(for: "acct-A")
@@ -514,15 +514,15 @@ struct ConnectionPoolTests {
             accountId: "acct-A",
             host: "imap.gmail.com",
             port: 993,
-            email: "a@gmail.com",
-            accessToken: "tokenA"
+            security: .tls,
+            credential: .xoauth2(email: "a@gmail.com", accessToken: "tokenA")
         )
         let clientB = try await pool.checkout(
             accountId: "acct-B",
             host: "imap.gmail.com",
             port: 993,
-            email: "b@gmail.com",
-            accessToken: "tokenB"
+            security: .tls,
+            credential: .xoauth2(email: "b@gmail.com", accessToken: "tokenB")
         )
 
         // Disconnect account A only
@@ -544,5 +544,119 @@ struct ConnectionPoolTests {
     @Test("Default max connections matches FR-SYNC-09 Gmail limit")
     func maxConnectionsConstant() {
         #expect(AppConstants.imapMaxConnectionsPerAccount == 5)
+    }
+
+    @Test("Default max global connections is 25")
+    func maxGlobalConnectionsConstant() {
+        #expect(AppConstants.imapMaxGlobalConnections == 25)
+    }
+
+    // MARK: - Global Connection Cap
+
+    /// Creates a pool with a global connection limit for testing.
+    private func makeGlobalPool(
+        maxPerAccount: Int = 5,
+        maxGlobal: Int = 3,
+        waitTimeout: TimeInterval = 5
+    ) -> ConnectionPool {
+        ConnectionPool(
+            maxConnectionsPerAccount: maxPerAccount,
+            maxGlobalConnections: maxGlobal,
+            waitTimeout: waitTimeout,
+            connectionFactory: Self.testFactory
+        )
+    }
+
+    @Test("Global cap blocks checkout when total across accounts reaches limit")
+    func globalCapBlocksCheckout() async throws {
+        // max 5 per account, but only 3 globally
+        let pool = makeGlobalPool(maxPerAccount: 5, maxGlobal: 3, waitTimeout: 0.3)
+
+        // Checkout 1 from each of 3 accounts = 3 total = at global cap
+        let c1 = try await pool.checkout(
+            accountId: "a1", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a1@x.com", accessToken: "t")
+        )
+        let c2 = try await pool.checkout(
+            accountId: "a2", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a2@x.com", accessToken: "t")
+        )
+        let c3 = try await pool.checkout(
+            accountId: "a3", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a3@x.com", accessToken: "t")
+        )
+
+        let total = await pool.totalConnectionCount()
+        #expect(total == 3)
+
+        // 4th checkout from a4 should block (per-account has room, but global is full)
+        // and eventually time out, because global cap is based on total pooled
+        // connections (checked-in + checked-out).
+        do {
+            _ = try await pool.checkout(
+                accountId: "a4", host: "h", port: 993, security: .tls,
+                credential: .xoauth2(email: "a4@x.com", accessToken: "t")
+            )
+            Issue.record("Expected checkout to time out when global cap is reached")
+        } catch let error as IMAPError {
+            #expect(error == .timeout)
+        } catch {
+            Issue.record("Expected IMAPError.timeout, got: \(error)")
+        }
+
+        // Clean up
+        await pool.checkin(c1, accountId: "a1")
+        await pool.checkin(c2, accountId: "a2")
+        await pool.checkin(c3, accountId: "a3")
+        await pool.shutdown()
+    }
+
+    @Test("Global cap allows checkout when under limit")
+    func globalCapAllowsUnderLimit() async throws {
+        let pool = makeGlobalPool(maxPerAccount: 5, maxGlobal: 10)
+
+        // Checkout from 3 different accounts = 3 total, well under 10
+        let c1 = try await pool.checkout(
+            accountId: "a1", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a1@x.com", accessToken: "t")
+        )
+        let c2 = try await pool.checkout(
+            accountId: "a2", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a2@x.com", accessToken: "t")
+        )
+        let c3 = try await pool.checkout(
+            accountId: "a3", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a3@x.com", accessToken: "t")
+        )
+
+        let total = await pool.totalConnectionCount()
+        #expect(total == 3)
+
+        // Clean up
+        await pool.checkin(c1, accountId: "a1")
+        await pool.checkin(c2, accountId: "a2")
+        await pool.checkin(c3, accountId: "a3")
+    }
+
+    @Test("totalConnectionCount returns correct count across accounts")
+    func totalConnectionCountAccuracy() async throws {
+        let pool = makeGlobalPool(maxPerAccount: 5, maxGlobal: 10)
+
+        #expect(await pool.totalConnectionCount() == 0)
+
+        let c1 = try await pool.checkout(
+            accountId: "a1", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a1@x.com", accessToken: "t")
+        )
+        #expect(await pool.totalConnectionCount() == 1)
+
+        let c2 = try await pool.checkout(
+            accountId: "a2", host: "h", port: 993, security: .tls,
+            credential: .xoauth2(email: "a2@x.com", accessToken: "t")
+        )
+        #expect(await pool.totalConnectionCount() == 2)
+
+        await pool.checkin(c1, accountId: "a1")
+        await pool.checkin(c2, accountId: "a2")
     }
 }

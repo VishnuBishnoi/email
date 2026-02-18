@@ -37,6 +37,8 @@ struct ThreadListView: View {
     var summarizeThread: SummarizeThreadUseCaseProtocol?
     var smartReply: SmartReplyUseCaseProtocol?
     var searchUseCase: SearchEmailsUseCase?
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @Environment(UndoSendManager.self) private var undoSendManager
 
@@ -294,6 +296,14 @@ struct ThreadListView: View {
         .task {
             await initialLoad()
         }
+        .onChange(of: navigationPath) { oldPath, newPath in
+            // Refresh accounts when user pops back from Settings (or any pushed screen).
+            // Without this, accounts added in Settings won't appear in the switcher
+            // until the app is relaunched.
+            if newPath.count < oldPath.count {
+                Task { await refreshAccounts() }
+            }
+        }
         .onChange(of: selectedCategory) {
             Task { await reloadThreads() }
         }
@@ -345,7 +355,10 @@ struct ThreadListView: View {
     private func tabDestinationView(for destination: TabDestination) -> some View {
         switch destination {
         case .settings:
-            SettingsView(manageAccounts: manageAccounts, modelManager: modelManager, aiEngineResolver: aiEngineResolver)
+            SettingsView(manageAccounts: manageAccounts, modelManager: modelManager, aiEngineResolver: aiEngineResolver, providerDiscovery: providerDiscovery, connectionTestUseCase: connectionTestUseCase)
+                .onDisappear {
+                    Task { await refreshAccounts() }
+                }
         case .aiChat:
             if let resolver = aiEngineResolver {
                 AIChatView(engineResolver: resolver)
@@ -387,8 +400,10 @@ struct ThreadListView: View {
                     }
                 } else {
                     selectedAccount = nil
-                    selectedFolder = nil
                     selectedCategory = nil
+                    folders = buildUnifiedFolders()
+                    let inboxType = FolderType.inbox.rawValue
+                    selectedFolder = folders.first(where: { $0.folderType == inboxType }) ?? folders.first
                     Task { await reloadThreads() }
                 }
             }
@@ -927,6 +942,50 @@ struct ThreadListView: View {
         }
     }
 
+    /// Refresh the accounts list from SwiftData.
+    ///
+    /// Called when the user returns from Settings so newly added (or removed)
+    /// accounts appear immediately in the account-switcher sheet.
+    private func refreshAccounts() async {
+        do {
+            let freshAccounts = try await manageAccounts.getAccounts()
+            let oldIds = Set(accounts.map(\.id))
+            let newIds = Set(freshAccounts.map(\.id))
+            accounts = freshAccounts
+
+            // If the currently selected account was removed, fall back to first
+            if let sel = selectedAccount, !newIds.contains(sel.id) {
+                if let first = freshAccounts.first {
+                    selectedAccount = first
+                    await switchToAccount(first)
+                } else {
+                    selectedAccount = nil
+                    viewState = .empty
+                }
+            }
+
+            // Rebuild unified folders if in "All Accounts" mode
+            if selectedAccount == nil {
+                folders = buildUnifiedFolders()
+            }
+
+            // If a brand-new account was added, kick off background sync for it
+            let addedIds = newIds.subtracting(oldIds)
+            for addedId in addedIds {
+                NSLog("[UI] New account detected: \(addedId), starting background sync")
+                Task {
+                    do {
+                        _ = try await syncEmails.syncAccountInboxFirst(accountId: addedId, onInboxSynced: { _ in })
+                    } catch {
+                        NSLog("[UI] Background sync for new account \(addedId) failed: \(error)")
+                    }
+                }
+            }
+        } catch {
+            NSLog("[UI] Failed to refresh accounts: \(error)")
+        }
+    }
+
     // MARK: - IMAP IDLE Monitoring (FR-SYNC-03)
 
     /// Starts monitoring the current folder for new mail via IMAP IDLE.
@@ -1009,9 +1068,10 @@ struct ThreadListView: View {
                     folderId: folder.id
                 )
             } else {
-                // Unified inbox fetch
+                // Unified inbox fetch — filter by folder type if a folder is selected
                 page = try await fetchThreads.fetchUnifiedThreads(
                     category: selectedCategory,
+                    folderType: selectedFolder?.folderType,
                     cursor: nil,
                     pageSize: AppConstants.threadListPageSize
                 )
@@ -1059,6 +1119,7 @@ struct ThreadListView: View {
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
                     category: selectedCategory,
+                    folderType: selectedFolder?.folderType,
                     cursor: paginationCursor,
                     pageSize: AppConstants.threadListPageSize
                 )
@@ -1083,6 +1144,26 @@ struct ThreadListView: View {
         } catch {
             viewState = .error(error.localizedDescription)
         }
+    }
+
+    /// Build a deduplicated folder list for unified "All Accounts" mode.
+    ///
+    /// Collects folders from every account and keeps the first occurrence of
+    /// each `folderType`, so the user sees one "Inbox", one "Sent", etc.
+    /// In unified mode the folder selection is cosmetic (thread loading uses
+    /// `fetchUnifiedThreads` regardless), but it gives the user a consistent
+    /// folder menu rather than stale folders from the last single-account view.
+    private func buildUnifiedFolders() -> [Folder] {
+        var seenTypes = Set<String>()
+        var result: [Folder] = []
+
+        for folder in accounts.flatMap(\.folders) {
+            if seenTypes.insert(folder.folderType).inserted {
+                result.append(folder)
+            }
+        }
+
+        return result
     }
 
     // MARK: - Thread Actions
@@ -1141,7 +1222,7 @@ struct ThreadListView: View {
     }
 
     /// Toggle read/unread status for a thread via swipe action.
-    private func toggleReadStatus(_ thread: PrivateMailFeature.Thread) async {
+    private func toggleReadStatus(_ thread: Thread) async {
         do {
             try await manageThreadActions.toggleReadStatus(threadId: thread.id)
             await reloadThreads()
@@ -1151,7 +1232,7 @@ struct ThreadListView: View {
     }
 
     /// Toggle star/unstar status for a thread via swipe action.
-    private func toggleStarStatus(_ thread: PrivateMailFeature.Thread) async {
+    private func toggleStarStatus(_ thread: Thread) async {
         do {
             try await manageThreadActions.toggleStarStatus(threadId: thread.id)
             await reloadThreads()
@@ -1290,7 +1371,14 @@ struct ThreadListView: View {
             let delay = settings.undoSendDelay.rawValue
             undoSendManager.startCountdown(emailId: emailId, delaySeconds: delay) { emailId in
                 // Timer expired — execute the actual send
-                try? await composeEmail.executeSend(emailId: emailId)
+                do {
+                    try await composeEmail.executeSend(emailId: emailId)
+                    NSLog("[UI] executeSend completed successfully for \(emailId)")
+                } catch {
+                    NSLog("[UI] executeSend FAILED for \(emailId): \(error)")
+                }
+                // Clean up temp attachment files now that send completed (or failed)
+                AttachmentPickerView.cleanupTempAttachments()
             }
         case .savedDraft:
             // Could show a "Draft saved" toast here

@@ -167,7 +167,27 @@ public struct IMAPAttachmentInfo: Sendable, Equatable {
 ///           Validation ref: AC-F-05
 public protocol IMAPClientProtocol: Sendable {
 
-    /// Connects to the IMAP server using TLS and authenticates with XOAUTH2.
+    /// Connects to the IMAP server and authenticates.
+    ///
+    /// Supports multiple security modes and authentication mechanisms:
+    /// - **TLS** (port 993): Implicit TLS — handshake starts immediately.
+    /// - **STARTTLS** (port 143): Plaintext → STARTTLS → TLS upgrade.
+    /// - **XOAUTH2**: OAuth 2.0 for Gmail/Outlook.
+    /// - **PLAIN**: App password for Yahoo/iCloud/custom.
+    ///
+    /// - Parameters:
+    ///   - host: IMAP server hostname (e.g., "imap.gmail.com")
+    ///   - port: IMAP server port (993 for TLS, 143 for STARTTLS)
+    ///   - security: Connection security mode
+    ///   - credential: Authentication credential (XOAUTH2 or PLAIN)
+    /// - Throws: `IMAPError.connectionFailed`, `IMAPError.authenticationFailed`,
+    ///           `IMAPError.timeout`, `IMAPError.starttlsNotSupported`
+    func connect(host: String, port: Int, security: ConnectionSecurity, credential: IMAPCredential) async throws
+
+    /// Connects to the IMAP server using implicit TLS and XOAUTH2.
+    ///
+    /// Convenience overload for backward compatibility with existing call sites.
+    /// Equivalent to `connect(host:port:security:.tls, credential:.xoauth2(...))`.
     ///
     /// - Parameters:
     ///   - host: IMAP server hostname (e.g., "imap.gmail.com")
@@ -203,6 +223,13 @@ public protocol IMAPClientProtocol: Sendable {
     /// Maps to IMAP `SEARCH SINCE <date>` command.
     /// Spec ref: FR-SYNC-01 step 2
     func searchUIDs(since date: Date) async throws -> [UInt32]
+
+    /// Searches for ALL message UIDs in the currently selected folder.
+    ///
+    /// Maps to IMAP `UID SEARCH ALL` command.
+    /// Used for first-time folder sync to fetch the complete folder contents
+    /// regardless of date, ensuring folders like Sent/Drafts show all messages.
+    func searchAllUIDs() async throws -> [UInt32]
 
     /// Fetches email headers for specified UIDs in the currently selected folder.
     ///
@@ -255,10 +282,14 @@ public protocol IMAPClientProtocol: Sendable {
     /// Spec ref: FR-SYNC-08 (Lazy attachment download)
     func fetchBodyPart(uid: UInt32, section: String) async throws -> Data
 
+    /// Configurable IDLE refresh interval per provider (MP-13).
+    /// Default: 25 minutes. Yahoo uses 4 minutes.
+    var idleRefreshInterval: TimeInterval { get set }
+
     /// Starts IMAP IDLE on the currently selected folder.
     ///
     /// The handler is called when the server sends an EXISTS notification.
-    /// Must re-issue IDLE every 25 minutes (Gmail drops after ~29 min).
+    /// Re-issues IDLE based on `idleRefreshInterval`.
     ///
     /// Spec ref: FR-SYNC-03 (Real-time updates)
     func startIDLE(onNewMail: @Sendable @escaping () -> Void) async throws

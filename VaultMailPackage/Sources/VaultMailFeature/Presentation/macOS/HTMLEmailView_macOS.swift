@@ -44,23 +44,26 @@ struct HTMLEmailView_macOS: NSViewRepresentable {
 
     let htmlContent: String
     var onLinkTapped: ((URL) -> Void)?
+    var onLoaded: (() -> Void)?
 
     @Binding var contentHeight: CGFloat
 
     init(
         htmlContent: String,
         contentHeight: Binding<CGFloat>,
-        onLinkTapped: ((URL) -> Void)? = nil
+        onLinkTapped: ((URL) -> Void)? = nil,
+        onLoaded: (() -> Void)? = nil
     ) {
         self.htmlContent = htmlContent
         self._contentHeight = contentHeight
         self.onLinkTapped = onLinkTapped
+        self.onLoaded = onLoaded
     }
 
     // MARK: - NSViewRepresentable
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLinkTapped: onLinkTapped, contentHeight: $contentHeight)
+        Coordinator(onLinkTapped: onLinkTapped, contentHeight: $contentHeight, onLoaded: onLoaded)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -73,6 +76,7 @@ struct HTMLEmailView_macOS: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onLinkTapped = onLinkTapped
+        context.coordinator.onLoaded = onLoaded
         if htmlContent != context.coordinator.lastLoadedHTML {
             context.coordinator.lastLoadedHTML = htmlContent
             webView.loadHTMLString(htmlContent, baseURL: nil)
@@ -117,13 +121,15 @@ struct HTMLEmailView_macOS: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
 
         var onLinkTapped: ((URL) -> Void)?
+        var onLoaded: (() -> Void)?
         var lastLoadedHTML: String?
         weak var webView: WKWebView?
         private var contentHeight: Binding<CGFloat>
 
-        init(onLinkTapped: ((URL) -> Void)?, contentHeight: Binding<CGFloat>) {
+        init(onLinkTapped: ((URL) -> Void)?, contentHeight: Binding<CGFloat>, onLoaded: (() -> Void)? = nil) {
             self.onLinkTapped = onLinkTapped
             self.contentHeight = contentHeight
+            self.onLoaded = onLoaded
         }
 
         // MARK: WKScriptMessageHandler
@@ -204,6 +210,7 @@ struct HTMLEmailView_macOS: NSViewRepresentable {
             })()
             """
             webView.evaluateJavaScript(observerJS) { _, _ in }
+            onLoaded?()
         }
     }
 }

@@ -2,26 +2,46 @@ import AuthenticationServices
 import CryptoKit
 import Foundation
 
-/// OAuth 2.0 manager for Gmail authentication with PKCE.
+/// OAuth 2.0 manager for multi-provider authentication with PKCE.
 ///
 /// Handles the full OAuth authorization flow, token exchange,
 /// and automatic refresh with retry and exponential backoff.
+/// Accepts an `OAuthProviderConfig` to support multiple providers
+/// (Google, Microsoft, etc.) without hardcoding endpoints.
 ///
 /// Spec ref: Account Management spec FR-ACCT-03, FR-ACCT-04
+///           Multi-provider spec FR-MPROV-07
 @MainActor
 public final class OAuthManager: NSObject, OAuthManagerProtocol, ASWebAuthenticationPresentationContextProviding {
 
-    private let clientId: String
+    private let providerConfig: OAuthProviderConfig
     private let urlSession: URLSession
 
-    /// Creates an OAuthManager.
+    /// Which provider this OAuth manager is configured for.
+    public nonisolated var provider: ProviderIdentifier { providerConfig.provider }
+
+    /// Convenience accessor for the client ID.
+    private var clientId: String { providerConfig.clientId }
+
+    /// Creates an OAuthManager with a provider configuration.
     /// - Parameters:
-    ///   - clientId: Google OAuth 2.0 client ID (injected, not hardcoded).
+    ///   - providerConfig: Full OAuth config (endpoints, scopes, PKCE settings).
     ///   - urlSession: URLSession for token requests. Defaults to `.shared`.
-    public init(clientId: String, urlSession: URLSession = .shared) {
-        self.clientId = clientId
+    public init(providerConfig: OAuthProviderConfig, urlSession: URLSession = .shared) {
+        self.providerConfig = providerConfig
         self.urlSession = urlSession
         super.init()
+    }
+
+    /// Backward-compatible convenience init for Google OAuth.
+    /// - Parameters:
+    ///   - clientId: Google OAuth 2.0 client ID.
+    ///   - urlSession: URLSession for token requests. Defaults to `.shared`.
+    public convenience init(clientId: String, urlSession: URLSession = .shared) {
+        self.init(
+            providerConfig: .google(clientId: clientId),
+            urlSession: urlSession
+        )
     }
 
     // MARK: - OAuthManagerProtocol
@@ -29,19 +49,24 @@ public final class OAuthManager: NSObject, OAuthManagerProtocol, ASWebAuthentica
     public func authenticate() async throws -> OAuthToken {
         let codeVerifier = generateCodeVerifier()
         let codeChallenge = generateCodeChallenge(from: codeVerifier)
-        let redirectURI = "\(AppConstants.oauthRedirectScheme):/oauth2redirect"
+        let redirectURI = "\(providerConfig.redirectScheme):/oauth2redirect"
 
-        var components = URLComponents(string: AppConstants.googleAuthEndpoint)!
-        components.queryItems = [
+        var components = URLComponents(string: providerConfig.authEndpoint)!
+        var queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "redirect_uri", value: redirectURI),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "scope", value: AppConstants.oauthScope),
-            URLQueryItem(name: "code_challenge", value: codeChallenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "scope", value: providerConfig.scope),
             URLQueryItem(name: "access_type", value: "offline"),
             URLQueryItem(name: "prompt", value: "consent"),
         ]
+
+        if providerConfig.usesPKCE {
+            queryItems.append(URLQueryItem(name: "code_challenge", value: codeChallenge))
+            queryItems.append(URLQueryItem(name: "code_challenge_method", value: "S256"))
+        }
+
+        components.queryItems = queryItems
 
         guard let authURL = components.url else {
             throw OAuthError.invalidAuthorizationCode
@@ -54,7 +79,7 @@ public final class OAuthManager: NSObject, OAuthManagerProtocol, ASWebAuthentica
         // calls the completion handler on a background thread.
         let callbackURL = try await AuthSessionRunner.start(
             url: authURL,
-            callbackScheme: AppConstants.oauthRedirectScheme
+            callbackScheme: providerConfig.redirectScheme
         )
 
         guard let code = extractAuthorizationCode(from: callbackURL) else {
@@ -123,13 +148,16 @@ public final class OAuthManager: NSObject, OAuthManagerProtocol, ASWebAuthentica
         codeVerifier: String,
         redirectURI: String
     ) async throws -> OAuthToken {
-        let body = [
+        var body = [
             "code": code,
             "client_id": clientId,
             "redirect_uri": redirectURI,
             "grant_type": "authorization_code",
-            "code_verifier": codeVerifier,
         ]
+
+        if providerConfig.usesPKCE {
+            body["code_verifier"] = codeVerifier
+        }
 
         return try await postTokenRequest(body: body)
     }
@@ -149,7 +177,7 @@ public final class OAuthManager: NSObject, OAuthManagerProtocol, ASWebAuthentica
         body: [String: String],
         existingRefreshToken: String? = nil
     ) async throws -> OAuthToken {
-        guard let url = URL(string: AppConstants.googleTokenEndpoint) else {
+        guard let url = URL(string: providerConfig.tokenEndpoint) else {
             throw OAuthError.invalidResponse
         }
 
@@ -191,7 +219,7 @@ public final class OAuthManager: NSObject, OAuthManagerProtocol, ASWebAuthentica
         // Google refresh responses may not include refresh_token
         let refreshToken = (json["refresh_token"] as? String) ?? existingRefreshToken ?? ""
         let tokenType = (json["token_type"] as? String) ?? "Bearer"
-        let scope = (json["scope"] as? String) ?? AppConstants.oauthScope
+        let scope = (json["scope"] as? String) ?? providerConfig.scope
 
         return OAuthToken(
             accessToken: accessToken,

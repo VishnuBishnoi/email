@@ -58,6 +58,8 @@ public enum AppConstants {
     public static let imapConnectionTimeout: TimeInterval = 30.0
     /// Maximum concurrent IMAP connections per account (FR-SYNC-09, Gmail limit)
     public static let imapMaxConnectionsPerAccount = 5
+    /// Maximum total IMAP connections across all accounts (prevents device resource exhaustion)
+    public static let imapMaxGlobalConnections = 25
     /// Retry base delay in seconds for exponential backoff (FR-SYNC-09: 5s, 15s, 45s)
     public static let imapRetryBaseDelay: TimeInterval = 5.0
     /// Maximum retry attempts (FR-SYNC-09)
@@ -66,6 +68,9 @@ public enum AppConstants {
     public static let imapIdleRefreshInterval: TimeInterval = 25 * 60
     /// Maximum email body size in bytes (FR-SYNC-01: 10 MB)
     public static let maxEmailBodySizeBytes = 10 * 1024 * 1024
+
+    /// Read buffer size for socket I/O (64 KB)
+    public static let socketReadBufferSize = 65_536
 
     // MARK: - Thread List (FR-TL-01)
 

@@ -41,16 +41,10 @@ enum IMAPResponseParser {
     /// Format: `* LIST (<attributes>) "<delimiter>" "<path>"`
     /// Example: `* LIST (\HasNoChildren \Sent) "/" "[Gmail]/Sent Mail"`
     static func parseListResponse(_ line: String) -> IMAPFolderInfo? {
-        // Remove "* LIST " prefix
-        let prefixes = ["* LIST ", "* list "]
-        var content: String?
-        for prefix in prefixes {
-            if line.hasPrefix(prefix) {
-                content = String(line.dropFirst(prefix.count))
-                break
-            }
-        }
-        guard let content else { return nil }
+        // Remove "* LIST " prefix (case-insensitive for server compat)
+        let upper = line.uppercased()
+        guard upper.hasPrefix("* LIST ") else { return nil }
+        let content = String(line.dropFirst("* LIST ".count))
 
         // Parse attributes: everything between first ( and matching )
         guard let attrStart = content.firstIndex(of: "("),
@@ -936,13 +930,18 @@ enum IMAPResponseParser {
                 }
                 if index < end { index = text.index(after: index) } // skip closing quote
                 parts.append(str)
+            } else if text[index] == " " {
+                // Skip whitespace
+                index = text.index(after: index)
             } else {
-                // Check for NIL
-                if text[index...].hasPrefix("NIL") {
-                    parts.append("NIL")
-                    index = text.index(index, offsetBy: 3, limitedBy: end) ?? end
-                } else {
+                // Unquoted token (NIL, or unquoted folder name like INBOX)
+                var token = ""
+                while index < end && text[index] != " " && text[index] != "\"" {
+                    token.append(text[index])
                     index = text.index(after: index)
+                }
+                if !token.isEmpty {
+                    parts.append(token)
                 }
             }
         }

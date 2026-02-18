@@ -8,7 +8,27 @@ import Foundation
 /// Spec ref: Email Composer spec FR-COMP-02, Email Sync spec FR-SYNC-07
 public protocol SMTPClientProtocol: Sendable {
 
-    /// Connects to the SMTP server using TLS and authenticates with XOAUTH2.
+    /// Connects to the SMTP server and authenticates.
+    ///
+    /// Supports multiple security modes and authentication mechanisms:
+    /// - **TLS** (port 465): Implicit TLS — handshake starts immediately.
+    /// - **STARTTLS** (port 587): Plaintext → STARTTLS → TLS upgrade.
+    /// - **XOAUTH2**: OAuth 2.0 for Gmail/Outlook.
+    /// - **PLAIN**: App password for Yahoo/iCloud/custom.
+    ///
+    /// - Parameters:
+    ///   - host: SMTP server hostname (e.g., "smtp.gmail.com")
+    ///   - port: SMTP server port (465 for TLS, 587 for STARTTLS)
+    ///   - security: Connection security mode
+    ///   - credential: Authentication credential (XOAUTH2 or PLAIN)
+    /// - Throws: `SMTPError.connectionFailed`, `SMTPError.authenticationFailed`,
+    ///           `SMTPError.timeout`, `SMTPError.starttlsNotSupported`
+    func connect(host: String, port: Int, security: ConnectionSecurity, credential: SMTPCredential) async throws
+
+    /// Connects to the SMTP server using implicit TLS and XOAUTH2.
+    ///
+    /// Convenience overload for backward compatibility with existing call sites.
+    /// Equivalent to `connect(host:port:security:.tls, credential:.xoauth2(...))`.
     ///
     /// - Parameters:
     ///   - host: SMTP server hostname (e.g., "smtp.gmail.com")

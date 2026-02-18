@@ -10,6 +10,7 @@ public enum AccountError: Error, LocalizedError, Sendable {
     case oauthFailure(OAuthError)
     case persistenceFailed(String)
     case imapValidationFailed(String)
+    case appPasswordReAuthRequired(String)
 
     public var errorDescription: String? {
         switch self {
@@ -24,7 +25,9 @@ public enum AccountError: Error, LocalizedError, Sendable {
         case .persistenceFailed(let reason):
             "Persistence error: \(reason)"
         case .imapValidationFailed(let reason):
-            "Couldn't connect to Gmail. \(reason)"
+            "Couldn't connect to mail server. \(reason)"
+        case .appPasswordReAuthRequired(let email):
+            "Please update the app password for \(email) in account settings."
         }
     }
 }

@@ -29,19 +29,37 @@ public actor SMTPClient: SMTPClientProtocol {
         _isConnected
     }
 
-    /// Connects to the SMTP server using TLS and authenticates with XOAUTH2.
+    /// Connects to the SMTP server and authenticates using the specified
+    /// security mode and credential.
+    ///
+    /// Routes to the correct session connect + authenticate methods based
+    /// on the credential type (XOAUTH2 or PLAIN).
     ///
     /// Per FR-SYNC-09:
     /// - Connection timeout: 30 seconds
     /// - Retry with exponential backoff: 5s, 15s, 45s
     /// - Don't retry authentication failures
-    public func connect(host: String, port: Int, email: String, accessToken: String) async throws {
+    ///
+    /// Spec ref: FR-MPROV-02, FR-MPROV-03, FR-MPROV-05
+    public func connect(
+        host: String,
+        port: Int,
+        security: ConnectionSecurity,
+        credential: SMTPCredential
+    ) async throws {
         var lastError: Error?
 
         for attempt in 0...AppConstants.imapMaxRetries {
             do {
-                try await session.connect(host: host, port: port)
-                try await session.authenticateXOAUTH2(email: email, accessToken: accessToken)
+                try await session.connect(host: host, port: port, security: security)
+
+                switch credential {
+                case .xoauth2(let email, let accessToken):
+                    try await session.authenticateXOAUTH2(email: email, accessToken: accessToken)
+                case .plain(let username, let password):
+                    try await session.authenticatePLAIN(username: username, password: password)
+                }
+
                 _isConnected = true
                 return
             } catch {
@@ -56,7 +74,7 @@ public actor SMTPClient: SMTPClientProtocol {
                 if attempt < AppConstants.imapMaxRetries {
                     let delay = AppConstants.imapRetryBaseDelay * pow(3.0, Double(attempt))
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                    await session.disconnect()
+                    await session.disconnectAsync()
                 }
             }
         }
@@ -64,9 +82,21 @@ public actor SMTPClient: SMTPClientProtocol {
         throw lastError ?? SMTPError.maxRetriesExhausted
     }
 
+    /// Connects using implicit TLS and XOAUTH2 (backward-compatible convenience).
+    ///
+    /// Equivalent to `connect(host:port:security:.tls, credential:.xoauth2(...))`.
+    public func connect(host: String, port: Int, email: String, accessToken: String) async throws {
+        try await connect(
+            host: host,
+            port: port,
+            security: .tls,
+            credential: .xoauth2(email: email, accessToken: accessToken)
+        )
+    }
+
     /// Disconnects from the SMTP server gracefully.
     public func disconnect() async {
-        await session.disconnect()
+        await session.disconnectAsync()
         _isConnected = false
     }
 

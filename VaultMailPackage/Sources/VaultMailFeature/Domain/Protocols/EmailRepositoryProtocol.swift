@@ -82,7 +82,7 @@ public protocol EmailRepositoryProtocol {
     ///   - cursor: Pagination cursor (latestDate)
     ///   - limit: Maximum threads per page
     /// - Returns: Array of threads sorted by latestDate DESC
-    func getThreadsUnified(category: String?, cursor: Date?, limit: Int) async throws -> [Thread]
+    func getThreadsUnified(category: String?, folderType: String?, cursor: Date?, limit: Int) async throws -> [Thread]
 
     /// Fetch outbox emails (queued, sending, or failed) for an account.
     /// Spec ref: FR-TL-04 (Outbox is virtual, not a FolderType)

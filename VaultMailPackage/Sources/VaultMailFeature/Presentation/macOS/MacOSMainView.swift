@@ -31,6 +31,8 @@ public struct MacOSMainView: View {
     var summarizeThread: SummarizeThreadUseCaseProtocol?
     var smartReply: SmartReplyUseCaseProtocol?
     var searchUseCase: SearchEmailsUseCase?
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     public init(
         fetchThreads: FetchThreadsUseCaseProtocol,
@@ -48,7 +50,9 @@ public struct MacOSMainView: View {
         aiProcessingQueue: AIProcessingQueue? = nil,
         summarizeThread: SummarizeThreadUseCaseProtocol? = nil,
         smartReply: SmartReplyUseCaseProtocol? = nil,
-        searchUseCase: SearchEmailsUseCase? = nil
+        searchUseCase: SearchEmailsUseCase? = nil,
+        providerDiscovery: ProviderDiscovery? = nil,
+        connectionTestUseCase: ConnectionTestUseCaseProtocol? = nil
     ) {
         self.fetchThreads = fetchThreads
         self.manageThreadActions = manageThreadActions
@@ -66,6 +70,8 @@ public struct MacOSMainView: View {
         self.summarizeThread = summarizeThread
         self.smartReply = smartReply
         self.searchUseCase = searchUseCase
+        self.providerDiscovery = providerDiscovery
+        self.connectionTestUseCase = connectionTestUseCase
     }
 
     // MARK: - Navigation State
@@ -116,6 +122,9 @@ public struct MacOSMainView: View {
 
     // Compose sheet
     @State private var composerMode: ComposerMode? = nil
+
+    // Provider selection
+    @State private var showProviderSelection = false
 
     // Error
     @State private var errorMessage: String? = nil
@@ -292,6 +301,30 @@ public struct MacOSMainView: View {
         .environment(undoSendManager)
         .sheet(item: $composerMode) { mode in
             composerSheet(for: mode)
+        }
+        .sheet(isPresented: $showProviderSelection) {
+            if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
+                MacAddAccountView(
+                    manageAccounts: manageAccounts,
+                    connectionTestUseCase: connTest,
+                    providerDiscovery: discovery,
+                    onAccountAdded: { newAccount in
+                        showProviderSelection = false
+                        Task {
+                            accounts = (try? await manageAccounts.getAccounts()) ?? accounts
+                            // Sync new account
+                            isSyncing = true
+                            syncTask?.cancel()
+                            syncTask = Task {
+                                defer { isSyncing = false; syncTask = nil }
+                                await syncSingleAccount(newAccount.id, isSelected: selectedAccount?.id == newAccount.id)
+                            }
+                            NotificationCenter.default.post(name: AppConstants.accountsDidChangeNotification, object: nil)
+                        }
+                    },
+                    onCancel: { showProviderSelection = false }
+                )
+            }
         }
         .task {
             await initialLoad()
@@ -703,8 +736,8 @@ public struct MacOSMainView: View {
                 counts = try await fetchThreads.fetchUnreadCounts(accountId: account.id, folderId: folder.id)
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
-                    category: selectedCategory, cursor: nil,
-                    pageSize: AppConstants.threadListPageSize
+                    category: selectedCategory, folderType: selectedFolder?.folderType,
+                    cursor: nil, pageSize: AppConstants.threadListPageSize
                 )
                 counts = try await fetchThreads.fetchUnreadCountsUnified()
             }
@@ -738,8 +771,8 @@ public struct MacOSMainView: View {
                 )
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
-                    category: selectedCategory, cursor: paginationCursor,
-                    pageSize: AppConstants.threadListPageSize
+                    category: selectedCategory, folderType: selectedFolder?.folderType,
+                    cursor: paginationCursor, pageSize: AppConstants.threadListPageSize
                 )
             }
             threads.append(contentsOf: page.threads)
@@ -881,27 +914,32 @@ public struct MacOSMainView: View {
 
     // MARK: - Sidebar Account Actions
 
-    /// Adds a new account via OAuth directly from the sidebar.
-    /// Reuses the same logic as MacSettingsView's addAccount.
+    /// Adds a new account from the sidebar.
+    ///
+    /// When multi-provider support is available, shows the ProviderSelectionView
+    /// sheet. Otherwise falls back to legacy OAuth-only flow.
     private func addAccountFromSidebar() async {
-        do {
-            let newAccount = try await manageAccounts.addAccountViaOAuth()
-            let freshAccounts = try await manageAccounts.getAccounts()
-            accounts = freshAccounts
+        if providerDiscovery != nil && connectionTestUseCase != nil {
+            showProviderSelection = true
+        } else {
+            // Legacy OAuth-only flow
+            do {
+                let newAccount = try await manageAccounts.addAccountViaOAuth()
+                let freshAccounts = try await manageAccounts.getAccounts()
+                accounts = freshAccounts
 
-            // Sync the newly added account's folders
-            isSyncing = true
-            syncTask?.cancel()
-            syncTask = Task {
-                defer { isSyncing = false; syncTask = nil }
-                let isSelected = selectedAccount?.id == newAccount.id
-                await syncSingleAccount(newAccount.id, isSelected: isSelected)
+                isSyncing = true
+                syncTask?.cancel()
+                syncTask = Task {
+                    defer { isSyncing = false; syncTask = nil }
+                    let isSelected = selectedAccount?.id == newAccount.id
+                    await syncSingleAccount(newAccount.id, isSelected: isSelected)
+                }
+
+                NotificationCenter.default.post(name: AppConstants.accountsDidChangeNotification, object: nil)
+            } catch {
+                // OAuth cancelled or failed
             }
-
-            // Notify Settings window (if open) to refresh
-            NotificationCenter.default.post(name: AppConstants.accountsDidChangeNotification, object: nil)
-        } catch {
-            // OAuth cancelled or failed — no action needed
         }
     }
 
@@ -951,7 +989,13 @@ public struct MacOSMainView: View {
         case .sent(let emailId):
             let delay = settings.undoSendDelay.rawValue
             undoSendManager.startCountdown(emailId: emailId, delaySeconds: delay) { emailId in
-                try? await composeEmail.executeSend(emailId: emailId)
+                do {
+                    try await composeEmail.executeSend(emailId: emailId)
+                    NSLog("[UI] executeSend completed successfully for \(emailId)")
+                } catch {
+                    NSLog("[UI] executeSend FAILED for \(emailId): \(error)")
+                }
+                AttachmentPickerView.cleanupTempAttachments()
             }
         case .savedDraft, .discarded, .cancelled:
             break

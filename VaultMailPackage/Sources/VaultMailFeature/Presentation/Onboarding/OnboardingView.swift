@@ -14,6 +14,8 @@ public struct OnboardingView: View {
     let syncEmails: SyncEmailsUseCaseProtocol
     let modelManager: ModelManager
     var aiEngineResolver: AIEngineResolver?
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @State private var currentStep = 0
     @State private var addedAccounts: [Account] = []
@@ -25,12 +27,16 @@ public struct OnboardingView: View {
         manageAccounts: ManageAccountsUseCaseProtocol,
         syncEmails: SyncEmailsUseCaseProtocol,
         modelManager: ModelManager = ModelManager(),
-        aiEngineResolver: AIEngineResolver? = nil
+        aiEngineResolver: AIEngineResolver? = nil,
+        providerDiscovery: ProviderDiscovery? = nil,
+        connectionTestUseCase: ConnectionTestUseCaseProtocol? = nil
     ) {
         self.manageAccounts = manageAccounts
         self.syncEmails = syncEmails
         self.modelManager = modelManager
         self.aiEngineResolver = aiEngineResolver
+        self.providerDiscovery = providerDiscovery
+        self.connectionTestUseCase = connectionTestUseCase
     }
 
     public var body: some View {
@@ -50,7 +56,9 @@ public struct OnboardingView: View {
                 case 1:
                     OnboardingAccountStep(
                         manageAccounts: manageAccounts,
-                        addedAccounts: $addedAccounts
+                        addedAccounts: $addedAccounts,
+                        providerDiscovery: providerDiscovery,
+                        connectionTestUseCase: connectionTestUseCase
                     ) {
                         advanceStep()
                     }

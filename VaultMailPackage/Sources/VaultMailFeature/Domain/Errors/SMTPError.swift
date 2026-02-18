@@ -23,6 +23,12 @@ public enum SMTPError: Error, LocalizedError, Equatable, Sendable {
     case maxRetriesExhausted
     /// MIME message encoding failed.
     case encodingFailed(String)
+    /// Server does not advertise STARTTLS capability (FR-MPROV-05).
+    case starttlsNotSupported
+    /// TLS upgrade failed after STARTTLS command (FR-MPROV-05).
+    case tlsUpgradeFailed(String)
+    /// Server certificate is invalid or untrusted (FR-MPROV-05, NFR-SYNC-05).
+    case certificateValidationFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -42,6 +48,12 @@ public enum SMTPError: Error, LocalizedError, Equatable, Sendable {
             "SMTP Maximum Retries Exhausted"
         case .encodingFailed(let message):
             "SMTP Encoding Failed: \(message)"
+        case .starttlsNotSupported:
+            "SMTP STARTTLS Not Supported: This server does not support secure connections."
+        case .tlsUpgradeFailed(let message):
+            "SMTP TLS Upgrade Failed: \(message)"
+        case .certificateValidationFailed(let message):
+            "SMTP Certificate Validation Failed: \(message)"
         }
     }
 }

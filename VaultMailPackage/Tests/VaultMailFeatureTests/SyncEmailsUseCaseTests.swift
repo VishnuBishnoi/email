@@ -13,10 +13,15 @@ struct SyncEmailsUseCaseTests {
     // MARK: - Mock Connection Provider
 
     /// Simple mock that always returns the same MockIMAPClient.
+    /// Captures the last security mode and credential for assertion.
     private final class MockConnectionProvider: ConnectionProviding, @unchecked Sendable {
         let client: MockIMAPClient
         var checkoutCount = 0
         var checkinCount = 0
+        var lastSecurity: ConnectionSecurity?
+        var lastCredential: IMAPCredential?
+        var lastHost: String?
+        var lastPort: Int?
 
         init(client: MockIMAPClient) {
             self.client = client
@@ -26,10 +31,14 @@ struct SyncEmailsUseCaseTests {
             accountId: String,
             host: String,
             port: Int,
-            email: String,
-            accessToken: String
+            security: ConnectionSecurity,
+            credential: IMAPCredential
         ) async throws -> any IMAPClientProtocol {
             checkoutCount += 1
+            lastHost = host
+            lastPort = port
+            lastSecurity = security
+            lastCredential = credential
             return client
         }
 
@@ -58,19 +67,41 @@ struct SyncEmailsUseCaseTests {
         )
     }
 
+    /// Creates a SUT with a shared connection provider so captured credentials can be inspected.
+    private func makeSUTWithProvider() -> (SyncEmailsUseCase, MockConnectionProvider) {
+        let provider = MockConnectionProvider(client: mockIMAPClient)
+        let useCase = SyncEmailsUseCase(
+            accountRepository: accountRepo,
+            emailRepository: emailRepo,
+            keychainManager: keychainManager,
+            connectionPool: provider
+        )
+        return (useCase, provider)
+    }
+
     private func createAccount(
         id: String = "acc-1",
         email: String = "test@gmail.com",
-        isActive: Bool = true
+        isActive: Bool = true,
+        providerConfig: ProviderConfiguration? = nil
     ) -> Account {
-        let account = Account(
-            email: email,
-            displayName: "Test",
-            imapHost: "imap.gmail.com",
-            imapPort: 993,
-            smtpHost: "smtp.gmail.com",
-            smtpPort: 587
-        )
+        let account: Account
+        if let config = providerConfig {
+            account = Account(
+                email: email,
+                displayName: "Test",
+                providerConfig: config
+            )
+        } else {
+            account = Account(
+                email: email,
+                displayName: "Test",
+                imapHost: "imap.gmail.com",
+                imapPort: 993,
+                smtpHost: "smtp.gmail.com",
+                smtpPort: 587
+            )
+        }
         // Override auto-generated ID for test determinism
         // Account uses UUID, but we can use it as-is since we reference account.id
         account.isActive = isActive
@@ -79,6 +110,19 @@ struct SyncEmailsUseCaseTests {
 
     private func addAccountToRepo(_ account: Account) async throws {
         try await accountRepo.addAccount(account)
+        // Store a dummy OAuth credential so resolveIMAPCredential() succeeds
+        let dummyToken = OAuthToken(
+            accessToken: "test-access-token",
+            refreshToken: "test-refresh-token",
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        try await keychainManager.storeCredential(.oauth(dummyToken), for: account.id)
+    }
+
+    /// Adds an account to the repo with a `.password` credential (for app-password providers).
+    private func addAppPasswordAccountToRepo(_ account: Account, password: String) async throws {
+        try await accountRepo.addAccount(account)
+        try await keychainManager.storeCredential(.password(password), for: account.id)
     }
 
     private func createInboxFolder(accountId: String) -> Folder {
@@ -176,11 +220,14 @@ struct SyncEmailsUseCaseTests {
         let useCase = sut
         try await useCase.syncAccount(accountId: account.id)
 
-        // Only Inbox should be saved (All Mail is not syncable)
-        // The folder save count tells us how many folders were synced
+        // All Mail is saved as a reference-only folder (so archive actions work)
+        // but should NOT have its emails synced — only SELECT is called on Inbox.
         let savedFolders = emailRepo.folders
         let allMailFolder = savedFolders.first(where: { $0.imapPath == "[Gmail]/All Mail" })
-        #expect(allMailFolder == nil)
+        #expect(allMailFolder != nil, "All Mail saved as reference-only folder for archive actions")
+
+        // Verify All Mail was NOT selected for email sync (only INBOX was selected)
+        #expect(mockIMAPClient.lastSelectedPath == "INBOX")
     }
 
     // MARK: - Email Sync
@@ -782,5 +829,277 @@ struct SyncEmailsUseCaseTests {
         await #expect(throws: SyncError.self) {
             _ = try await useCase.syncAccountInboxFirst(accountId: "nonexistent") { _ in }
         }
+    }
+
+    // MARK: - STARTTLS / PLAIN Credential Tests (P1-08)
+
+    @Test("syncAccount with iCloud account resolves PLAIN credential and TLS security")
+    func syncAccountICloudPlainCredential() async throws {
+        let config = ProviderRegistry.provider(for: .icloud)!
+        let account = createAccount(
+            email: "user@icloud.com",
+            providerConfig: config
+        )
+        try await addAppPasswordAccountToRepo(account, password: "abcd-efgh-ijkl-mnop")
+
+        // Verify account has correct provider settings
+        #expect(account.resolvedAuthMethod == .plain)
+        #expect(account.imapHost == "imap.mail.me.com")
+        #expect(account.imapPort == 993)
+        #expect(account.resolvedImapSecurity == .tls)
+
+        mockIMAPClient.listFoldersResult = .success([])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        try await useCase.syncAccount(accountId: account.id)
+
+        // Verify the connection provider received PLAIN credential
+        #expect(provider.lastCredential == .plain(username: "user@icloud.com", password: "abcd-efgh-ijkl-mnop"),
+                "iCloud account should use PLAIN credential with app password")
+        #expect(provider.lastSecurity == .tls,
+                "iCloud IMAP uses TLS on port 993")
+        #expect(provider.lastHost == "imap.mail.me.com")
+        #expect(provider.lastPort == 993)
+        #expect(provider.checkoutCount == 1)
+    }
+
+    @Test("syncAccount with Yahoo account resolves PLAIN credential and TLS security")
+    func syncAccountYahooPlainCredential() async throws {
+        let config = ProviderRegistry.provider(for: .yahoo)!
+        let account = createAccount(
+            email: "user@yahoo.com",
+            providerConfig: config
+        )
+        try await addAppPasswordAccountToRepo(account, password: "yahoo-app-password-123")
+
+        // Verify account has correct provider settings
+        #expect(account.resolvedAuthMethod == .plain)
+        #expect(account.imapHost == "imap.mail.yahoo.com")
+        #expect(account.imapPort == 993)
+        #expect(account.resolvedImapSecurity == .tls)
+
+        mockIMAPClient.listFoldersResult = .success([])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        try await useCase.syncAccount(accountId: account.id)
+
+        // Verify the connection provider received PLAIN credential
+        #expect(provider.lastCredential == .plain(username: "user@yahoo.com", password: "yahoo-app-password-123"),
+                "Yahoo account should use PLAIN credential with app password")
+        #expect(provider.lastSecurity == .tls,
+                "Yahoo IMAP uses TLS on port 993")
+        #expect(provider.lastHost == "imap.mail.yahoo.com")
+        #expect(provider.lastPort == 993)
+    }
+
+    @Test("syncAccount with Gmail account resolves XOAUTH2 credential")
+    func syncAccountGmailXOAuth2Credential() async throws {
+        let account = createAccount(email: "test@gmail.com")
+        try await addAccountToRepo(account)
+
+        // Gmail uses default OAuth setup
+        #expect(account.resolvedAuthMethod == .xoauth2)
+
+        mockIMAPClient.listFoldersResult = .success([])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        try await useCase.syncAccount(accountId: account.id)
+
+        // Verify the connection provider received XOAUTH2 credential
+        if case .xoauth2(let email, let token) = provider.lastCredential {
+            #expect(email == "test@gmail.com")
+            #expect(token == "test-access-token")
+        } else {
+            Issue.record("Expected .xoauth2 credential, got \(String(describing: provider.lastCredential))")
+        }
+        #expect(provider.lastSecurity == .tls,
+                "Gmail IMAP uses TLS on port 993")
+    }
+
+    @Test("syncAccount with iCloud account fetches emails successfully with PLAIN auth")
+    func syncAccountICloudFetchesEmails() async throws {
+        let config = ProviderRegistry.provider(for: .icloud)!
+        let account = createAccount(
+            email: "user@icloud.com",
+            providerConfig: config
+        )
+        try await addAppPasswordAccountToRepo(account, password: "icloud-app-pw")
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 1
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 1))
+        mockIMAPClient.searchUIDsResult = .success([101])
+
+        let now = Date()
+        mockIMAPClient.fetchHeadersResult = .success([
+            IMAPEmailHeader(
+                uid: 101,
+                messageId: "<icloud-msg@icloud.com>",
+                inReplyTo: nil,
+                references: nil,
+                from: "Alice <alice@example.com>",
+                to: ["user@icloud.com"],
+                subject: "Hello from iCloud",
+                date: now,
+                flags: []
+            )
+        ])
+        mockIMAPClient.fetchBodiesResult = .success([
+            IMAPEmailBody(uid: 101, plainText: "iCloud body", htmlText: nil)
+        ])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        let syncedEmails = try await useCase.syncAccount(accountId: account.id)
+
+        // Verify credential was PLAIN
+        #expect(provider.lastCredential == .plain(username: "user@icloud.com", password: "icloud-app-pw"))
+
+        // Verify email was synced
+        #expect(syncedEmails.count == 1)
+        #expect(syncedEmails.first?.subject == "Hello from iCloud")
+        #expect(emailRepo.saveEmailCallCount == 1)
+    }
+
+    @Test("syncAccount with Yahoo account fetches emails successfully with PLAIN auth")
+    func syncAccountYahooFetchesEmails() async throws {
+        let config = ProviderRegistry.provider(for: .yahoo)!
+        let account = createAccount(
+            email: "user@yahoo.com",
+            providerConfig: config
+        )
+        try await addAppPasswordAccountToRepo(account, password: "yahoo-pw")
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 1
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 1))
+        mockIMAPClient.searchUIDsResult = .success([201])
+
+        let now = Date()
+        mockIMAPClient.fetchHeadersResult = .success([
+            IMAPEmailHeader(
+                uid: 201,
+                messageId: "<yahoo-msg@yahoo.com>",
+                inReplyTo: nil,
+                references: nil,
+                from: "Bob <bob@example.com>",
+                to: ["user@yahoo.com"],
+                subject: "Hello from Yahoo",
+                date: now,
+                flags: ["\\Seen"]
+            )
+        ])
+        mockIMAPClient.fetchBodiesResult = .success([
+            IMAPEmailBody(uid: 201, plainText: "Yahoo body", htmlText: nil)
+        ])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        let syncedEmails = try await useCase.syncAccount(accountId: account.id)
+
+        // Verify credential was PLAIN
+        #expect(provider.lastCredential == .plain(username: "user@yahoo.com", password: "yahoo-pw"))
+
+        // Verify email was synced with correct flags
+        #expect(syncedEmails.count == 1)
+        #expect(syncedEmails.first?.subject == "Hello from Yahoo")
+        #expect(syncedEmails.first?.isRead == true, "\\Seen flag should map to isRead=true")
+    }
+
+    @Test("syncAccountInboxFirst with iCloud account uses PLAIN credential")
+    func syncAccountInboxFirstICloudPlainCredential() async throws {
+        let config = ProviderRegistry.provider(for: .icloud)!
+        let account = createAccount(
+            email: "user@icloud.com",
+            providerConfig: config
+        )
+        try await addAppPasswordAccountToRepo(account, password: "icloud-pw")
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 0
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 0))
+        mockIMAPClient.searchUIDsResult = .success([])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        _ = try await useCase.syncAccountInboxFirst(accountId: account.id) { _ in }
+
+        #expect(provider.lastCredential == .plain(username: "user@icloud.com", password: "icloud-pw"),
+                "syncAccountInboxFirst should resolve PLAIN credential for iCloud")
+        #expect(provider.lastSecurity == .tls)
+    }
+
+    @Test("syncFolder with Yahoo account uses PLAIN credential")
+    func syncFolderYahooPlainCredential() async throws {
+        let config = ProviderRegistry.provider(for: .yahoo)!
+        let account = createAccount(
+            email: "user@yahoo.com",
+            providerConfig: config
+        )
+        try await addAppPasswordAccountToRepo(account, password: "yahoo-folder-pw")
+
+        // Pre-populate the folder in the repo
+        let folder = createInboxFolder(accountId: account.id)
+        folder.account = account
+        emailRepo.folders.append(folder)
+
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 0))
+        mockIMAPClient.searchUIDsResult = .success([])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        try await useCase.syncFolder(accountId: account.id, folderId: folder.id)
+
+        #expect(provider.lastCredential == .plain(username: "user@yahoo.com", password: "yahoo-folder-pw"),
+                "syncFolder should resolve PLAIN credential for Yahoo")
+        #expect(provider.lastHost == "imap.mail.yahoo.com")
+        #expect(provider.lastPort == 993)
+    }
+
+    @Test("syncAccount with Outlook account resolves XOAUTH2 credential and TLS security")
+    func syncAccountOutlookXOAuth2Credential() async throws {
+        let config = ProviderRegistry.provider(for: .outlook)!
+        let account = createAccount(
+            email: "user@outlook.com",
+            providerConfig: config
+        )
+        try await addAccountToRepo(account)
+
+        // Outlook uses XOAUTH2
+        #expect(account.resolvedAuthMethod == .xoauth2)
+        #expect(account.imapHost == "outlook.office365.com")
+        #expect(account.imapPort == 993)
+        #expect(account.resolvedImapSecurity == .tls)
+
+        mockIMAPClient.listFoldersResult = .success([])
+
+        let (useCase, provider) = makeSUTWithProvider()
+        try await useCase.syncAccount(accountId: account.id)
+
+        // Verify the connection provider received XOAUTH2 credential
+        if case .xoauth2(let email, _) = provider.lastCredential {
+            #expect(email == "user@outlook.com")
+        } else {
+            Issue.record("Expected .xoauth2 credential for Outlook, got \(String(describing: provider.lastCredential))")
+        }
+        #expect(provider.lastSecurity == .tls)
+        #expect(provider.lastHost == "outlook.office365.com")
     }
 }

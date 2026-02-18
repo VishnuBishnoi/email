@@ -1,5 +1,19 @@
 import Foundation
 
+/// Thread-safe mutable value box for crossing actor isolation boundaries.
+/// Used for properties that need to be set from outside an actor (e.g., IDLE interval).
+private final class LockedValue<T: Sendable>: @unchecked Sendable {
+    private var _value: T
+    private let lock = NSLock()
+
+    init(_ value: T) { _value = value }
+
+    var value: T {
+        get { lock.withLock { _value } }
+        set { lock.withLock { _value = newValue } }
+    }
+}
+
 /// Production IMAP client conforming to `IMAPClientProtocol`.
 ///
 /// Uses `IMAPSession` for TLS connection management and `IMAPResponseParser`
@@ -28,6 +42,15 @@ public actor IMAPClient: IMAPClientProtocol {
     private var idleTask: Task<Void, Never>?
     private var idleHandler: (@Sendable () -> Void)?
 
+    /// Configurable IDLE refresh interval per provider (MP-13).
+    /// Defaults to 25 minutes (Gmail). Yahoo uses 4 minutes.
+    /// Thread-safe via LockedValue since it is set from outside the actor before IDLE starts.
+    private let _idleRefreshStorage = LockedValue(AppConstants.imapIdleRefreshInterval)
+    public nonisolated var idleRefreshInterval: TimeInterval {
+        get { _idleRefreshStorage.value }
+        set { _idleRefreshStorage.value = newValue }
+    }
+
     // MARK: - Init
 
     /// Creates an IMAP client with the specified timeout.
@@ -40,26 +63,43 @@ public actor IMAPClient: IMAPClientProtocol {
     // MARK: - IMAPClientProtocol: Connection
 
     public var isConnected: Bool {
-        _isConnected
+        get async {
+            guard _isConnected else { return false }
+            return await session.isSessionConnected
+        }
     }
 
-    /// Connects to the IMAP server using TLS and authenticates with XOAUTH2.
+    /// Connects to the IMAP server and authenticates using the specified
+    /// security mode and credential.
     ///
-    /// Per AC-F-05:
-    /// - Connection MUST use TLS (port 993)
-    /// - XOAUTH2 authentication MUST succeed with valid credentials
+    /// Routes to the correct session connect + authenticate methods based
+    /// on the credential type (XOAUTH2 or PLAIN).
     ///
     /// Per FR-SYNC-09:
     /// - Connection timeout: 30 seconds
     /// - Retry with exponential backoff: 5s, 15s, 45s
-    public func connect(host: String, port: Int, email: String, accessToken: String) async throws {
+    ///
+    /// Spec ref: FR-MPROV-02, FR-MPROV-03, FR-MPROV-05
+    public func connect(
+        host: String,
+        port: Int,
+        security: ConnectionSecurity,
+        credential: IMAPCredential
+    ) async throws {
         var lastError: Error?
 
         // Retry logic per FR-SYNC-09: 3 retries with exponential backoff (5s, 15s, 45s)
         for attempt in 0...AppConstants.imapMaxRetries {
             do {
-                try await session.connect(host: host, port: port)
-                try await session.authenticateXOAUTH2(email: email, accessToken: accessToken)
+                try await session.connect(host: host, port: port, security: security)
+
+                switch credential {
+                case .xoauth2(let email, let accessToken):
+                    try await session.authenticateXOAUTH2(email: email, accessToken: accessToken)
+                case .plain(let username, let password):
+                    try await session.authenticatePLAIN(username: username, password: password)
+                }
+
                 _isConnected = true
                 return
             } catch let error as IMAPError {
@@ -75,19 +115,31 @@ public actor IMAPClient: IMAPClientProtocol {
                     let delay = AppConstants.imapRetryBaseDelay * pow(3.0, Double(attempt))
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     // Disconnect before retrying
-                    await session.disconnect()
+                    await session.disconnectAsync()
                 }
             } catch {
                 lastError = error
                 if attempt < AppConstants.imapMaxRetries {
                     let delay = AppConstants.imapRetryBaseDelay * pow(3.0, Double(attempt))
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                    await session.disconnect()
+                    await session.disconnectAsync()
                 }
             }
         }
 
         throw lastError ?? IMAPError.maxRetriesExhausted
+    }
+
+    /// Connects using implicit TLS and XOAUTH2 (backward-compatible convenience).
+    ///
+    /// Equivalent to `connect(host:port:security:.tls, credential:.xoauth2(...))`.
+    public func connect(host: String, port: Int, email: String, accessToken: String) async throws {
+        try await connect(
+            host: host,
+            port: port,
+            security: .tls,
+            credential: .xoauth2(email: email, accessToken: accessToken)
+        )
     }
 
     /// Disconnects from the IMAP server gracefully.
@@ -96,7 +148,7 @@ public actor IMAPClient: IMAPClientProtocol {
         idleTask = nil
         idleHandler = nil
 
-        await session.disconnect()
+        await session.disconnectAsync()
         _isConnected = false
         _selectedFolder = nil
     }
@@ -145,6 +197,15 @@ public actor IMAPClient: IMAPClientProtocol {
         let dateStr = Self.searchDateFormatter.string(from: date)
 
         let responses = try await session.execute("UID SEARCH SINCE \(dateStr)")
+        return IMAPResponseParser.parseSearchResponse(from: responses)
+    }
+
+    /// Searches for ALL message UIDs in the currently selected folder.
+    ///
+    /// Maps to IMAP `UID SEARCH ALL`. Used for first-time folder sync
+    /// to fetch complete folder contents regardless of date.
+    public func searchAllUIDs() async throws -> [UInt32] {
+        let responses = try await session.execute("UID SEARCH ALL")
         return IMAPResponseParser.parseSearchResponse(from: responses)
     }
 
@@ -427,8 +488,12 @@ public actor IMAPClient: IMAPClientProtocol {
     ///
     /// Reads notifications from the server during IDLE and calls the
     /// handler on EXISTS. Re-issues IDLE every 25 minutes (FR-SYNC-03).
+    ///
+    /// Timeout from `readIDLENotification()` triggers a re-issue rather
+    /// than breaking the loop — the server may simply have had no new mail.
+    /// Only genuine errors (connection drop, cancellation) exit the loop.
     private func runIDLELoop() async {
-        let refreshInterval = AppConstants.imapIdleRefreshInterval
+        let refreshInterval = idleRefreshInterval
         var lastIDLEStart = Date()
 
         while !Task.isCancelled {
@@ -447,8 +512,21 @@ public actor IMAPClient: IMAPClientProtocol {
                 if notification.contains("EXISTS") {
                     idleHandler?()
                 }
+            } catch is CancellationError {
+                // Normal shutdown — exit cleanly
+                break
+            } catch let error as IMAPError where error == .timeout {
+                // Read timeout — server had nothing to say. Re-issue IDLE.
+                do {
+                    try await session.stopIDLE()
+                    _ = try await session.startIDLE()
+                    lastIDLEStart = Date()
+                } catch {
+                    // Re-issue failed — connection is dead
+                    break
+                }
             } catch {
-                // Connection dropped or IDLE stopped — exit loop
+                // Connection dropped or other fatal error — exit loop
                 break
             }
         }

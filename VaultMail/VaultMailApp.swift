@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import VaultMailFeature
 
-@main
+@main @MainActor
 struct VaultMailApp: App {
     /// Holds all app dependencies. `nil` when ModelContainer creation fails.
     private let dependencies: AppDependencies?
@@ -21,60 +21,16 @@ struct VaultMailApp: App {
     }
 
     var body: some Scene {
+        mainWindowScene
+        #if os(macOS)
+        settingsScene
+        #endif
+    }
+
+    private var mainWindowScene: some Scene {
         WindowGroup {
             if let deps = dependencies {
-                #if os(macOS)
-                MacOSMainView(
-                    fetchThreads: deps.fetchThreads,
-                    manageThreadActions: deps.manageThreadActions,
-                    manageAccounts: deps.manageAccounts,
-                    syncEmails: deps.syncEmails,
-                    fetchEmailDetail: deps.fetchEmailDetail,
-                    markRead: deps.markRead,
-                    downloadAttachment: deps.downloadAttachment,
-                    composeEmail: deps.composeEmail,
-                    queryContacts: deps.queryContacts,
-                    idleMonitor: deps.idleMonitor,
-                    modelManager: deps.aiModelManager,
-                    aiEngineResolver: deps.aiEngineResolver,
-                    aiProcessingQueue: deps.aiProcessingQueue,
-                    summarizeThread: deps.summarizeThread,
-                    smartReply: deps.smartReply,
-                    searchUseCase: deps.searchUseCase
-                )
-                .environment(deps.settingsStore)
-                .modelContainer(deps.modelContainer)
-                .task {
-                    await deps.searchIndexManager.openIndex()
-                    await deps.searchIndexManager.reindexIfNeeded()
-                }
-                #else
-                ContentView(
-                    manageAccounts: deps.manageAccounts,
-                    fetchThreads: deps.fetchThreads,
-                    manageThreadActions: deps.manageThreadActions,
-                    syncEmails: deps.syncEmails,
-                    fetchEmailDetail: deps.fetchEmailDetail,
-                    markRead: deps.markRead,
-                    downloadAttachment: deps.downloadAttachment,
-                    composeEmail: deps.composeEmail,
-                    queryContacts: deps.queryContacts,
-                    idleMonitor: deps.idleMonitor,
-                    appLockManager: deps.appLockManager,
-                    modelManager: deps.aiModelManager,
-                    aiEngineResolver: deps.aiEngineResolver,
-                    aiProcessingQueue: deps.aiProcessingQueue,
-                    summarizeThread: deps.summarizeThread,
-                    smartReply: deps.smartReply,
-                    searchUseCase: deps.searchUseCase
-                )
-                .environment(deps.settingsStore)
-                .modelContainer(deps.modelContainer)
-                .task {
-                    await deps.searchIndexManager.openIndex()
-                    await deps.searchIndexManager.reindexIfNeeded()
-                }
-                #endif
+                mainView(deps: deps)
             } else {
                 DatabaseErrorView(message: containerError ?? "Unknown error")
             }
@@ -84,18 +40,82 @@ struct VaultMailApp: App {
         .windowResizability(.contentMinSize)
         .commands { AppCommands() }
         #endif
+    }
 
-        #if os(macOS)
-        if let deps = dependencies {
-            Settings {
+    #if os(macOS)
+    private var settingsScene: some Scene {
+        Settings {
+            if let deps = dependencies {
                 MacSettingsView(
                     manageAccounts: deps.manageAccounts,
                     modelManager: deps.aiModelManager,
-                    aiEngineResolver: deps.aiEngineResolver
+                    aiEngineResolver: deps.aiEngineResolver,
+                    providerDiscovery: deps.providerDiscovery,
+                    connectionTestUseCase: deps.connectionTestUseCase
                 )
                 .environment(deps.settingsStore)
                 .modelContainer(deps.modelContainer)
             }
+        }
+    }
+    #endif
+
+    @ViewBuilder
+    private func mainView(deps: AppDependencies) -> some View {
+        #if os(macOS)
+        MacOSMainView(
+            fetchThreads: deps.fetchThreads,
+            manageThreadActions: deps.manageThreadActions,
+            manageAccounts: deps.manageAccounts,
+            syncEmails: deps.syncEmails,
+            fetchEmailDetail: deps.fetchEmailDetail,
+            markRead: deps.markRead,
+            downloadAttachment: deps.downloadAttachment,
+            composeEmail: deps.composeEmail,
+            queryContacts: deps.queryContacts,
+            idleMonitor: deps.idleMonitor,
+            modelManager: deps.aiModelManager,
+            aiEngineResolver: deps.aiEngineResolver,
+            aiProcessingQueue: deps.aiProcessingQueue,
+            summarizeThread: deps.summarizeThread,
+            smartReply: deps.smartReply,
+            searchUseCase: deps.searchUseCase,
+            providerDiscovery: deps.providerDiscovery,
+            connectionTestUseCase: deps.connectionTestUseCase
+        )
+        .environment(deps.settingsStore)
+        .modelContainer(deps.modelContainer)
+        .task {
+            await deps.searchIndexManager.openIndex()
+            await deps.searchIndexManager.reindexIfNeeded()
+        }
+        #else
+        ContentView(
+            manageAccounts: deps.manageAccounts,
+            fetchThreads: deps.fetchThreads,
+            manageThreadActions: deps.manageThreadActions,
+            syncEmails: deps.syncEmails,
+            fetchEmailDetail: deps.fetchEmailDetail,
+            markRead: deps.markRead,
+            downloadAttachment: deps.downloadAttachment,
+            composeEmail: deps.composeEmail,
+            queryContacts: deps.queryContacts,
+            idleMonitor: deps.idleMonitor,
+            appLockManager: deps.appLockManager,
+            modelManager: deps.aiModelManager,
+            aiEngineResolver: deps.aiEngineResolver,
+            aiProcessingQueue: deps.aiProcessingQueue,
+            summarizeThread: deps.summarizeThread,
+            smartReply: deps.smartReply,
+            searchUseCase: deps.searchUseCase,
+            providerDiscovery: deps.providerDiscovery,
+            connectionTestUseCase: deps.connectionTestUseCase
+        )
+        .environment(deps.settingsStore)
+        .modelContainer(deps.modelContainer)
+        .task {
+            await deps.searchIndexManager.openIndex()
+            await deps.searchIndexManager.reindexIfNeeded()
         }
         #endif
     }
@@ -105,6 +125,7 @@ struct VaultMailApp: App {
 
 /// Encapsulates all app-level dependencies that require a valid ModelContainer.
 /// Created once at launch and passed through the view hierarchy.
+@MainActor
 private struct AppDependencies {
     let modelContainer: ModelContainer
     let settingsStore: SettingsStore
@@ -129,6 +150,8 @@ private struct AppDependencies {
     let vectorEngine: VectorSearchEngine
     let searchIndexManager: SearchIndexManager
     let searchUseCase: SearchEmailsUseCase
+    let providerDiscovery: ProviderDiscovery
+    let connectionTestUseCase: ConnectionTestUseCaseProtocol
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -154,7 +177,12 @@ private struct AppDependencies {
             connectionProvider: connectionPool
         )
 
-        fetchEmailDetail = FetchEmailDetailUseCase(repository: emailRepo)
+        fetchEmailDetail = FetchEmailDetailUseCase(
+            repository: emailRepo,
+            connectionProvider: connectionPool,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
         markRead = MarkReadUseCase(repository: emailRepo)
         downloadAttachment = DownloadAttachmentUseCase(
             repository: emailRepo,
@@ -174,7 +202,8 @@ private struct AppDependencies {
             repository: emailRepo,
             accountRepository: accountRepo,
             keychainManager: keychainManager,
-            smtpClient: SMTPClient()
+            smtpClient: SMTPClient(),
+            connectionProvider: connectionPool
         )
         queryContacts = QueryContactsUseCase(repository: emailRepo)
 
@@ -224,5 +253,9 @@ private struct AppDependencies {
         )
         summarizeThread = SummarizeThreadUseCase(aiRepository: aiRepository)
         smartReply = SmartReplyUseCase(aiRepository: aiRepository)
+
+        // Multi-provider support (MP-08, MP-09)
+        providerDiscovery = ProviderDiscovery()
+        connectionTestUseCase = ConnectionTestUseCase()
     }
 }

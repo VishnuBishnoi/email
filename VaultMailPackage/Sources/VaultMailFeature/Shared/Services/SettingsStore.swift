@@ -63,6 +63,20 @@ public final class SettingsStore {
         didSet { defaults.set(appLockEnabled, forKey: Keys.appLockEnabled) }
     }
 
+    // MARK: - Privacy
+
+    /// Block remote images in emails. When ON, remote images are replaced with
+    /// placeholders; users can load per-message or per-sender. Default: OFF.
+    public var blockRemoteImages: Bool {
+        didSet { defaults.set(blockRemoteImages, forKey: Keys.blockRemoteImages) }
+    }
+
+    /// Block tracking pixels in emails. When ON, invisible tracking images are
+    /// detected and stripped, and a tracker badge is shown. Default: OFF.
+    public var blockTrackingPixels: Bool {
+        didSet { defaults.set(blockTrackingPixels, forKey: Keys.blockTrackingPixels) }
+    }
+
     // MARK: - Notifications
 
     /// Per-account notification preferences. Keyed by account ID. Default: true for new accounts.
@@ -105,6 +119,8 @@ public final class SettingsStore {
         }
         self.categoryTabVisibility = defaults.json(forKey: Keys.categoryTabVisibility) ?? Self.defaultCategoryVisibility
         self.appLockEnabled = defaults.bool(forKey: Keys.appLockEnabled)
+        self.blockRemoteImages = defaults.bool(forKey: Keys.blockRemoteImages)
+        self.blockTrackingPixels = defaults.bool(forKey: Keys.blockTrackingPixels)
         self.notificationPreferences = defaults.json(forKey: Keys.notificationPreferences) ?? [:]
         self.attachmentCacheLimits = defaults.json(forKey: Keys.attachmentCacheLimits) ?? [:]
         self.isOnboardingComplete = defaults.bool(forKey: Keys.isOnboardingComplete)
@@ -137,6 +153,8 @@ public final class SettingsStore {
         appLockEnabled = false
         notificationPreferences = [:]
         attachmentCacheLimits = [:]
+        blockRemoteImages = false
+        blockTrackingPixels = false
         isOnboardingComplete = false
         defaultSendingAccountId = nil
     }
@@ -161,6 +179,8 @@ public final class SettingsStore {
         static let appLockEnabled = "appLockEnabled"
         static let notificationPreferences = "notificationPreferences"
         static let attachmentCacheLimits = "attachmentCacheLimits"
+        static let blockRemoteImages = "blockRemoteImages"
+        static let blockTrackingPixels = "blockTrackingPixels"
         static let isOnboardingComplete = "isOnboardingComplete"
         static let defaultSendingAccountId = "defaultSendingAccountId"
     }

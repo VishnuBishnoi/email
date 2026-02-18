@@ -821,4 +821,365 @@ struct ComposeEmailUseCaseTests {
         // No changes to existing emails
         #expect(normalEmail.sendState == SendState.sent.rawValue)
     }
+
+    // MARK: - SMTP Credential Variation Tests (P3-01)
+
+    /// Mock connection provider for testing IMAP APPEND behavior.
+    private final class MockConnectionProvider: ConnectionProviding, @unchecked Sendable {
+        let client: MockIMAPClient
+        var checkoutCount = 0
+        var checkinCount = 0
+        var lastCredential: IMAPCredential?
+        var lastSecurity: ConnectionSecurity?
+
+        init(client: MockIMAPClient) {
+            self.client = client
+        }
+
+        func checkoutConnection(
+            accountId: String,
+            host: String,
+            port: Int,
+            security: ConnectionSecurity,
+            credential: IMAPCredential
+        ) async throws -> any IMAPClientProtocol {
+            checkoutCount += 1
+            lastSecurity = security
+            lastCredential = credential
+            return client
+        }
+
+        func checkinConnection(_ client: any IMAPClientProtocol, accountId: String) async {
+            checkinCount += 1
+        }
+    }
+
+    /// Helper to create a send scenario for app-password (PLAIN auth) providers.
+    private static func setupAppPasswordSendScenario(
+        repo: MockEmailRepository,
+        accountRepo: MockAccountRepository,
+        keychainManager: MockKeychainManager,
+        providerConfig: ProviderConfiguration,
+        email: String = "user@icloud.com",
+        password: String = "app-password-123"
+    ) async -> (Account, Email) {
+        let account = Account(
+            email: email,
+            displayName: "Test User",
+            providerConfig: providerConfig
+        )
+        accountRepo.accounts.append(account)
+
+        try! await keychainManager.storeCredential(.password(password), for: account.id)
+
+        // Create Drafts and Sent folders
+        let draftsFolder = Folder(name: "Drafts", imapPath: "Drafts", totalCount: 0, folderType: FolderType.drafts.rawValue, uidValidity: 1)
+        draftsFolder.account = account
+        let sentFolder = Folder(name: "Sent", imapPath: "Sent Messages", totalCount: 0, folderType: FolderType.sent.rawValue, uidValidity: 1)
+        sentFolder.account = account
+        repo.folders = [draftsFolder, sentFolder]
+
+        let emailObj = Email(
+            accountId: account.id,
+            threadId: "thread-plain",
+            messageId: "<plain-send@local>",
+            fromAddress: "",
+            toAddresses: "[\"recipient@example.com\"]",
+            subject: "PLAIN Auth Test",
+            bodyPlain: "Hello via app password",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.queued.rawValue
+        )
+
+        // Place in drafts
+        let ef = EmailFolder(imapUID: 0)
+        ef.email = emailObj
+        ef.folder = draftsFolder
+        emailObj.emailFolders.append(ef)
+
+        repo.emails.append(emailObj)
+        return (account, emailObj)
+    }
+
+    @Test("executeSend with iCloud account sends via PLAIN SMTP credential")
+    func executeSendICloudPlainCredential() async throws {
+        let repo = MockEmailRepository()
+        let accountRepo = MockAccountRepository()
+        let keychainManager = MockKeychainManager()
+        let smtpClient = MockSMTPClient()
+        let useCase = ComposeEmailUseCase(
+            repository: repo,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager,
+            smtpClient: smtpClient
+        )
+
+        let config = ProviderRegistry.provider(for: .icloud)!
+        let (_, email) = await Self.setupAppPasswordSendScenario(
+            repo: repo,
+            accountRepo: accountRepo,
+            keychainManager: keychainManager,
+            providerConfig: config,
+            email: "user@icloud.com",
+            password: "abcd-efgh-ijkl-mnop"
+        )
+
+        try await useCase.executeSend(emailId: email.id)
+
+        // Verify SMTP client received PLAIN credential
+        let lastCredential = await smtpClient.lastConnectCredential
+        #expect(lastCredential == .plain(username: "user@icloud.com", password: "abcd-efgh-ijkl-mnop"),
+                "iCloud account should use PLAIN SMTP credential")
+
+        // Verify SMTP connected with STARTTLS security (iCloud SMTP uses STARTTLS on port 587)
+        let lastSecurity = await smtpClient.lastConnectSecurity
+        #expect(lastSecurity == .starttls,
+                "iCloud SMTP uses STARTTLS on port 587")
+
+        let lastHost = await smtpClient.lastConnectHost
+        #expect(lastHost == "smtp.mail.me.com")
+
+        let lastPort = await smtpClient.lastConnectPort
+        #expect(lastPort == 587)
+
+        // Verify email was sent successfully
+        #expect(email.sendState == SendState.sent.rawValue)
+    }
+
+    @Test("executeSend with Yahoo account sends via PLAIN SMTP credential")
+    func executeSendYahooPlainCredential() async throws {
+        let repo = MockEmailRepository()
+        let accountRepo = MockAccountRepository()
+        let keychainManager = MockKeychainManager()
+        let smtpClient = MockSMTPClient()
+        let useCase = ComposeEmailUseCase(
+            repository: repo,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager,
+            smtpClient: smtpClient
+        )
+
+        let config = ProviderRegistry.provider(for: .yahoo)!
+        let (_, email) = await Self.setupAppPasswordSendScenario(
+            repo: repo,
+            accountRepo: accountRepo,
+            keychainManager: keychainManager,
+            providerConfig: config,
+            email: "user@yahoo.com",
+            password: "yahoo-app-password"
+        )
+
+        try await useCase.executeSend(emailId: email.id)
+
+        // Verify SMTP client received PLAIN credential
+        let lastCredential = await smtpClient.lastConnectCredential
+        #expect(lastCredential == .plain(username: "user@yahoo.com", password: "yahoo-app-password"),
+                "Yahoo account should use PLAIN SMTP credential")
+
+        // Verify SMTP connected with TLS security (Yahoo SMTP uses TLS on port 465)
+        let lastSecurity = await smtpClient.lastConnectSecurity
+        #expect(lastSecurity == .tls,
+                "Yahoo SMTP uses TLS on port 465")
+
+        let lastHost = await smtpClient.lastConnectHost
+        #expect(lastHost == "smtp.mail.yahoo.com")
+
+        let lastPort = await smtpClient.lastConnectPort
+        #expect(lastPort == 465)
+
+        #expect(email.sendState == SendState.sent.rawValue)
+    }
+
+    @Test("executeSend with Gmail account sends via XOAUTH2 SMTP credential")
+    func executeSendGmailXOAuth2Credential() async throws {
+        let (useCase, repo, accountRepo, keychainManager, smtpClient) = Self.makeSendSUT()
+        let email = await Self.setupSendScenario(
+            repo: repo, accountRepo: accountRepo, keychainManager: keychainManager
+        )
+
+        try await useCase.executeSend(emailId: email.id)
+
+        // Verify SMTP client received XOAUTH2 credential
+        let lastCredential = await smtpClient.lastConnectCredential
+        if case .xoauth2(let email, let token) = lastCredential {
+            #expect(email == "me@test.com")
+            #expect(token == "valid-token")
+        } else {
+            Issue.record("Expected .xoauth2 SMTP credential, got \(String(describing: lastCredential))")
+        }
+
+        // Gmail uses TLS for SMTP (default account has no explicit security set → defaults to TLS)
+        let lastSecurity = await smtpClient.lastConnectSecurity
+        #expect(lastSecurity == .tls,
+                "Gmail SMTP should use TLS")
+    }
+
+    @Test("executeSend with iCloud triggers IMAP APPEND to Sent folder (requiresSentAppend)")
+    func executeSendICloudTriggersIMAPAppend() async throws {
+        let repo = MockEmailRepository()
+        let accountRepo = MockAccountRepository()
+        let keychainManager = MockKeychainManager()
+        let smtpClient = MockSMTPClient()
+        let imapClient = MockIMAPClient()
+        let connProvider = MockConnectionProvider(client: imapClient)
+
+        let useCase = ComposeEmailUseCase(
+            repository: repo,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager,
+            smtpClient: smtpClient,
+            connectionProvider: connProvider
+        )
+
+        let config = ProviderRegistry.provider(for: .icloud)!
+        let (_, email) = await Self.setupAppPasswordSendScenario(
+            repo: repo,
+            accountRepo: accountRepo,
+            keychainManager: keychainManager,
+            providerConfig: config,
+            email: "user@icloud.com",
+            password: "icloud-pw"
+        )
+
+        // Configure IMAP mock to return a Sent folder for the APPEND
+        imapClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Sent Messages",
+                imapPath: "Sent Messages",
+                attributes: ["\\Sent"],
+                uidValidity: 1,
+                messageCount: 0
+            )
+        ])
+
+        try await useCase.executeSend(emailId: email.id)
+
+        // iCloud requires IMAP APPEND — verify it was called
+        #expect(connProvider.checkoutCount == 1,
+                "Should check out IMAP connection for Sent APPEND")
+        #expect(imapClient.appendMessageCallCount == 1,
+                "iCloud provider should trigger IMAP APPEND to Sent folder")
+        #expect(imapClient.lastAppendPath == "Sent Messages",
+                "APPEND should target the Sent folder IMAP path")
+        #expect(imapClient.lastAppendFlags == ["\\Seen"],
+                "APPENDed message should be marked as Seen")
+
+        // Verify the IMAP connection used PLAIN credential
+        #expect(connProvider.lastCredential == .plain(username: "user@icloud.com", password: "icloud-pw"),
+                "IMAP APPEND should use PLAIN credential for iCloud")
+    }
+
+    @Test("executeSend with Gmail does NOT trigger IMAP APPEND (Gmail auto-copies)")
+    func executeSendGmailNoIMAPAppend() async throws {
+        let repo = MockEmailRepository()
+        let accountRepo = MockAccountRepository()
+        let keychainManager = MockKeychainManager()
+        let smtpClient = MockSMTPClient()
+        let imapClient = MockIMAPClient()
+        let connProvider = MockConnectionProvider(client: imapClient)
+
+        let useCase = ComposeEmailUseCase(
+            repository: repo,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager,
+            smtpClient: smtpClient,
+            connectionProvider: connProvider
+        )
+
+        // Use standard Gmail setup
+        let account = Account(id: "acc-gmail", email: "me@gmail.com", displayName: "Me")
+        accountRepo.accounts.append(account)
+
+        let token = OAuthToken(
+            accessToken: "valid-token",
+            refreshToken: "refresh-token",
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        try await keychainManager.store(token, for: "acc-gmail")
+
+        let draftsFolder = Folder(name: "Drafts", imapPath: "[Gmail]/Drafts", totalCount: 0, folderType: FolderType.drafts.rawValue, uidValidity: 1)
+        draftsFolder.account = account
+        let sentFolder = Folder(name: "Sent Mail", imapPath: "[Gmail]/Sent Mail", totalCount: 0, folderType: FolderType.sent.rawValue, uidValidity: 1)
+        sentFolder.account = account
+        repo.folders = [draftsFolder, sentFolder]
+
+        let email = Email(
+            accountId: "acc-gmail",
+            threadId: "thread-gmail",
+            messageId: "<gmail-send@local>",
+            fromAddress: "",
+            toAddresses: "[\"to@test.com\"]",
+            subject: "Gmail Test",
+            bodyPlain: "Hello",
+            dateSent: Date(),
+            isRead: true,
+            isDraft: false,
+            sendState: SendState.queued.rawValue
+        )
+        let ef = EmailFolder(imapUID: 0)
+        ef.email = email
+        ef.folder = draftsFolder
+        email.emailFolders.append(ef)
+        repo.emails.append(email)
+
+        try await useCase.executeSend(emailId: email.id)
+
+        // Gmail does NOT require IMAP APPEND — verify it was NOT called
+        #expect(connProvider.checkoutCount == 0,
+                "Gmail should NOT check out IMAP connection for Sent APPEND")
+        #expect(imapClient.appendMessageCallCount == 0,
+                "Gmail should NOT trigger IMAP APPEND (auto-copies sent messages)")
+
+        #expect(email.sendState == SendState.sent.rawValue)
+    }
+
+    @Test("executeSend with Yahoo triggers IMAP APPEND to Sent folder")
+    func executeSendYahooTriggersIMAPAppend() async throws {
+        let repo = MockEmailRepository()
+        let accountRepo = MockAccountRepository()
+        let keychainManager = MockKeychainManager()
+        let smtpClient = MockSMTPClient()
+        let imapClient = MockIMAPClient()
+        let connProvider = MockConnectionProvider(client: imapClient)
+
+        let useCase = ComposeEmailUseCase(
+            repository: repo,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager,
+            smtpClient: smtpClient,
+            connectionProvider: connProvider
+        )
+
+        let config = ProviderRegistry.provider(for: .yahoo)!
+        let (_, email) = await Self.setupAppPasswordSendScenario(
+            repo: repo,
+            accountRepo: accountRepo,
+            keychainManager: keychainManager,
+            providerConfig: config,
+            email: "user@yahoo.com",
+            password: "yahoo-pw"
+        )
+
+        // Configure IMAP mock to return a Sent folder for the APPEND
+        imapClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Sent",
+                imapPath: "Sent",
+                attributes: ["\\Sent"],
+                uidValidity: 1,
+                messageCount: 0
+            )
+        ])
+
+        try await useCase.executeSend(emailId: email.id)
+
+        // Yahoo requires IMAP APPEND
+        #expect(connProvider.checkoutCount == 1,
+                "Yahoo should check out IMAP connection for Sent APPEND")
+        #expect(imapClient.appendMessageCallCount == 1,
+                "Yahoo provider should trigger IMAP APPEND to Sent folder")
+        #expect(imapClient.lastAppendPath == "Sent")
+    }
 }

@@ -33,7 +33,26 @@ public protocol SyncEmailsUseCaseProtocol {
 
 /// Abstraction for obtaining IMAP connections. ConnectionPool conforms
 /// in production; tests inject a mock that returns MockIMAPClient.
+///
+/// Supports two checkout signatures:
+/// - **Multi-provider** (`security:` + `credential:`): Used by code that has
+///   already resolved the account's provider config.
+/// - **Legacy** (`email:` + `accessToken:`): Backward-compatible convenience
+///   that defaults to TLS + XOAUTH2. Existing call sites can migrate gradually.
 public protocol ConnectionProviding: Sendable {
+
+    /// Checks out a connection with explicit security mode and credential.
+    ///
+    /// Spec ref: FR-MPROV-05 (STARTTLS), FR-MPROV-03 (SASL PLAIN)
+    func checkoutConnection(
+        accountId: String,
+        host: String,
+        port: Int,
+        security: ConnectionSecurity,
+        credential: IMAPCredential
+    ) async throws -> any IMAPClientProtocol
+
+    /// Checks out a connection using implicit TLS + XOAUTH2 (backward compat).
     func checkoutConnection(
         accountId: String,
         host: String,
@@ -45,8 +64,8 @@ public protocol ConnectionProviding: Sendable {
     func checkinConnection(_ client: any IMAPClientProtocol, accountId: String) async
 }
 
-/// Make ConnectionPool conform to ConnectionProviding.
-extension ConnectionPool: ConnectionProviding {
+/// Default implementation: legacy convenience delegates to multi-provider method.
+extension ConnectionProviding {
     public func checkoutConnection(
         accountId: String,
         host: String,
@@ -54,12 +73,31 @@ extension ConnectionPool: ConnectionProviding {
         email: String,
         accessToken: String
     ) async throws -> any IMAPClientProtocol {
+        try await checkoutConnection(
+            accountId: accountId,
+            host: host,
+            port: port,
+            security: .tls,
+            credential: .xoauth2(email: email, accessToken: accessToken)
+        )
+    }
+}
+
+/// Make ConnectionPool conform to ConnectionProviding.
+extension ConnectionPool: ConnectionProviding {
+    public func checkoutConnection(
+        accountId: String,
+        host: String,
+        port: Int,
+        security: ConnectionSecurity,
+        credential: IMAPCredential
+    ) async throws -> any IMAPClientProtocol {
         try await self.checkout(
             accountId: accountId,
             host: host,
             port: port,
-            email: email,
-            accessToken: accessToken
+            security: security,
+            credential: credential
         )
     }
 
@@ -102,17 +140,17 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         let account = try await findAccount(id: accountId)
         NSLog("[Sync] Found account: \(account.email), host: \(account.imapHost):\(account.imapPort)")
 
-        NSLog("[Sync] Getting access token...")
-        let token = try await getAccessToken(for: account)
-        NSLog("[Sync] Got access token (length: \(token.count))")
+        NSLog("[Sync] Resolving credentials...")
+        let imapCredential = try await resolveIMAPCredential(for: account)
+        NSLog("[Sync] Credentials resolved")
 
         NSLog("[Sync] Checking out IMAP connection...")
         let client = try await connectionProvider.checkoutConnection(
             accountId: account.id,
             host: account.imapHost,
             port: account.imapPort,
-            email: account.email,
-            accessToken: token
+            security: account.resolvedImapSecurity,
+            credential: imapCredential
         )
         NSLog("[Sync] IMAP connection established")
 
@@ -169,20 +207,24 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     ) async throws -> [Email] {
         NSLog("[Sync] syncAccountInboxFirst started for \(accountId)")
         let account = try await findAccount(id: accountId)
-        let token = try await getAccessToken(for: account)
+        let imapCredential = try await resolveIMAPCredential(for: account)
 
         let client = try await connectionProvider.checkoutConnection(
             accountId: account.id,
             host: account.imapHost,
             port: account.imapPort,
-            email: account.email,
-            accessToken: token
+            security: account.resolvedImapSecurity,
+            credential: imapCredential
         )
         NSLog("[Sync] IMAP connection established")
 
         do {
             // 1. Sync folder list (single LIST command — fast)
             let imapFolders = try await client.listFolders()
+            NSLog("[Sync] LIST returned \(imapFolders.count) folders, provider=\(account.resolvedProvider.rawValue)")
+            for f in imapFolders {
+                NSLog("[Sync]   folder: \(f.imapPath) attrs=\(f.attributes)")
+            }
             let syncableFolders = try await syncFolders(
                 imapFolders: imapFolders,
                 account: account
@@ -256,7 +298,7 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
     @discardableResult
     public func syncFolder(accountId: String, folderId: String) async throws -> [Email] {
         let account = try await findAccount(id: accountId)
-        let token = try await getAccessToken(for: account)
+        let imapCredential = try await resolveIMAPCredential(for: account)
 
         let folders = try await emailRepository.getFolders(accountId: account.id)
         guard let folder = folders.first(where: { $0.id == folderId }) else {
@@ -267,8 +309,8 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             accountId: account.id,
             host: account.imapHost,
             port: account.imapPort,
-            email: account.email,
-            accessToken: token
+            security: account.resolvedImapSecurity,
+            credential: imapCredential
         )
 
         do {
@@ -303,24 +345,19 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         return account
     }
 
-    private func getAccessToken(for account: Account) async throws -> String {
-        // Try to refresh the token (handles expiry checks internally)
+    /// Resolves account credentials and returns the appropriate IMAP credential.
+    ///
+    /// Delegates to `CredentialResolver` which handles OAuth token refresh
+    /// with fallback to existing token, and direct password credential mapping.
+    private func resolveIMAPCredential(for account: Account) async throws -> IMAPCredential {
+        let resolver = CredentialResolver(
+            keychainManager: keychainManager,
+            accountRepository: accountRepository
+        )
         do {
-            NSLog("[Sync] Refreshing token for account \(account.id)...")
-            let token = try await accountRepository.refreshToken(for: account.id)
-            NSLog("[Sync] Token refreshed successfully, expires: \(token.expiresAt)")
-            return token.accessToken
+            return try await resolver.resolveIMAPCredential(for: account, refreshIfNeeded: true)
         } catch {
-            NSLog("[Sync] Token refresh failed: \(error), trying existing token...")
-            // If refresh fails, try using existing token from keychain
-            if let existing = try await keychainManager.retrieve(for: account.id) {
-                NSLog("[Sync] Found existing token, expired: \(existing.isExpired), expires: \(existing.expiresAt)")
-                if !existing.isExpired {
-                    return existing.accessToken
-                }
-            } else {
-                NSLog("[Sync] No token found in keychain")
-            }
+            NSLog("[Sync] Credential resolution failed for \(account.id): \(error)")
             throw SyncError.tokenRefreshFailed(error.localizedDescription)
         }
     }
@@ -333,17 +370,29 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         account: Account
     ) async throws -> [Folder] {
         var syncableFolders: [Folder] = []
+        let provider = account.resolvedProvider
 
         for imapFolder in imapFolders {
-            guard GmailFolderMapper.shouldSync(
+            let shouldSync = ProviderFolderMapper.shouldSync(
                 imapPath: imapFolder.imapPath,
-                attributes: imapFolder.attributes
-            ) else { continue }
-
-            let folderType = GmailFolderMapper.folderType(
-                imapPath: imapFolder.imapPath,
-                attributes: imapFolder.attributes
+                attributes: imapFolder.attributes,
+                provider: provider
             )
+
+            let folderType = ProviderFolderMapper.folderType(
+                imapPath: imapFolder.imapPath,
+                attributes: imapFolder.attributes,
+                provider: provider
+            )
+
+            NSLog("[Sync] Folder '\(imapFolder.imapPath)' shouldSync=\(shouldSync) type=\(folderType.rawValue) (provider=\(provider.rawValue), attrs=\(imapFolder.attributes))")
+
+            // For non-syncable folders that have a special type (e.g. archive/All Mail),
+            // create the folder record so actions like archive can reference it,
+            // but don't add to syncableFolders (skip email sync).
+            let isReferenceOnly = !shouldSync && folderType != .custom
+
+            guard shouldSync || isReferenceOnly else { continue }
 
             // Find existing or create new
             let folder: Folder
@@ -369,7 +418,10 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 folder = newFolder
             }
 
-            syncableFolders.append(folder)
+            // Only add to syncable list if we should actually sync emails from it
+            if shouldSync {
+                syncableFolders.append(folder)
+            }
         }
 
         return syncableFolders
@@ -407,18 +459,17 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         }
         folder.uidValidity = Int(serverUidValidity)
 
-        // Compute search date
-        let searchDate: Date
+        // Search for UIDs.
+        // On first sync (lastSyncDate == nil), fetch ALL UIDs so folders like
+        // Sent/Drafts show their complete contents regardless of age.
+        // On subsequent syncs, use incremental date-based search.
+        let allUIDs: [UInt32]
         if let lastSync = folder.lastSyncDate {
-            searchDate = lastSync
+            allUIDs = try await client.searchUIDs(since: lastSync)
         } else {
-            searchDate = Date().addingTimeInterval(
-                -TimeInterval(account.syncWindowDays * 86400)
-            )
+            NSLog("[Sync] First sync for '\(folder.imapPath)' — fetching all UIDs")
+            allUIDs = try await client.searchAllUIDs()
         }
-
-        // Search for UIDs since last sync
-        let allUIDs = try await client.searchUIDs(since: searchDate)
         guard !allUIDs.isEmpty else {
             folder.totalCount = Int(messageCount)
             folder.lastSyncDate = Date()

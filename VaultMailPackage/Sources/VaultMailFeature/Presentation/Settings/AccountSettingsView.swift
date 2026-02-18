@@ -17,6 +17,9 @@ struct AccountSettingsView: View {
     @State private var showSyncWindowConfirmation = false
     @State private var pendingSyncWindow: Int?
     @State private var isReAuthenticating = false
+    @State private var showPasswordUpdate = false
+    @State private var newAppPassword = ""
+    @State private var reAuthError: String?
     @State private var cacheLimit: Int
 
     init(
@@ -39,6 +42,10 @@ struct AccountSettingsView: View {
             Section {
                 LabeledContent("Email", value: account.email)
 
+                if let provider = account.provider {
+                    LabeledContent("Provider", value: provider.capitalized)
+                }
+
                 if !account.isActive {
                     HStack {
                         Label("Account Inactive", systemImage: "exclamationmark.triangle.fill")
@@ -51,6 +58,12 @@ struct AccountSettingsView: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Account inactive. Re-authenticate to restore access.")
+                }
+
+                if let error = reAuthError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -131,6 +144,17 @@ struct AccountSettingsView: View {
         .task {
             cacheLimit = settings.cacheLimit(for: account.id)
         }
+        .alert("Update App Password", isPresented: $showPasswordUpdate) {
+            SecureField("New App Password", text: $newAppPassword)
+            Button("Update") {
+                updatePassword()
+            }
+            Button("Cancel", role: .cancel) {
+                newAppPassword = ""
+            }
+        } message: {
+            Text("Enter the new app password for \(account.email).")
+        }
     }
 
     // MARK: - Actions
@@ -151,9 +175,38 @@ struct AccountSettingsView: View {
 
     private func reAuthenticate() {
         isReAuthenticating = true
+        reAuthError = nil
         Task {
             defer { isReAuthenticating = false }
-            try? await manageAccounts.reAuthenticateAccount(id: account.id)
+            do {
+                try await manageAccounts.reAuthenticateAccount(id: account.id)
+            } catch let accountError as AccountError {
+                if case .appPasswordReAuthRequired = accountError {
+                    // App-password account — show password update dialog
+                    showPasswordUpdate = true
+                } else {
+                    reAuthError = accountError.localizedDescription
+                }
+            } catch {
+                reAuthError = error.localizedDescription
+            }
+        }
+    }
+
+    private func updatePassword() {
+        guard !newAppPassword.isEmpty else { return }
+        isReAuthenticating = true
+        reAuthError = nil
+        Task {
+            defer {
+                isReAuthenticating = false
+                newAppPassword = ""
+            }
+            do {
+                try await manageAccounts.updateAppPassword(for: account.id, newPassword: newAppPassword)
+            } catch {
+                reAuthError = error.localizedDescription
+            }
         }
     }
 

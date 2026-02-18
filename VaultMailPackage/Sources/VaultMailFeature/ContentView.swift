@@ -42,6 +42,8 @@ public struct ContentView: View {
     let summarizeThread: SummarizeThreadUseCaseProtocol
     let smartReply: SmartReplyUseCaseProtocol
     let searchUseCase: SearchEmailsUseCase?
+    let providerDiscovery: ProviderDiscovery?
+    let connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @State private var accounts: [Account] = []
     @State private var hasLoaded = false
@@ -67,7 +69,9 @@ public struct ContentView: View {
         ),
         summarizeThread: SummarizeThreadUseCaseProtocol,
         smartReply: SmartReplyUseCaseProtocol,
-        searchUseCase: SearchEmailsUseCase? = nil
+        searchUseCase: SearchEmailsUseCase? = nil,
+        providerDiscovery: ProviderDiscovery? = nil,
+        connectionTestUseCase: ConnectionTestUseCaseProtocol? = nil
     ) {
         self.manageAccounts = manageAccounts
         self.fetchThreads = fetchThreads
@@ -86,6 +90,8 @@ public struct ContentView: View {
         self.summarizeThread = summarizeThread
         self.smartReply = smartReply
         self.searchUseCase = searchUseCase
+        self.providerDiscovery = providerDiscovery
+        self.connectionTestUseCase = connectionTestUseCase
     }
 
     public var body: some View {
@@ -94,7 +100,14 @@ public struct ContentView: View {
                 if !hasLoaded {
                     ProgressView()
                 } else if accounts.isEmpty || !settings.isOnboardingComplete {
-                    OnboardingView(manageAccounts: manageAccounts, syncEmails: syncEmails, modelManager: modelManager, aiEngineResolver: aiEngineResolver)
+                    OnboardingView(
+                        manageAccounts: manageAccounts,
+                        syncEmails: syncEmails,
+                        modelManager: modelManager,
+                        aiEngineResolver: aiEngineResolver,
+                        providerDiscovery: providerDiscovery,
+                        connectionTestUseCase: connectionTestUseCase
+                    )
                 } else {
                     mainAppView
                 }
@@ -151,7 +164,9 @@ public struct ContentView: View {
             aiProcessingQueue: aiProcessingQueue,
             summarizeThread: summarizeThread,
             smartReply: smartReply,
-            searchUseCase: searchUseCase
+            searchUseCase: searchUseCase,
+            providerDiscovery: providerDiscovery,
+            connectionTestUseCase: connectionTestUseCase
         )
         .environment(undoSendManager)
         .preferredColorScheme(settings.colorScheme)

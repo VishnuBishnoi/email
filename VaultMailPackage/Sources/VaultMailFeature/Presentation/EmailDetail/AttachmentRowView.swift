@@ -194,21 +194,42 @@ struct AttachmentRowView: View {
             }
 
         case .downloaded:
-            Button {
-                if let fileURL = validatedFileURL {
-                    onShare(fileURL)
-                } else {
-                    // Avoid presenting a share sheet for a stale path.
-                    downloadState = .notDownloaded
-                    initiateDownload()
+            HStack(spacing: 8) {
+                #if os(macOS)
+                // Save attachment to disk via NSSavePanel
+                Button {
+                    if let fileURL = validatedFileURL {
+                        saveToDownloads(fileURL)
+                    }
+                } label: {
+                    Image(systemName: "arrow.down.to.line")
+                        .font(.subheadline)
+                        .foregroundStyle(.tint)
                 }
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.subheadline)
-                    .foregroundStyle(.tint)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Save \(attachment.filename)")
+                .help("Save As…")
+
+                // Share button — uses overlay anchor for correct NSSharingServicePicker position
+                SharePickerButton(fileURL: validatedFileURL)
+                    .accessibilityLabel("Share \(attachment.filename)")
+                #else
+                Button {
+                    if let fileURL = validatedFileURL {
+                        onShare(fileURL)
+                    } else {
+                        downloadState = .notDownloaded
+                        initiateDownload()
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.subheadline)
+                        .foregroundStyle(.tint)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Share \(attachment.filename)")
+                #endif
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Share \(attachment.filename)")
 
         case .error:
             Button {
@@ -270,6 +291,33 @@ struct AttachmentRowView: View {
         downloadTask = nil
         downloadState = .notDownloaded
     }
+
+    #if os(macOS)
+    /// Presents an NSSavePanel so the user can choose where to save the attachment.
+    /// This works correctly with App Sandbox since NSSavePanel grants write access
+    /// to the user-chosen location.
+    private func saveToDownloads(_ sourceURL: URL) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = sourceURL.lastPathComponent
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        // Default to Downloads folder
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+        panel.begin { response in
+            guard response == .OK, let destinationURL = panel.url else { return }
+            do {
+                // Remove existing file if user chose to overwrite
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            } catch {
+                NSLog("[Attachment] Failed to save attachment: \(error.localizedDescription)")
+            }
+        }
+    }
+    #endif
 
     // MARK: - Size Formatting
 
@@ -339,6 +387,65 @@ struct AttachmentRowView: View {
         }
     }
 }
+
+// MARK: - macOS Share Picker Button
+
+#if os(macOS)
+import AppKit
+
+/// A macOS button that shows `NSSharingServicePicker` anchored to itself.
+///
+/// Uses an `NSViewRepresentable` to capture the underlying `NSView`, ensuring
+/// the share picker appears next to the button rather than at the window center.
+private struct SharePickerButton: View {
+    let fileURL: URL?
+
+    var body: some View {
+        Button {
+            // Action handled by the overlay's NSView tap
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+                .font(.subheadline)
+                .foregroundStyle(.tint)
+        }
+        .buttonStyle(.plain)
+        .help("Share")
+        .overlay {
+            SharePickerAnchorView(fileURL: fileURL)
+        }
+    }
+}
+
+/// An invisible `NSViewRepresentable` overlay that captures the `NSView` anchor
+/// and presents `NSSharingServicePicker` on click.
+private struct SharePickerAnchorView: NSViewRepresentable {
+    let fileURL: URL?
+
+    func makeNSView(context: Context) -> SharePickerNSView {
+        let view = SharePickerNSView()
+        view.fileURL = fileURL
+        return view
+    }
+
+    func updateNSView(_ nsView: SharePickerNSView, context: Context) {
+        nsView.fileURL = fileURL
+    }
+}
+
+/// Transparent `NSView` that responds to clicks by presenting the share picker.
+private final class SharePickerNSView: NSView {
+    var fileURL: URL?
+
+    override func mouseDown(with event: NSEvent) {
+        guard let fileURL else {
+            super.mouseDown(with: event)
+            return
+        }
+        let picker = NSSharingServicePicker(items: [fileURL])
+        picker.show(relativeTo: bounds, of: self, preferredEdge: .minY)
+    }
+}
+#endif
 
 // MARK: - Previews
 

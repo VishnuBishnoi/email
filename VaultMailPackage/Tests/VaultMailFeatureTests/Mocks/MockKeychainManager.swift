@@ -2,42 +2,78 @@ import Foundation
 @testable import VaultMailFeature
 
 /// In-memory mock of KeychainManagerProtocol for testing.
+///
+/// Stores `AccountCredential` values (supports both OAuth and password).
+/// Also maintains backward-compatible `OAuthToken` storage view for legacy tests.
 actor MockKeychainManager: KeychainManagerProtocol {
-    var storage: [String: OAuthToken] = [:]
+    var credentialStorage: [String: AccountCredential] = [:]
     var storeCallCount = 0
     var retrieveCallCount = 0
     var deleteCallCount = 0
     var updateCallCount = 0
+    var storeCredentialCallCount = 0
+    var retrieveCredentialCallCount = 0
+    var deleteCredentialCallCount = 0
+    var updateCredentialCallCount = 0
     var shouldThrowOnStore = false
     var shouldThrowOnRetrieve = false
     var shouldThrowOnDelete = false
 
-    func store(_ token: OAuthToken, for accountId: String) async throws {
+    // MARK: - AccountCredential API (primary)
+
+    func storeCredential(_ credential: AccountCredential, for accountId: String) async throws {
+        storeCredentialCallCount += 1
         storeCallCount += 1
         if shouldThrowOnStore {
             throw KeychainError.unableToStore(-1)
         }
-        storage[accountId] = token
+        credentialStorage[accountId] = credential
     }
 
-    func retrieve(for accountId: String) async throws -> OAuthToken? {
+    func retrieveCredential(for accountId: String) async throws -> AccountCredential? {
+        retrieveCredentialCallCount += 1
         retrieveCallCount += 1
         if shouldThrowOnRetrieve {
             throw KeychainError.unableToRetrieve(-1)
         }
-        return storage[accountId]
+        return credentialStorage[accountId]
     }
 
-    func delete(for accountId: String) async throws {
+    func deleteCredential(for accountId: String) async throws {
+        deleteCredentialCallCount += 1
         deleteCallCount += 1
         if shouldThrowOnDelete {
             throw KeychainError.unableToDelete(-1)
         }
-        storage.removeValue(forKey: accountId)
+        credentialStorage.removeValue(forKey: accountId)
     }
 
-    func update(_ token: OAuthToken, for accountId: String) async throws {
+    func updateCredential(_ credential: AccountCredential, for accountId: String) async throws {
+        updateCredentialCallCount += 1
         updateCallCount += 1
-        storage[accountId] = token
+        credentialStorage[accountId] = credential
+    }
+
+    // MARK: - Convenience for tests
+
+    /// Backward-compatible storage accessor (returns OAuthToken if stored as .oauth).
+    var storage: [String: OAuthToken] {
+        var result: [String: OAuthToken] = [:]
+        for (key, credential) in credentialStorage {
+            if case .oauth(let token) = credential {
+                result[key] = token
+            }
+        }
+        return result
+    }
+
+    /// Convenience to store an OAuthToken directly (wraps as .oauth).
+    func storeToken(_ token: OAuthToken, for accountId: String) async throws {
+        try await storeCredential(.oauth(token), for: accountId)
+    }
+
+    /// Convenience to store an app password directly.
+    func storePassword(_ password: String, for accountId: String) async throws {
+        try await storeCredential(.password(password), for: accountId)
     }
 }

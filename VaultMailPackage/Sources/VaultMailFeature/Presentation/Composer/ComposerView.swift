@@ -513,8 +513,8 @@ public struct ComposerView: View {
             // Queue for sending
             try await composeEmail.queueForSending(emailId: emailId)
 
-            // Clean up temp attachment files now that they've been read
-            AttachmentPickerView.cleanupTempAttachments()
+            // NOTE: Do NOT clean up temp attachments here — executeSend() needs them
+            // after the undo countdown. Cleanup happens in handleComposerDismiss.
 
             // Dismiss and notify parent to start undo countdown
             onDismiss(.sent(emailId: emailId))
