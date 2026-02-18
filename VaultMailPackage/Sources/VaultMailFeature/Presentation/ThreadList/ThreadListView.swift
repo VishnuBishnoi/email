@@ -296,6 +296,14 @@ struct ThreadListView: View {
         .task {
             await initialLoad()
         }
+        .onChange(of: navigationPath.count) { oldCount, newCount in
+            // Refresh accounts when user pops back from Settings (or any pushed screen).
+            // Without this, accounts added in Settings won't appear in the switcher
+            // until the app is relaunched.
+            if newCount < oldCount {
+                Task { await refreshAccounts() }
+            }
+        }
         .onChange(of: selectedCategory) {
             Task { await reloadThreads() }
         }
@@ -926,6 +934,45 @@ struct ThreadListView: View {
             // accounts with many folders during initial sync.
         } catch {
             viewState = .error(error.localizedDescription)
+        }
+    }
+
+    /// Refresh the accounts list from SwiftData.
+    ///
+    /// Called when the user returns from Settings so newly added (or removed)
+    /// accounts appear immediately in the account-switcher sheet.
+    private func refreshAccounts() async {
+        do {
+            let freshAccounts = try await manageAccounts.getAccounts()
+            let oldIds = Set(accounts.map(\.id))
+            let newIds = Set(freshAccounts.map(\.id))
+            accounts = freshAccounts
+
+            // If the currently selected account was removed, fall back to first
+            if let sel = selectedAccount, !newIds.contains(sel.id) {
+                if let first = freshAccounts.first {
+                    selectedAccount = first
+                    await switchToAccount(first)
+                } else {
+                    selectedAccount = nil
+                    viewState = .empty
+                }
+            }
+
+            // If a brand-new account was added, kick off background sync for it
+            let addedIds = newIds.subtracting(oldIds)
+            for addedId in addedIds {
+                NSLog("[UI] New account detected: \(addedId), starting background sync")
+                Task {
+                    do {
+                        _ = try await syncEmails.syncAccountInboxFirst(accountId: addedId, onInboxSynced: { _ in })
+                    } catch {
+                        NSLog("[UI] Background sync for new account \(addedId) failed: \(error)")
+                    }
+                }
+            }
+        } catch {
+            NSLog("[UI] Failed to refresh accounts: \(error)")
         }
     }
 
