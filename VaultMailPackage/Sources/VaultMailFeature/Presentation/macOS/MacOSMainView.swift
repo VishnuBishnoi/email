@@ -304,7 +304,7 @@ public struct MacOSMainView: View {
         }
         .sheet(isPresented: $showProviderSelection) {
             if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
-                ProviderSelectionView(
+                MacAddAccountView(
                     manageAccounts: manageAccounts,
                     connectionTestUseCase: connTest,
                     providerDiscovery: discovery,
@@ -324,7 +324,6 @@ public struct MacOSMainView: View {
                     },
                     onCancel: { showProviderSelection = false }
                 )
-                .frame(minWidth: 400, minHeight: 500)
             }
         }
         .task {

@@ -21,13 +21,17 @@ public protocol ManageAccountsUseCaseProtocol {
     /// Add an account using an app password (Yahoo, iCloud, custom IMAP).
     ///
     /// Creates the account with provider config, stores the password in Keychain,
-    /// persists the account, and validates IMAP + SMTP connectivity.
+    /// persists the account, and optionally validates IMAP connectivity.
+    ///
+    /// Pass `skipValidation: true` when the caller has already verified the
+    /// connection (e.g. the Manual Setup flow runs its own 4-step connection test).
     ///
     /// Spec ref: FR-MPROV-06
     func addAccountViaAppPassword(
         email: String,
         password: String,
-        providerConfig: ProviderConfiguration
+        providerConfig: ProviderConfiguration,
+        skipValidation: Bool
     ) async throws -> Account
 
     /// Remove an account and all associated data (cascade delete).
@@ -48,6 +52,22 @@ public protocol ManageAccountsUseCaseProtocol {
     /// Update the app password for a PLAIN-auth account and re-activate it.
     /// Validates the new password via IMAP before storing.
     func updateAppPassword(for accountId: String, newPassword: String) async throws
+}
+
+/// Default `skipValidation = false` so existing call sites don't break.
+extension ManageAccountsUseCaseProtocol {
+    func addAccountViaAppPassword(
+        email: String,
+        password: String,
+        providerConfig: ProviderConfiguration
+    ) async throws -> Account {
+        try await addAccountViaAppPassword(
+            email: email,
+            password: password,
+            providerConfig: providerConfig,
+            skipValidation: false
+        )
+    }
 }
 
 /// Closure type for resolving the authenticated user's email from an access token.
@@ -151,7 +171,8 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
     public func addAccountViaAppPassword(
         email: String,
         password: String,
-        providerConfig: ProviderConfiguration
+        providerConfig: ProviderConfiguration,
+        skipValidation: Bool = false
     ) async throws -> Account {
         // Step 1: Create account from provider config
         let displayName = email.components(separatedBy: "@").first ?? email
@@ -173,23 +194,44 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
             throw error
         }
 
-        // Step 4: Validate IMAP connectivity using PLAIN auth.
+        // Step 4: Validate IMAP connectivity using PLAIN auth (30-second timeout).
+        // Skipped when the caller already ran a connection test (e.g. Manual Setup).
         // If validation fails, roll back both Keychain and SwiftData.
-        if let provider = connectionProvider {
+        if !skipValidation, let provider = connectionProvider {
             do {
                 let credential: IMAPCredential = .plain(username: email, password: password)
-                let client = try await provider.checkoutConnection(
-                    accountId: account.id,
-                    host: account.imapHost,
-                    port: account.imapPort,
-                    security: account.resolvedImapSecurity,
-                    credential: credential
-                )
-                // Connection succeeded — return it to pool immediately
-                await provider.checkinConnection(client, accountId: account.id)
-                NSLog("[IMAP] App password validation succeeded for \(account.email)")
+                let accountId = account.id
+                let host = account.imapHost
+                let port = account.imapPort
+                let security = account.resolvedImapSecurity
+
+                let validationTask = Task {
+                    let client = try await provider.checkoutConnection(
+                        accountId: accountId,
+                        host: host,
+                        port: port,
+                        security: security,
+                        credential: credential
+                    )
+                    await provider.checkinConnection(client, accountId: accountId)
+                }
+
+                let timeoutTask = Task {
+                    try await Task.sleep(for: .seconds(30))
+                    validationTask.cancel()
+                }
+
+                do {
+                    try await validationTask.value
+                    timeoutTask.cancel()
+                } catch {
+                    timeoutTask.cancel()
+                    if Task.isCancelled {
+                        throw AccountError.imapValidationFailed("Connection timed out after 30 seconds.")
+                    }
+                    throw error
+                }
             } catch {
-                NSLog("[IMAP] App password validation FAILED for \(account.email): \(error)")
                 // Roll back: remove account from SwiftData and Keychain
                 try? await repository.removeAccount(id: account.id)
                 try? await keychainManager.deleteCredential(for: account.id)

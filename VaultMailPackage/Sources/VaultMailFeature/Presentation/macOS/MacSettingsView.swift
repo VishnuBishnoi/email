@@ -234,7 +234,7 @@ struct MacAccountsSettingsTab: View {
         }
         .sheet(isPresented: $showProviderSelection) {
             if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
-                ProviderSelectionView(
+                MacAddAccountView(
                     manageAccounts: manageAccounts,
                     connectionTestUseCase: connTest,
                     providerDiscovery: discovery,
@@ -245,7 +245,6 @@ struct MacAccountsSettingsTab: View {
                     },
                     onCancel: { showProviderSelection = false }
                 )
-                .frame(minWidth: 400, minHeight: 500)
             }
         }
         .task { await loadAccounts() }

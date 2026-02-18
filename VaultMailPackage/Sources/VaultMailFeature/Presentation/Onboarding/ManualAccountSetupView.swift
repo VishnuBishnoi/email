@@ -281,7 +281,8 @@ struct ManualAccountSetupView: View {
                 let account = try await manageAccounts.addAccountViaAppPassword(
                     email: email,
                     password: password,
-                    providerConfig: providerConfig
+                    providerConfig: providerConfig,
+                    skipValidation: true  // Connection already tested above
                 )
                 onAccountAdded(account)
             } catch let error as AccountError {

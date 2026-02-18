@@ -58,7 +58,8 @@ struct BackgroundSyncSchedulerTests {
         func addAccountViaAppPassword(
             email: String,
             password: String,
-            providerConfig: ProviderConfiguration
+            providerConfig: ProviderConfiguration,
+            skipValidation: Bool = false
         ) async throws -> Account {
             fatalError("Not used in scheduler tests")
         }
