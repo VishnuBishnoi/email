@@ -79,6 +79,13 @@ struct SyncEmailsUseCaseTests {
 
     private func addAccountToRepo(_ account: Account) async throws {
         try await accountRepo.addAccount(account)
+        // Store a dummy OAuth credential so resolveIMAPCredential() succeeds
+        let dummyToken = OAuthToken(
+            accessToken: "test-access-token",
+            refreshToken: "test-refresh-token",
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        try await keychainManager.storeCredential(.oauth(dummyToken), for: account.id)
     }
 
     private func createInboxFolder(accountId: String) -> Folder {
