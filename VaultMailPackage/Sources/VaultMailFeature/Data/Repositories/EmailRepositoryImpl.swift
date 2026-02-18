@@ -384,7 +384,8 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             throw ThreadListError.threadNotFound(id: id)
         }
 
-        // Find the Archive folder for this thread's account
+        // Find the Archive folder for this thread's account (may not exist for Gmail
+        // before first re-sync, since All Mail is excluded from email sync).
         let threadAccountId = thread.accountId
         let archiveType = FolderType.archive.rawValue
         var archiveDescriptor = FetchDescriptor<Folder>(
@@ -392,12 +393,12 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         )
         archiveDescriptor.fetchLimit = 1
 
-        guard let archiveFolder = try context.fetch(archiveDescriptor).first else {
-            throw ThreadListError.folderNotFound(id: "archive(\(threadAccountId))")
-        }
+        let archiveFolder = try context.fetch(archiveDescriptor).first
 
-        // Archive: remove Inbox association, add Archive, preserve other labels.
+        // Archive: remove Inbox association, add Archive (if available), preserve other labels.
         // PR #8 Comment 3: Multi-label semantics — only remove Inbox, keep custom labels.
+        // For Gmail label semantics, removing from Inbox is sufficient — emails remain in
+        // All Mail automatically. The archive folder association is optional.
         let inboxType = FolderType.inbox.rawValue
         for email in thread.emails {
             // Remove ONLY Inbox folder associations
@@ -406,13 +407,15 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
                 context.delete(ef)
             }
 
-            // Add Archive association if not already present
-            let alreadyInArchive = email.emailFolders.contains { $0.folder?.id == archiveFolder.id }
-            if !alreadyInArchive {
-                let newEF = EmailFolder(imapUID: 0)
-                newEF.email = email
-                newEF.folder = archiveFolder
-                context.insert(newEF)
+            // Add Archive association if the folder record exists
+            if let archiveFolder {
+                let alreadyInArchive = email.emailFolders.contains { $0.folder?.id == archiveFolder.id }
+                if !alreadyInArchive {
+                    let newEF = EmailFolder(imapUID: 0)
+                    newEF.email = email
+                    newEF.folder = archiveFolder
+                    context.insert(newEF)
+                }
             }
         }
 

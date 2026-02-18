@@ -378,14 +378,21 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 attributes: imapFolder.attributes,
                 provider: provider
             )
-            NSLog("[Sync] Folder '\(imapFolder.imapPath)' shouldSync=\(shouldSync) (provider=\(provider.rawValue), attrs=\(imapFolder.attributes))")
-            guard shouldSync else { continue }
 
             let folderType = ProviderFolderMapper.folderType(
                 imapPath: imapFolder.imapPath,
                 attributes: imapFolder.attributes,
                 provider: provider
             )
+
+            NSLog("[Sync] Folder '\(imapFolder.imapPath)' shouldSync=\(shouldSync) type=\(folderType.rawValue) (provider=\(provider.rawValue), attrs=\(imapFolder.attributes))")
+
+            // For non-syncable folders that have a special type (e.g. archive/All Mail),
+            // create the folder record so actions like archive can reference it,
+            // but don't add to syncableFolders (skip email sync).
+            let isReferenceOnly = !shouldSync && folderType != .custom
+
+            guard shouldSync || isReferenceOnly else { continue }
 
             // Find existing or create new
             let folder: Folder
@@ -411,7 +418,10 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 folder = newFolder
             }
 
-            syncableFolders.append(folder)
+            // Only add to syncable list if we should actually sync emails from it
+            if shouldSync {
+                syncableFolders.append(folder)
+            }
         }
 
         return syncableFolders
