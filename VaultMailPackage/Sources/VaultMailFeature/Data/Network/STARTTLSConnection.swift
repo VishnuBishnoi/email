@@ -29,6 +29,30 @@ private struct SendableBox<T>: @unchecked Sendable {
     init(_ value: T) { self.value = value }
 }
 
+// MARK: - Thread-Safe Boolean
+
+/// Atomic boolean for cross-actor state sharing.
+///
+/// Used by `STARTTLSConnection` to expose connection state to
+/// `IMAPSession` (a different actor) without requiring `await`.
+/// The value is protected by `NSLock` for thread safety.
+final class AtomicBool: @unchecked Sendable {
+    private var _value = false
+    private let lock = NSLock()
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _value
+    }
+
+    func set(_ newValue: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        _value = newValue
+    }
+}
+
 // MARK: - STARTTLSConnection
 
 /// A socket connection that supports in-place TLS upgrade (STARTTLS).
@@ -63,10 +87,26 @@ actor STARTTLSConnection {
     private var isTLSActive = false
     private let streamQueue: DispatchQueue
 
-    /// Whether the connection is currently open.
+    /// Thread-safe connected state for cross-actor access.
+    /// Updated on connect/disconnect within the actor, read from outside via `isConnectedSync`.
+    private let _connectedFlag = AtomicBool()
+
+    /// Whether the connection is currently open (actor-isolated, checks live stream state).
     var isConnected: Bool {
         guard let box = streams else { return false }
-        return box.input.streamStatus == .open && box.output.streamStatus == .open
+        let inputStatus = box.input.streamStatus
+        let outputStatus = box.output.streamStatus
+        let inputOK = inputStatus == .open || inputStatus == .reading
+        let outputOK = outputStatus == .open || outputStatus == .writing
+        return inputOK && outputOK
+    }
+
+    /// Non-isolated connection check for cross-actor access.
+    ///
+    /// Returns the cached connected state. Used by `IMAPSession.isSessionConnected`
+    /// to check STARTTLS connection health without awaiting across actor boundaries.
+    nonisolated var isConnectedSync: Bool {
+        _connectedFlag.value
     }
 
     /// Whether TLS has been negotiated on this connection.
@@ -172,6 +212,7 @@ actor STARTTLSConnection {
 
         self.streams = box
         self.isTLSActive = false
+        self._connectedFlag.set(true)
     }
 
     // MARK: - TLS Upgrade
@@ -199,9 +240,14 @@ actor STARTTLSConnection {
         )
         // SSL settings boxed for Sendable crossing into streamQueue closure.
         // The dictionary is immutable after creation and only read on streamQueue.
+        //
+        // kCFStreamSSLLevel set to kTLSProtocol12 enforces TLS 1.2 as the
+        // minimum version per NFR-SYNC-05/AC-MP-03. The system will negotiate
+        // TLS 1.2 or 1.3 but reject anything below 1.2.
         let sslSettings = SendableBox([
             kCFStreamSSLPeerName: host as NSString,
-            kCFStreamSSLValidatesCertificateChain: true as NSNumber
+            kCFStreamSSLValidatesCertificateChain: true as NSNumber,
+            kCFStreamSSLLevel: kCFStreamSocketSecurityLevelTLSv1_2
         ] as NSDictionary)
 
         let flag = AtomicFlag()
@@ -276,8 +322,14 @@ actor STARTTLSConnection {
                                    box.output.streamStatus == .writing
 
                     if inputOK && outputOK {
-                        // Verify TLS is actually active by checking the property
-                        if box.input.property(forKey: sslSettingsKey) != nil {
+                        // Verify TLS handshake completion by probing stream
+                        // trust. After a successful TLS handshake, the stream
+                        // will have a valid SecTrust object. Before completion
+                        // this returns nil.
+                        let trustKey = Stream.PropertyKey(
+                            rawValue: kCFStreamPropertySSLPeerTrust as String
+                        )
+                        if box.input.property(forKey: trustKey) != nil {
                             guard flag.trySet() else { return }
                             cont.resume()
                             return
@@ -491,6 +543,7 @@ actor STARTTLSConnection {
         streams = nil
         receiveBuffer.removeAll()
         isTLSActive = false
+        _connectedFlag.set(false)
         if let box {
             streamQueue.async {
                 box.input.remove(from: .current, forMode: .default)

@@ -41,10 +41,12 @@ actor IMAPSession {
             guard let connection else { return false }
             return connection.state == .ready
         case .starttls:
-            return starttlsConnection != nil
+            guard let stConn = starttlsConnection else { return false }
+            return stConn.isConnectedSync
         #if DEBUG
         case .some(.none):
-            return starttlsConnection != nil
+            guard let stConn = starttlsConnection else { return false }
+            return stConn.isConnectedSync
         #endif
         case nil:
             return false
@@ -197,6 +199,9 @@ actor IMAPSession {
                     break
                 }
                 if line.hasPrefix("\(capTag) NO") || line.hasPrefix("\(capTag) BAD") {
+                    await stConn.disconnect()
+                    self.starttlsConnection = nil
+                    self.activeSecurityMode = nil
                     throw IMAPError.commandFailed("CAPABILITY failed: \(line)")
                 }
             }
