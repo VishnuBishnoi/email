@@ -98,8 +98,6 @@ public final class ConnectionTestUseCase: ConnectionTestUseCaseProtocol {
             let task = Task { @MainActor in
                 var result = ConnectionTestResult()
 
-                defer { continuation.finish() }
-
                 // Step 1: IMAP Connect
                 result.imapConnect = .testing
                 continuation.yield(result)
@@ -131,6 +129,10 @@ public final class ConnectionTestUseCase: ConnectionTestUseCaseProtocol {
                     result.smtpConnect = .failure("Skipped")
                     result.smtpAuth = .failure("Skipped")
                     continuation.yield(result)
+                    continuation.finish()
+
+                    // Disconnect in background — don't block stream consumers
+                    Task { try? await imapClient.disconnect() }
                     return
                 }
 
@@ -161,9 +163,15 @@ public final class ConnectionTestUseCase: ConnectionTestUseCaseProtocol {
                     continuation.yield(result)
                 }
 
-                // Disconnect
-                try? await imapClient.disconnect()
-                try? await smtpClient.disconnect()
+                // Finish the stream BEFORE disconnecting so consumers
+                // (the `for await` loop in the UI) complete immediately.
+                continuation.finish()
+
+                // Disconnect in background — don't block the @MainActor
+                Task {
+                    try? await imapClient.disconnect()
+                    try? await smtpClient.disconnect()
+                }
             }
 
             continuation.onTermination = { _ in

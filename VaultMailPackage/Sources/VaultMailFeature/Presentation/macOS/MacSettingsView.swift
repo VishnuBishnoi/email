@@ -791,6 +791,18 @@ struct MacSecuritySettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("Privacy") {
+                Toggle("Block Remote Images", isOn: $settings.blockRemoteImages)
+                Text("Prevents senders from knowing when you read an email.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Block Tracking Pixels", isOn: $settings.blockTrackingPixels)
+                Text("Removes invisible tracking images from emails.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }

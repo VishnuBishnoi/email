@@ -177,7 +177,12 @@ private struct AppDependencies {
             connectionProvider: connectionPool
         )
 
-        fetchEmailDetail = FetchEmailDetailUseCase(repository: emailRepo)
+        fetchEmailDetail = FetchEmailDetailUseCase(
+            repository: emailRepo,
+            connectionProvider: connectionPool,
+            accountRepository: accountRepo,
+            keychainManager: keychainManager
+        )
         markRead = MarkReadUseCase(repository: emailRepo)
         downloadAttachment = DownloadAttachmentUseCase(
             repository: emailRepo,

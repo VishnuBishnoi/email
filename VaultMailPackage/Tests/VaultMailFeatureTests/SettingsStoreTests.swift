@@ -61,6 +61,20 @@ struct SettingsStoreTests {
         #expect(store.defaultSendingAccountId == nil)
     }
 
+    @Test("Default blockRemoteImages is false")
+    @MainActor
+    func defaultBlockRemoteImages() {
+        let (store, _) = Self.makeStore()
+        #expect(store.blockRemoteImages == false)
+    }
+
+    @Test("Default blockTrackingPixels is false")
+    @MainActor
+    func defaultBlockTrackingPixels() {
+        let (store, _) = Self.makeStore()
+        #expect(store.blockTrackingPixels == false)
+    }
+
     // MARK: - Persistence Round-Trip
 
     @Test("Theme persists across instances")
@@ -168,6 +182,32 @@ struct SettingsStoreTests {
         #expect(store2.defaultSendingAccountId == "acc-123")
     }
 
+    @Test("blockRemoteImages persists across instances")
+    @MainActor
+    func blockRemoteImagesPersistence() {
+        let suiteName = "test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+
+        let store1 = SettingsStore(defaults: defaults)
+        store1.blockRemoteImages = true
+
+        let store2 = SettingsStore(defaults: defaults)
+        #expect(store2.blockRemoteImages == true)
+    }
+
+    @Test("blockTrackingPixels persists across instances")
+    @MainActor
+    func blockTrackingPixelsPersistence() {
+        let suiteName = "test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+
+        let store1 = SettingsStore(defaults: defaults)
+        store1.blockTrackingPixels = true
+
+        let store2 = SettingsStore(defaults: defaults)
+        #expect(store2.blockTrackingPixels == true)
+    }
+
     // MARK: - Helpers
 
     @Test("cacheLimit returns default 500 for unknown account")
@@ -210,6 +250,8 @@ struct SettingsStoreTests {
         store.theme = .dark
         store.undoSendDelay = .thirtySeconds
         store.appLockEnabled = true
+        store.blockRemoteImages = true
+        store.blockTrackingPixels = true
         store.isOnboardingComplete = true
         store.defaultSendingAccountId = "acc-1"
         store.notificationPreferences["acc-1"] = false
@@ -221,6 +263,8 @@ struct SettingsStoreTests {
         #expect(store.theme == .system)
         #expect(store.undoSendDelay == .fiveSeconds)
         #expect(store.appLockEnabled == false)
+        #expect(store.blockRemoteImages == false)
+        #expect(store.blockTrackingPixels == false)
         #expect(store.isOnboardingComplete == false)
         #expect(store.defaultSendingAccountId == nil)
         #expect(store.notificationPreferences.isEmpty)

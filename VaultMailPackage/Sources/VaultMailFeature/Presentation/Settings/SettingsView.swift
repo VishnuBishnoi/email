@@ -63,6 +63,9 @@ public struct SettingsView: View {
             // SECURITY (FR-SET-01)
             securitySection
 
+            // PRIVACY
+            privacySection
+
             // DATA MANAGEMENT (FR-SET-03)
             dataManagementSection
 
@@ -226,6 +229,26 @@ public struct SettingsView: View {
                 .accessibilityLabel("App lock")
                 .accessibilityHint("Requires Face ID, Touch ID, or device passcode to open the app")
                 .accessibilityValue(settings.appLockEnabled ? "On" : "Off")
+        }
+    }
+
+    @ViewBuilder
+    private var privacySection: some View {
+        @Bindable var settings = settings
+        Section {
+            Toggle("Block Remote Images", isOn: $settings.blockRemoteImages)
+                .accessibilityLabel("Block remote images")
+                .accessibilityHint("When enabled, remote images in emails are blocked until you choose to load them")
+                .accessibilityValue(settings.blockRemoteImages ? "On" : "Off")
+
+            Toggle("Block Tracking Pixels", isOn: $settings.blockTrackingPixels)
+                .accessibilityLabel("Block tracking pixels")
+                .accessibilityHint("When enabled, invisible tracking images are detected and removed from emails")
+                .accessibilityValue(settings.blockTrackingPixels ? "On" : "Off")
+        } header: {
+            Text("Privacy")
+        } footer: {
+            Text("Blocking remote images prevents senders from knowing when you read an email. Blocking tracking pixels removes invisible tracking images.")
         }
     }
 

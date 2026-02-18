@@ -488,8 +488,8 @@ struct MacAddAccountView: View {
             defer { isDiscovering = false }
             do {
                 let account = try await manageAccounts.addAccountViaOAuth()
-                dismiss()
                 onAccountAdded(account)
+                dismiss()
             } catch let error as OAuthError {
                 if case .authenticationCancelled = error { return }
                 errorMessage = "Authentication failed. Please try again."
@@ -518,8 +518,8 @@ struct MacAddAccountView: View {
                     password: password,
                     providerConfig: provider
                 )
-                dismiss()
                 onAccountAdded(account)
+                dismiss()
             } catch let error as AccountError {
                 switch error {
                 case .duplicateAccount(let email):
@@ -564,15 +564,15 @@ struct MacAddAccountView: View {
     private func saveManualAccount() {
         isSaving = true
         errorMessage = nil
-        print("[MacAddAccount] saveManualAccount started")
+
+        // Cancel the connection test task if still running, so its
+        // disconnect operations don't compete for the @MainActor.
+        testTask?.cancel()
+        testTask = nil
 
         Task {
-            defer {
-                isSaving = false
-                print("[MacAddAccount] saveManualAccount defer — isSaving = false")
-            }
+            defer { isSaving = false }
             do {
-                print("[MacAddAccount] creating provider config...")
                 let providerConfig = ProviderRegistry.customProvider(
                     imapHost: imapHost,
                     imapPort: Int(imapPort) ?? 993,
@@ -581,20 +581,15 @@ struct MacAddAccountView: View {
                     smtpPort: Int(smtpPort) ?? 587,
                     smtpSecurity: smtpSecurity
                 )
-                print("[MacAddAccount] calling addAccountViaAppPassword (skipValidation=true)...")
                 let account = try await manageAccounts.addAccountViaAppPassword(
                     email: email,
                     password: manualPassword,
                     providerConfig: providerConfig,
                     skipValidation: true  // Connection already tested above
                 )
-                print("[MacAddAccount] account created: \(account.email), calling dismiss...")
-                dismiss()
-                print("[MacAddAccount] dismiss() called, calling onAccountAdded...")
                 onAccountAdded(account)
-                print("[MacAddAccount] onAccountAdded completed")
+                dismiss()
             } catch let error as AccountError {
-                print("[MacAddAccount] AccountError: \(error)")
                 switch error {
                 case .duplicateAccount(let email):
                     errorMessage = "\(email) is already added."
@@ -602,7 +597,6 @@ struct MacAddAccountView: View {
                     errorMessage = "Failed to save account. Please try again."
                 }
             } catch {
-                print("[MacAddAccount] unexpected error: \(error)")
                 errorMessage = "An unexpected error occurred. Please try again."
             }
         }

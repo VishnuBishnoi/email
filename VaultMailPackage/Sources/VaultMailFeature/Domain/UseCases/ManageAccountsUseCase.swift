@@ -155,9 +155,7 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
                 )
                 // Connection succeeded — return it to pool immediately
                 await provider.checkinConnection(client, accountId: account.id)
-                NSLog("[IMAP] Validation succeeded for \(account.email)")
             } catch {
-                NSLog("[IMAP] Validation FAILED for \(account.email): \(error)")
                 // Roll back: remove account from SwiftData and Keychain
                 try? await repository.removeAccount(id: account.id)
                 try? await keychainManager.delete(for: account.id)
@@ -174,7 +172,6 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
         providerConfig: ProviderConfiguration,
         skipValidation: Bool = false
     ) async throws -> Account {
-        print("[AddAccount] Step 1: creating account object for \(email), skipValidation=\(skipValidation)")
         // Step 1: Create account from provider config
         let displayName = email.components(separatedBy: "@").first ?? email
         let account = Account(
@@ -184,27 +181,21 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
         )
 
         // Step 2: Store password in Keychain (never in SwiftData — AC-SEC-02)
-        print("[AddAccount] Step 2: storing credential in Keychain...")
         try await keychainManager.storeCredential(.password(password), for: account.id)
-        print("[AddAccount] Step 2: Keychain store done")
 
         // Step 3: Persist account in SwiftData
-        print("[AddAccount] Step 3: persisting account in SwiftData...")
         do {
             try await repository.addAccount(account)
         } catch {
-            print("[AddAccount] Step 3: FAILED — \(error)")
             // Roll back Keychain on persistence failure
             try? await keychainManager.deleteCredential(for: account.id)
             throw error
         }
-        print("[AddAccount] Step 3: SwiftData persist done")
 
         // Step 4: Validate IMAP connectivity using PLAIN auth (30-second timeout).
         // Skipped when the caller already ran a connection test (e.g. Manual Setup).
         // If validation fails, roll back both Keychain and SwiftData.
         if !skipValidation, let provider = connectionProvider {
-            print("[AddAccount] Step 4: starting IMAP validation...")
             do {
                 let credential: IMAPCredential = .plain(username: email, password: password)
                 let accountId = account.id
@@ -244,11 +235,7 @@ public final class ManageAccountsUseCase: ManageAccountsUseCaseProtocol {
                 try? await keychainManager.deleteCredential(for: account.id)
                 throw AccountError.imapValidationFailed(error.localizedDescription)
             }
-        } else {
-            print("[AddAccount] Step 4: SKIPPED (skipValidation=\(skipValidation), hasProvider=\(connectionProvider != nil))")
         }
-
-        print("[AddAccount] ✅ returning account \(account.email)")
         return account
     }
 
