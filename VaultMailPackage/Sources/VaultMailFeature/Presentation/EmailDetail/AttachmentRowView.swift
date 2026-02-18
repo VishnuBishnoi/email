@@ -196,19 +196,19 @@ struct AttachmentRowView: View {
         case .downloaded:
             HStack(spacing: 8) {
                 #if os(macOS)
-                // Save to Downloads folder
+                // Save attachment to disk via NSSavePanel
                 Button {
                     if let fileURL = validatedFileURL {
                         saveToDownloads(fileURL)
                     }
                 } label: {
-                    Image(systemName: "folder.badge.plus")
+                    Image(systemName: "arrow.down.to.line")
                         .font(.subheadline)
                         .foregroundStyle(.tint)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Save \(attachment.filename) to Downloads")
-                .help("Save to Downloads")
+                .accessibilityLabel("Save \(attachment.filename)")
+                .help("Save As…")
 
                 // Share button — uses overlay anchor for correct NSSharingServicePicker position
                 SharePickerButton(fileURL: validatedFileURL)
@@ -293,34 +293,28 @@ struct AttachmentRowView: View {
     }
 
     #if os(macOS)
-    /// Copies the downloaded attachment to the user's Downloads folder.
+    /// Presents an NSSavePanel so the user can choose where to save the attachment.
+    /// This works correctly with App Sandbox since NSSavePanel grants write access
+    /// to the user-chosen location.
     private func saveToDownloads(_ sourceURL: URL) {
-        let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        guard let destination = downloadsURL?.appendingPathComponent(sourceURL.lastPathComponent) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = sourceURL.lastPathComponent
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        // Default to Downloads folder
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
 
-        do {
-            // If a file with the same name exists, generate a unique name
-            let finalURL: URL
-            if FileManager.default.fileExists(atPath: destination.path) {
-                let stem = destination.deletingPathExtension().lastPathComponent
-                let ext = destination.pathExtension
-                var counter = 1
-                var candidate = destination
-                while FileManager.default.fileExists(atPath: candidate.path) {
-                    let newName = ext.isEmpty ? "\(stem) (\(counter))" : "\(stem) (\(counter)).\(ext)"
-                    candidate = destination.deletingLastPathComponent().appendingPathComponent(newName)
-                    counter += 1
+        panel.begin { response in
+            guard response == .OK, let destinationURL = panel.url else { return }
+            do {
+                // Remove existing file if user chose to overwrite
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
                 }
-                finalURL = candidate
-            } else {
-                finalURL = destination
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            } catch {
+                NSLog("[Attachment] Failed to save attachment: \(error.localizedDescription)")
             }
-
-            try FileManager.default.copyItem(at: sourceURL, to: finalURL)
-            // Bounce the Downloads folder icon in the Dock to indicate completion
-            NSWorkspace.shared.noteFileSystemChanged(finalURL.path)
-        } catch {
-            NSLog("[Attachment] Failed to save to Downloads: \(error.localizedDescription)")
         }
     }
     #endif
