@@ -42,6 +42,9 @@ struct HTMLEmailView: UIViewRepresentable {
     /// If `nil`, links open in Safari via `UIApplication.shared.open`.
     var onLinkTapped: ((URL) -> Void)?
 
+    /// Called when the WebView finishes loading and rendering the HTML content.
+    var onLoaded: (() -> Void)?
+
     // MARK: - Content Height Binding
 
     /// Tracks the rendered content height so the parent can size the view.
@@ -52,17 +55,19 @@ struct HTMLEmailView: UIViewRepresentable {
     init(
         htmlContent: String,
         contentHeight: Binding<CGFloat>,
-        onLinkTapped: ((URL) -> Void)? = nil
+        onLinkTapped: ((URL) -> Void)? = nil,
+        onLoaded: (() -> Void)? = nil
     ) {
         self.htmlContent = htmlContent
         self._contentHeight = contentHeight
         self.onLinkTapped = onLinkTapped
+        self.onLoaded = onLoaded
     }
 
     // MARK: - UIViewRepresentable
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLinkTapped: onLinkTapped, contentHeight: $contentHeight)
+        Coordinator(onLinkTapped: onLinkTapped, contentHeight: $contentHeight, onLoaded: onLoaded)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -75,6 +80,7 @@ struct HTMLEmailView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.onLinkTapped = onLinkTapped
+        context.coordinator.onLoaded = onLoaded
         // Only reload if the HTML content actually changed (M2 fix: avoid
         // unnecessary WKWebView reloads on every SwiftUI re-render).
         if htmlContent != context.coordinator.lastLoadedHTML {
@@ -120,16 +126,19 @@ struct HTMLEmailView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
 
         var onLinkTapped: ((URL) -> Void)?
+        var onLoaded: (() -> Void)?
         var lastLoadedHTML: String?
         weak var webView: WKWebView?
         private var contentHeight: Binding<CGFloat>
 
         init(
             onLinkTapped: ((URL) -> Void)?,
-            contentHeight: Binding<CGFloat>
+            contentHeight: Binding<CGFloat>,
+            onLoaded: (() -> Void)? = nil
         ) {
             self.onLinkTapped = onLinkTapped
             self.contentHeight = contentHeight
+            self.onLoaded = onLoaded
         }
 
         // MARK: WKScriptMessageHandler
@@ -183,6 +192,7 @@ struct HTMLEmailView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             installResizeObserver(webView)
+            onLoaded?()
         }
 
         /// JavaScript that installs a ResizeObserver on the body to notify

@@ -48,6 +48,8 @@ struct MessageBubbleView: View {
     @State private var baseCacheKey: String?
     /// True while `processEmailBody()` is running — drives shimmer for HTML rendering.
     @State private var isProcessingBody = false
+    /// True until the WKWebView fires `didFinish` — keeps shimmer visible during WebView render.
+    @State private var isWebViewLoading = false
 
     // MARK: - Environment
 
@@ -173,19 +175,31 @@ struct MessageBubbleView: View {
 
         #if os(iOS)
         if let html = processedHTML, !html.isEmpty {
-            HTMLEmailView(
-                htmlContent: html,
-                contentHeight: $htmlContentHeight,
-                onLinkTapped: { url in
-                    // PR #8 Comment 4: Only allow http/https links.
-                    guard let scheme = url.scheme?.lowercased(),
-                          scheme == "http" || scheme == "https" else { return }
-                    UIApplication.shared.open(url)
+            ZStack(alignment: .top) {
+                HTMLEmailView(
+                    htmlContent: html,
+                    contentHeight: $htmlContentHeight,
+                    onLinkTapped: { url in
+                        // PR #8 Comment 4: Only allow http/https links.
+                        guard let scheme = url.scheme?.lowercased(),
+                              scheme == "http" || scheme == "https" else { return }
+                        UIApplication.shared.open(url)
+                    },
+                    onLoaded: {
+                        isWebViewLoading = false
+                    }
+                )
+                .opacity(isWebViewLoading ? 0 : 1)
+
+                if isWebViewLoading {
+                    bodyShimmer
+                        .transition(.opacity)
                 }
-            )
+            }
             .frame(height: max(htmlContentHeight, 44))
             .clipped()
             .animation(.easeInOut(duration: 0.15), value: htmlContentHeight)
+            .animation(.easeInOut(duration: 0.2), value: isWebViewLoading)
         } else if !showShimmer, let plainText = email.bodyPlain, !plainText.isEmpty {
             Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
@@ -197,18 +211,30 @@ struct MessageBubbleView: View {
         }
         #elseif os(macOS)
         if let html = processedHTML, !html.isEmpty {
-            HTMLEmailView_macOS(
-                htmlContent: html,
-                contentHeight: $htmlContentHeight,
-                onLinkTapped: { url in
-                    guard let scheme = url.scheme?.lowercased(),
-                          scheme == "http" || scheme == "https" else { return }
-                    NSWorkspace.shared.open(url)
+            ZStack(alignment: .top) {
+                HTMLEmailView_macOS(
+                    htmlContent: html,
+                    contentHeight: $htmlContentHeight,
+                    onLinkTapped: { url in
+                        guard let scheme = url.scheme?.lowercased(),
+                              scheme == "http" || scheme == "https" else { return }
+                        NSWorkspace.shared.open(url)
+                    },
+                    onLoaded: {
+                        isWebViewLoading = false
+                    }
+                )
+                .opacity(isWebViewLoading ? 0 : 1)
+
+                if isWebViewLoading {
+                    bodyShimmer
+                        .transition(.opacity)
                 }
-            )
+            }
             .frame(height: max(htmlContentHeight, 44))
             .clipped()
             .animation(.easeInOut(duration: 0.15), value: htmlContentHeight)
+            .animation(.easeInOut(duration: 0.2), value: isWebViewLoading)
         } else if !showShimmer, let plainText = email.bodyPlain, !plainText.isEmpty {
             Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
                 .font(.body)
@@ -429,11 +455,17 @@ struct MessageBubbleView: View {
         #else
         let fontSize: CGFloat = 16
         #endif
-        processedHTML = HTMLSanitizer.injectDynamicTypeCSS(
+        let newHTML = HTMLSanitizer.injectDynamicTypeCSS(
             finalHTML,
             fontSizePoints: fontSize,
             allowRemoteImages: loadRemoteImages || isTrustedSender
         )
+
+        // If the HTML content changed, show shimmer until WebView finishes rendering
+        if newHTML != processedHTML {
+            isWebViewLoading = true
+        }
+        processedHTML = newHTML
     }
 
     // MARK: - Helpers
