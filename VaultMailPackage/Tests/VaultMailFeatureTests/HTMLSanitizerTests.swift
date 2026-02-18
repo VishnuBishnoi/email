@@ -25,13 +25,27 @@ struct HTMLSanitizerTests {
         #expect(result.html.contains("<div>Content</div>"))
     }
 
-    @Test("Strips style tags with content")
-    func stripsStyleTags() {
-        let html = "<style>body{color:red}</style><p>Visible</p>"
-        let result = HTMLSanitizer.sanitize(html)
-        #expect(!result.html.contains("<style"))
-        #expect(!result.html.contains("body{color:red}"))
-        #expect(result.html.contains("<p>Visible</p>"))
+    @Test("Sanitizes style blocks: preserves safe CSS, strips dangerous constructs")
+    func sanitizesStyleBlocks() {
+        // Safe CSS is preserved inside <style> tags
+        let safeHTML = "<style>body{color:red}</style><p>Visible</p>"
+        let safeResult = HTMLSanitizer.sanitize(safeHTML)
+        #expect(safeResult.html.contains("<style>"))
+        #expect(safeResult.html.contains("body{color:red}"))
+        #expect(safeResult.html.contains("<p>Visible</p>"))
+
+        // Dangerous @import and url() are stripped from style blocks
+        let dangerousHTML = "<style>@import url('https://evil.com/track'); body{color:red}</style><p>Visible</p>"
+        let dangerousResult = HTMLSanitizer.sanitize(dangerousHTML)
+        #expect(!dangerousResult.html.contains("@import"))
+        #expect(!dangerousResult.html.contains("evil.com"))
+        #expect(dangerousResult.html.contains("body{color:red}"))
+        #expect(dangerousResult.html.contains("<p>Visible</p>"))
+
+        // Style block with ONLY dangerous content is removed entirely
+        let allDangerousHTML = "<style>@import url('https://evil.com/track');</style><p>Visible</p>"
+        let allDangerousResult = HTMLSanitizer.sanitize(allDangerousHTML)
+        #expect(allDangerousResult.html.contains("<p>Visible</p>"))
     }
 
     @Test("Strips iframe tags")
@@ -339,7 +353,7 @@ struct HTMLSanitizerTests {
         // Dangerous content removed
         #expect(!result.html.contains("<script"))
         #expect(!result.html.contains("document.cookie"))
-        #expect(!result.html.contains("<style"))
+        // Style blocks are preserved with safe CSS, but @import is stripped
         #expect(!result.html.contains("@import"))
         #expect(!result.html.contains("http-equiv"))
         #expect(!result.html.contains("refresh"))
