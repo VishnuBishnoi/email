@@ -31,6 +31,12 @@ public actor ConnectionPool {
         let continuation: CheckedContinuation<IMAPClient, any Error>
     }
 
+    /// A caller waiting for a global connection slot.
+    private struct GlobalWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
     /// Factory closure that creates and connects an `IMAPClient`.
     ///
     /// Accepts security mode and credential for multi-provider support.
@@ -54,7 +60,7 @@ public actor ConnectionPool {
     private var waiters: [String: [Waiter]] = [:]
 
     /// Callers waiting for a global connection slot to open up (FIFO).
-    private var globalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var globalWaiters: [GlobalWaiter] = []
 
     /// Maximum connections per account (FR-SYNC-09: 5 for Gmail).
     private let maxConnectionsPerAccount: Int
@@ -189,8 +195,17 @@ public actor ConnectionPool {
             let totalConnections = pools.values.reduce(0) { $0 + $1.count }
             if entries.count < limit && totalConnections >= maxGlobalConnections {
                 // Per-account has room but global limit is reached — wait for a global slot
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    self.globalWaiters.append(continuation)
+                let waiterId = UUID()
+                let timeout = self.waitTimeout
+
+                try await withCheckedThrowingContinuation { continuation in
+                    self.globalWaiters.append(GlobalWaiter(id: waiterId, continuation: continuation))
+
+                    // Apply the same timeout semantics as per-account waiters.
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(timeout))
+                        await self?.timeoutGlobalWaiter(id: waiterId)
+                    }
                 }
                 // After being woken, retry from the top of the while loop
                 continue
@@ -261,17 +276,25 @@ public actor ConnectionPool {
     /// Signals all global waiters that a slot may be available.
     ///
     /// Called after a connection is returned to the pool. Waiters from
-    /// other accounts that were blocked by the global limit will be
-    /// resumed with `IMAPError.connectionPoolGlobalRetry` so their
-    /// `checkout()` call site can retry.
+    /// other accounts that were blocked by the global limit are resumed
+    /// so their `checkout()` loop can retry.
     private func wakeGlobalWaiters() {
         guard !globalWaiters.isEmpty else { return }
         // Resume the oldest global waiter (FIFO)
         let waiter = globalWaiters.removeFirst()
-        waiter.resume(returning: ())
+        waiter.continuation.resume(returning: ())
     }
 
     // MARK: - Timeout
+
+    /// Cancels a global waiter that has exceeded the wait timeout.
+    ///
+    /// If the waiter was already resumed, this is a no-op.
+    private func timeoutGlobalWaiter(id: UUID) {
+        guard let index = globalWaiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = globalWaiters.remove(at: index)
+        waiter.continuation.resume(throwing: IMAPError.timeout)
+    }
 
     /// Cancels a waiter that has exceeded the wait timeout.
     ///
@@ -324,10 +347,9 @@ public actor ConnectionPool {
         }
         waiters.removeAll()
 
-        // Wake all global waiters (they'll find the pool shut down and retry
-        // will hit per-account waiters that are already cancelled)
-        for continuation in globalWaiters {
-            continuation.resume(returning: ())
+        // Cancel all global waiters.
+        for waiter in globalWaiters {
+            waiter.continuation.resume(throwing: IMAPError.operationCancelled)
         }
         globalWaiters.removeAll()
 

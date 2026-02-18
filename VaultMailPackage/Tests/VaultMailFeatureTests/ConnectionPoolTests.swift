@@ -590,29 +590,24 @@ struct ConnectionPoolTests {
         #expect(total == 3)
 
         // 4th checkout from a4 should block (per-account has room, but global is full)
-        // Because we have a short wait timeout and no one returns, this will
-        // eventually time out at the per-account waiter stage
-        let blockedTask = Task<IMAPClient?, Error> {
-            try await pool.checkout(
+        // and eventually time out, because global cap is based on total pooled
+        // connections (checked-in + checked-out).
+        do {
+            _ = try await pool.checkout(
                 accountId: "a4", host: "h", port: 993, security: .tls,
                 credential: .xoauth2(email: "a4@x.com", accessToken: "t")
             )
+            Issue.record("Expected checkout to time out when global cap is reached")
+        } catch let error as IMAPError {
+            #expect(error == .timeout)
+        } catch {
+            Issue.record("Expected IMAPError.timeout, got: \(error)")
         }
 
-        // Give it time to hit the global waiter
-        try await Task.sleep(for: .milliseconds(100))
-
-        // Return one connection — should unblock the waiter
-        await pool.checkin(c1, accountId: "a1")
-
-        // The blocked task should now succeed
-        let result = try await blockedTask.value
-        #expect(result != nil)
-
         // Clean up
+        await pool.checkin(c1, accountId: "a1")
         await pool.checkin(c2, accountId: "a2")
         await pool.checkin(c3, accountId: "a3")
-        if let r = result { await pool.checkin(r, accountId: "a4") }
         await pool.shutdown()
     }
 
