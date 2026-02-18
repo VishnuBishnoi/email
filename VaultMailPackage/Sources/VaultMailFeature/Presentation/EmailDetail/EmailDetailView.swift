@@ -2,6 +2,8 @@ import SwiftUI
 #if os(iOS)
 import QuickLook
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 /// The threaded conversation detail screen.
@@ -793,6 +795,7 @@ public struct EmailDetailView: View {
     // MARK: - Attachment Actions
 
     private func previewAttachment(_ attachment: Attachment) {
+        #if os(iOS)
         let scopedAttachments = attachment.email?.attachments ?? sortedEmails.flatMap(\.attachments)
         let localFiles: [AttachmentPreviewContextFile] = scopedAttachments.compactMap { item in
             guard let localPath = item.localPath else { return nil }
@@ -808,14 +811,26 @@ public struct EmailDetailView: View {
         previewFiles = localFiles
         previewInitialIndex = localFiles.firstIndex(where: { $0.id == attachment.id }) ?? 0
         showPreview = true
+        #elseif os(macOS)
+        guard let localPath = attachment.localPath else {
+            errorToast = "Attachment file is no longer available locally. Please download again."
+            return
+        }
+        let fileURL = URL(fileURLWithPath: localPath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            errorToast = "Attachment file is no longer available locally. Please download again."
+            return
+        }
+        NSWorkspace.shared.open(fileURL)
+        #endif
     }
 
     private func shareAttachment(_ url: URL) {
-        #if os(iOS)
         guard FileManager.default.fileExists(atPath: url.path) else {
             errorToast = "Attachment file is no longer available locally. Please download again."
             return
         }
+        #if os(iOS)
         guard let windowScene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first,
               let rootVC = windowScene.windows.first?.rootViewController else {
@@ -835,6 +850,21 @@ public struct EmailDetailView: View {
             height: 1
         )
         presenter.present(activityVC, animated: true)
+        #elseif os(macOS)
+        // Open the macOS share picker anchored to the key window
+        let sharingService = NSSharingServicePicker(items: [url])
+        if let contentView = NSApp.keyWindow?.contentView {
+            let anchor = CGRect(
+                x: contentView.bounds.midX,
+                y: contentView.bounds.midY,
+                width: 1,
+                height: 1
+            )
+            sharingService.show(relativeTo: anchor, of: contentView, preferredEdge: .minY)
+        } else {
+            // Fallback: open with default app
+            NSWorkspace.shared.open(url)
+        }
         #endif
     }
 
