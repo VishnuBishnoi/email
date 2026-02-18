@@ -851,20 +851,8 @@ public struct EmailDetailView: View {
         )
         presenter.present(activityVC, animated: true)
         #elseif os(macOS)
-        // Open the macOS share picker anchored to the key window
-        let sharingService = NSSharingServicePicker(items: [url])
-        if let contentView = NSApp.keyWindow?.contentView {
-            let anchor = CGRect(
-                x: contentView.bounds.midX,
-                y: contentView.bounds.midY,
-                width: 1,
-                height: 1
-            )
-            sharingService.show(relativeTo: anchor, of: contentView, preferredEdge: .minY)
-        } else {
-            // Fallback: open with default app
-            NSWorkspace.shared.open(url)
-        }
+        // Fallback: open with default app (primary share handled in AttachmentRowView)
+        NSWorkspace.shared.open(url)
         #endif
     }
 
