@@ -14,7 +14,8 @@ public protocol FetchThreadsUseCaseProtocol {
     func fetchThreads(accountId: String, folderId: String, category: String?, cursor: Date?, pageSize: Int) async throws -> ThreadPage
 
     /// Fetch a page of threads across all accounts (unified inbox).
-    func fetchUnifiedThreads(category: String?, cursor: Date?, pageSize: Int) async throws -> ThreadPage
+    /// Pass `folderType` to filter by folder type (e.g. "inbox", "sent"); nil for all.
+    func fetchUnifiedThreads(category: String?, folderType: String?, cursor: Date?, pageSize: Int) async throws -> ThreadPage
 
     /// Fetch unread counts per AI category for a specific folder.
     /// Returns dictionary keyed by AICategory raw value (nil key = total/all).
@@ -62,10 +63,11 @@ public final class FetchThreadsUseCase: FetchThreadsUseCaseProtocol {
         }
     }
 
-    public func fetchUnifiedThreads(category: String?, cursor: Date?, pageSize: Int) async throws -> ThreadPage {
+    public func fetchUnifiedThreads(category: String?, folderType: String? = nil, cursor: Date?, pageSize: Int) async throws -> ThreadPage {
         do {
             let results = try await repository.getThreadsUnified(
                 category: category,
+                folderType: folderType,
                 cursor: cursor,
                 limit: pageSize + 1
             )

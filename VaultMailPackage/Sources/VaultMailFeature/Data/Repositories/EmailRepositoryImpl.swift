@@ -248,14 +248,37 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
 
     public func getThreadsUnified(
         category: String?,
+        folderType: String?,
         cursor: Date?,
         limit: Int
     ) async throws -> [VaultMailFeature.Thread] {
+
+        // If filtering by folder type, resolve thread IDs via EmailFolder join table
+        var folderThreadIds: Set<String>?
+        if let folderType {
+            let efDescriptor = FetchDescriptor<EmailFolder>(
+                predicate: #Predicate<EmailFolder> { $0.folder?.folderType == folderType }
+            )
+            let emailFolders = try context.fetch(efDescriptor)
+            var ids = Set<String>()
+            for ef in emailFolders {
+                if let threadId = ef.email?.threadId {
+                    ids.insert(threadId)
+                }
+            }
+            folderThreadIds = ids
+            guard !ids.isEmpty else { return [] }
+        }
 
         let descriptor = FetchDescriptor<VaultMailFeature.Thread>(
             sortBy: [SortDescriptor(\.latestDate, order: .reverse)]
         )
         var threads = try context.fetch(descriptor)
+
+        // Apply folder type filter
+        if let folderThreadIds {
+            threads = threads.filter { folderThreadIds.contains($0.id) }
+        }
 
         // Apply category filter
         if let category {

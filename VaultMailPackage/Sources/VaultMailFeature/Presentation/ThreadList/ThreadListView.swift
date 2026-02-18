@@ -1068,9 +1068,10 @@ struct ThreadListView: View {
                     folderId: folder.id
                 )
             } else {
-                // Unified inbox fetch
+                // Unified inbox fetch — filter by folder type if a folder is selected
                 page = try await fetchThreads.fetchUnifiedThreads(
                     category: selectedCategory,
+                    folderType: selectedFolder?.folderType,
                     cursor: nil,
                     pageSize: AppConstants.threadListPageSize
                 )
@@ -1118,6 +1119,7 @@ struct ThreadListView: View {
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
                     category: selectedCategory,
+                    folderType: selectedFolder?.folderType,
                     cursor: paginationCursor,
                     pageSize: AppConstants.threadListPageSize
                 )

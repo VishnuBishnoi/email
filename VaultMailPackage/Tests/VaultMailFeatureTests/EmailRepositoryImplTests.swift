@@ -385,6 +385,7 @@ struct EmailRepositoryImplTests {
         // All threads
         let all = try await repo.getThreadsUnified(
             category: nil,
+            folderType: nil,
             cursor: nil,
             limit: 50
         )
@@ -395,6 +396,7 @@ struct EmailRepositoryImplTests {
         // Filtered by social
         let socialOnly = try await repo.getThreadsUnified(
             category: AICategory.social.rawValue,
+            folderType: nil,
             cursor: nil,
             limit: 50
         )

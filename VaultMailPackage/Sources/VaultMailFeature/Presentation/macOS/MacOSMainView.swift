@@ -703,8 +703,8 @@ public struct MacOSMainView: View {
                 counts = try await fetchThreads.fetchUnreadCounts(accountId: account.id, folderId: folder.id)
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
-                    category: selectedCategory, cursor: nil,
-                    pageSize: AppConstants.threadListPageSize
+                    category: selectedCategory, folderType: selectedFolder?.folderType,
+                    cursor: nil, pageSize: AppConstants.threadListPageSize
                 )
                 counts = try await fetchThreads.fetchUnreadCountsUnified()
             }
@@ -738,8 +738,8 @@ public struct MacOSMainView: View {
                 )
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
-                    category: selectedCategory, cursor: paginationCursor,
-                    pageSize: AppConstants.threadListPageSize
+                    category: selectedCategory, folderType: selectedFolder?.folderType,
+                    cursor: paginationCursor, pageSize: AppConstants.threadListPageSize
                 )
             }
             threads.append(contentsOf: page.threads)

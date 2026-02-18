@@ -195,7 +195,7 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         return Array(result.prefix(limit))
     }
 
-    func getThreadsUnified(category: String?, cursor: Date?, limit: Int) async throws -> [VaultMailFeature.Thread] {
+    func getThreadsUnified(category: String?, folderType: String?, cursor: Date?, limit: Int) async throws -> [VaultMailFeature.Thread] {
         getThreadsUnifiedCallCount += 1
         if let error = errorToThrow { throw error }
 
