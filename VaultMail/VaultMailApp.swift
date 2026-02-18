@@ -49,7 +49,9 @@ struct VaultMailApp: App {
                 MacSettingsView(
                     manageAccounts: deps.manageAccounts,
                     modelManager: deps.aiModelManager,
-                    aiEngineResolver: deps.aiEngineResolver
+                    aiEngineResolver: deps.aiEngineResolver,
+                    providerDiscovery: deps.providerDiscovery,
+                    connectionTestUseCase: deps.connectionTestUseCase
                 )
                 .environment(deps.settingsStore)
                 .modelContainer(deps.modelContainer)
@@ -77,7 +79,9 @@ struct VaultMailApp: App {
             aiProcessingQueue: deps.aiProcessingQueue,
             summarizeThread: deps.summarizeThread,
             smartReply: deps.smartReply,
-            searchUseCase: deps.searchUseCase
+            searchUseCase: deps.searchUseCase,
+            providerDiscovery: deps.providerDiscovery,
+            connectionTestUseCase: deps.connectionTestUseCase
         )
         .environment(deps.settingsStore)
         .modelContainer(deps.modelContainer)

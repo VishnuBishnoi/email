@@ -18,17 +18,28 @@ public struct MacSettingsView: View {
     let manageAccounts: ManageAccountsUseCaseProtocol
     let modelManager: ModelManager
     var aiEngineResolver: AIEngineResolver?
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @State private var accounts: [Account] = []
+
+    /// Whether multi-provider support is available.
+    private var hasMultiProvider: Bool {
+        providerDiscovery != nil && connectionTestUseCase != nil
+    }
 
     public init(
         manageAccounts: ManageAccountsUseCaseProtocol,
         modelManager: ModelManager = ModelManager(),
-        aiEngineResolver: AIEngineResolver? = nil
+        aiEngineResolver: AIEngineResolver? = nil,
+        providerDiscovery: ProviderDiscovery? = nil,
+        connectionTestUseCase: ConnectionTestUseCaseProtocol? = nil
     ) {
         self.manageAccounts = manageAccounts
         self.modelManager = modelManager
         self.aiEngineResolver = aiEngineResolver
+        self.providerDiscovery = providerDiscovery
+        self.connectionTestUseCase = connectionTestUseCase
     }
 
     public var body: some View {
@@ -36,7 +47,9 @@ public struct MacSettingsView: View {
             // Accounts Tab
             MacAccountsSettingsTab(
                 accounts: $accounts,
-                manageAccounts: manageAccounts
+                manageAccounts: manageAccounts,
+                providerDiscovery: providerDiscovery,
+                connectionTestUseCase: connectionTestUseCase
             )
             .tabItem {
                 Label("Accounts", systemImage: "person.crop.circle")
@@ -104,11 +117,19 @@ struct MacAccountsSettingsTab: View {
     @Environment(SettingsStore.self) private var settings
     @Binding var accounts: [Account]
     let manageAccounts: ManageAccountsUseCaseProtocol
+    var providerDiscovery: ProviderDiscovery?
+    var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @State private var selectedAccountID: String?
     @State private var isAddingAccount = false
     @State private var showRemoveConfirmation = false
     @State private var accountToRemove: Account?
+    @State private var showProviderSelection = false
+
+    /// Whether multi-provider support is available.
+    private var hasMultiProvider: Bool {
+        providerDiscovery != nil && connectionTestUseCase != nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -169,7 +190,11 @@ struct MacAccountsSettingsTab: View {
             // Bottom bar with add/remove buttons
             HStack {
                 Button {
-                    addAccount()
+                    if hasMultiProvider {
+                        showProviderSelection = true
+                    } else {
+                        addAccount()
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -205,6 +230,22 @@ struct MacAccountsSettingsTab: View {
         } message: {
             if let account = accountToRemove {
                 Text("Remove \(account.email)? All local emails, drafts, and cached data for this account will be deleted.")
+            }
+        }
+        .sheet(isPresented: $showProviderSelection) {
+            if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
+                ProviderSelectionView(
+                    manageAccounts: manageAccounts,
+                    connectionTestUseCase: connTest,
+                    providerDiscovery: discovery,
+                    onAccountAdded: { _ in
+                        showProviderSelection = false
+                        Task { await loadAccounts() }
+                        NotificationCenter.default.post(name: AppConstants.accountsDidChangeNotification, object: nil)
+                    },
+                    onCancel: { showProviderSelection = false }
+                )
+                .frame(minWidth: 400, minHeight: 500)
             }
         }
         .task { await loadAccounts() }
@@ -280,6 +321,12 @@ struct MacAccountDetailView: View {
             // Account Info
             Section {
                 LabeledContent("Email", value: account.email)
+                if let provider = account.provider {
+                    LabeledContent("Provider", value: provider.capitalized)
+                }
+                if let authType = account.authType == "plain" ? "App Password" : account.authType == "xoauth2" ? "OAuth" : nil {
+                    LabeledContent("Authentication", value: authType)
+                }
                 if !account.isActive {
                     HStack {
                         Label("Account Inactive", systemImage: "exclamationmark.triangle.fill")
@@ -289,6 +336,17 @@ struct MacAccountDetailView: View {
                             reAuthenticate()
                         }
                         .disabled(isReAuthenticating)
+                    }
+                }
+                if let error = reAuthError {
+                    Label(error, systemImage: "xmark.circle")
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                }
+                // Manual app-password update for PLAIN-auth accounts
+                if account.authType == "plain" && account.isActive {
+                    Button("Update App Password…") {
+                        showPasswordUpdate = true
                     }
                 }
             }
