@@ -58,6 +58,7 @@ struct VaultMailApp: App {
                     connectionTestUseCase: deps.connectionTestUseCase
                 )
                 .environment(deps.settingsStore)
+                .environment(deps.notificationCoordinator)
                 .modelContainer(deps.modelContainer)
             }
         }

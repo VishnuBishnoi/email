@@ -192,6 +192,21 @@ public final class NotificationService: NotificationServiceProtocol {
     public func markFirstLaunchComplete() {
         isFirstLaunch = false
     }
+
+    // MARK: - Debug
+
+    #if DEBUG
+    public func sendDebugNotification(from email: Email) async {
+        // Bypass filter pipeline for debug emails — filters check SwiftData
+        // relationships (emailFolders) that don't exist on in-memory test emails.
+        let request = NotificationContentBuilder.build(from: email)
+        try? await center.add(request)
+    }
+
+    public func diagnoseFilter(for email: Email) async -> String {
+        await filterPipeline.diagnose(for: email)
+    }
+    #endif
 }
 
 #else
@@ -209,6 +224,11 @@ public final class NotificationService: NotificationServiceProtocol {
     public func updateBadgeCount() async {}
     public func registerCategories() {}
     public func markFirstLaunchComplete() {}
+
+    #if DEBUG
+    public func sendDebugNotification(from email: Email) async {}
+    public func diagnoseFilter(for email: Email) async -> String { "Unavailable (stub)" }
+    #endif
 }
 
 #endif

@@ -35,4 +35,27 @@ public final class NotificationFilterPipeline {
 
         return true
     }
+
+    // MARK: - Debug Diagnostics
+
+    #if DEBUG
+    /// Runs the filter pipeline and returns a human-readable diagnostic string.
+    ///
+    /// Useful for debugging notification delivery in the settings UI.
+    /// Reports which filter blocked the email, or confirms it passed all filters.
+    public func diagnose(for email: Email) async -> String {
+        if await vipFilter.shouldNotify(for: email) {
+            return "VIP override — notification will always be sent"
+        }
+
+        for (index, filter) in filters.enumerated() {
+            if !(await filter.shouldNotify(for: email)) {
+                let filterName = String(describing: type(of: filter))
+                return "Blocked by \(filterName) (filter \(index + 1)/\(filters.count))"
+            }
+        }
+
+        return "Passed all \(filters.count) filters"
+    }
+    #endif
 }

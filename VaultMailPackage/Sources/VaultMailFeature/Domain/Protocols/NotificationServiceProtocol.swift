@@ -100,4 +100,16 @@ public protocol NotificationServiceProtocol {
     ///
     /// Spec ref: NOTIF-08
     func markFirstLaunchComplete()
+
+    // MARK: - Debug
+
+    #if DEBUG
+    /// Send a single test notification bypassing first-launch and recency guards.
+    ///
+    /// Still runs the filter pipeline so settings are respected.
+    func sendDebugNotification(from email: Email) async
+
+    /// Run the filter pipeline diagnostics and return a human-readable result.
+    func diagnoseFilter(for email: Email) async -> String
+    #endif
 }

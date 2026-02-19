@@ -8,11 +8,15 @@ import SwiftUI
 /// Spec ref: NOTIF-09, NOTIF-10, NOTIF-11, NOTIF-14, NOTIF-23
 public struct NotificationSettingsContent: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(NotificationSyncCoordinator.self) private var coordinator: NotificationSyncCoordinator?
 
     let accounts: [Account]
 
     @State private var authStatus: NotificationAuthStatus = .notDetermined
     @State private var newVIPEmail = ""
+    #if DEBUG
+    @State private var debugStatus: String?
+    #endif
 
     public init(accounts: [Account]) {
         self.accounts = accounts
@@ -26,6 +30,9 @@ public struct NotificationSettingsContent: View {
             vipContactsSection
             mutedThreadsSection
             quietHoursSection
+            #if DEBUG
+            debugSection
+            #endif
         }
         #if os(macOS)
         .formStyle(.grouped)
@@ -250,6 +257,151 @@ public struct NotificationSettingsContent: View {
             Text("Notifications are silenced during quiet hours. VIP contacts override this setting.")
         }
     }
+
+    // MARK: - Debug Section
+
+    #if DEBUG
+    @ViewBuilder
+    private var debugSection: some View {
+        Section {
+            Button {
+                Task { await sendTestNotification(category: .primary) }
+            } label: {
+                Label("Send Test Notification", systemImage: "bell.badge")
+            }
+
+            Button {
+                Task { await sendBatchTestNotifications() }
+            } label: {
+                Label("Send Batch (5 emails)", systemImage: "bell.badge.waveform")
+            }
+
+            Button {
+                Task { await sendVIPTestNotification() }
+            } label: {
+                Label("Send VIP Test", systemImage: "star.fill")
+            }
+
+            Button {
+                Task { await runFilterDiagnostics() }
+            } label: {
+                Label("Test Filter Pipeline", systemImage: "line.3.horizontal.decrease.circle")
+            }
+
+            Button(role: .destructive) {
+                Task { await clearAllNotifications() }
+            } label: {
+                Label("Clear All Notifications", systemImage: "trash")
+            }
+
+            if let debugStatus {
+                Text(debugStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Debug")
+        } footer: {
+            Text("Test notifications respect your current filter settings (account, category, quiet hours, VIP).")
+        }
+    }
+
+    private func makeDebugEmail(
+        fromName: String,
+        fromAddress: String,
+        subject: String,
+        snippet: String,
+        category: AICategory
+    ) -> Email {
+        let accountId = accounts.first?.id ?? "debug-account"
+        return Email(
+            accountId: accountId,
+            threadId: UUID().uuidString,
+            messageId: "<debug-\(UUID().uuidString)@test.local>",
+            fromAddress: fromAddress,
+            fromName: fromName,
+            subject: subject,
+            snippet: snippet,
+            dateReceived: Date(),
+            aiCategory: category.rawValue
+        )
+    }
+
+    private func sendTestNotification(category: AICategory) async {
+        guard let coordinator else { debugStatus = "Coordinator not available"; return }
+        let email = makeDebugEmail(
+            fromName: "Test Sender",
+            fromAddress: "test@example.com",
+            subject: "Test Notification",
+            snippet: "This is a test notification to verify delivery is working correctly.",
+            category: category
+        )
+        await coordinator.sendDebugNotification(from: email)
+        debugStatus = "Sent test notification (\(category.rawValue))"
+    }
+
+    private func sendBatchTestNotifications() async {
+        guard let coordinator else { debugStatus = "Coordinator not available"; return }
+        let testEmails: [(String, String, String, AICategory)] = [
+            ("Alice Smith", "alice@work.com", "Q1 Planning Meeting", .primary),
+            ("Bob from Twitter", "notifications@twitter.com", "New follower", .social),
+            ("Amazon", "deals@amazon.com", "Flash sale today", .promotions),
+            ("GitHub", "noreply@github.com", "PR review requested", .updates),
+            ("Carol Jones", "carol@team.com", "Project update", .primary),
+        ]
+
+        var sentCount = 0
+        for (name, address, subject, category) in testEmails {
+            let email = makeDebugEmail(
+                fromName: name,
+                fromAddress: address,
+                subject: subject,
+                snippet: "Debug batch test email from \(name).",
+                category: category
+            )
+            await coordinator.sendDebugNotification(from: email)
+            sentCount += 1
+        }
+        debugStatus = "Sent \(sentCount) test notifications"
+    }
+
+    private func sendVIPTestNotification() async {
+        guard let coordinator else { debugStatus = "Coordinator not available"; return }
+        let vipAddress = settings.vipContacts.first ?? "vip@example.com"
+        let email = makeDebugEmail(
+            fromName: "VIP Contact",
+            fromAddress: vipAddress,
+            subject: "VIP Test Message",
+            snippet: "This notification should bypass all filters except account check.",
+            category: .primary
+        )
+        await coordinator.sendDebugNotification(from: email)
+        debugStatus = "Sent VIP test (from: \(vipAddress))"
+    }
+
+    private func runFilterDiagnostics() async {
+        guard let coordinator else { debugStatus = "Coordinator not available"; return }
+        let email = makeDebugEmail(
+            fromName: "Filter Test",
+            fromAddress: "filter-test@example.com",
+            subject: "Filter Diagnostics",
+            snippet: "Testing which filters this email passes.",
+            category: .primary
+        )
+        let result = await coordinator.diagnoseFilter(for: email)
+        debugStatus = result
+    }
+
+    private func clearAllNotifications() async {
+        #if canImport(UserNotifications)
+        let center = UNUserNotificationCenter.current()
+        center.removeAllDeliveredNotifications()
+        center.removeAllPendingNotificationRequests()
+        try? await center.setBadgeCount(0)
+        debugStatus = "Cleared all notifications and badge"
+        #endif
+    }
+    #endif
 
     // MARK: - Helpers
 

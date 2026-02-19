@@ -38,4 +38,18 @@ public final class NotificationSyncCoordinator {
     public func markFirstLaunchComplete() {
         notificationService.markFirstLaunchComplete()
     }
+
+    // MARK: - Debug
+
+    #if DEBUG
+    /// Send a test notification directly, bypassing first-launch and recency guards.
+    public func sendDebugNotification(from email: Email) async {
+        await notificationService.sendDebugNotification(from: email)
+    }
+
+    /// Run filter pipeline diagnostics for a test email.
+    public func diagnoseFilter(for email: Email) async -> String {
+        await notificationService.diagnoseFilter(for: email)
+    }
+    #endif
 }
