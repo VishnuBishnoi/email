@@ -1,7 +1,7 @@
 ---
 title: "Notifications — Specification"
 version: "0.4.0"
-status: draft
+status: locked
 created: 2026-02-19
 updated: 2026-02-19
 authors:
