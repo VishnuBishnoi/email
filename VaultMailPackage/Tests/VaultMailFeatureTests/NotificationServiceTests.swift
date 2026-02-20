@@ -59,7 +59,7 @@ struct NotificationServiceTests {
         let (service, center, _, _) = Self.makeService()
         let email = Self.makeEmail(dateReceived: Date())
 
-        await service.processNewEmails([email], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([email], fromBackground: false)
 
         #expect(center.addedRequests.isEmpty)
     }
@@ -71,7 +71,7 @@ struct NotificationServiceTests {
         let email = Self.makeEmail(dateReceived: Date())
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails([email], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([email], fromBackground: false)
 
         #expect(center.addedRequests.count == 1)
     }
@@ -85,7 +85,7 @@ struct NotificationServiceTests {
         let email = Self.makeEmail(dateReceived: Date(), isRead: true)
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails([email], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([email], fromBackground: false)
 
         #expect(center.addedRequests.isEmpty)
     }
@@ -99,11 +99,11 @@ struct NotificationServiceTests {
         service.markFirstLaunchComplete()
 
         // Process first time
-        await service.processNewEmails([email], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([email], fromBackground: false)
         #expect(center.addedRequests.count == 1)
 
         // Process second time - should be skipped
-        await service.processNewEmails([email], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([email], fromBackground: false)
         #expect(center.addedRequests.count == 1)
     }
 
@@ -123,7 +123,7 @@ struct NotificationServiceTests {
         }
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails(emails, fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails(emails, fromBackground: false)
 
         #expect(center.addedRequests.count == AppConstants.maxNotificationsPerSync)
     }
@@ -141,7 +141,7 @@ struct NotificationServiceTests {
         )
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails([oldEmail], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([oldEmail], fromBackground: false)
 
         #expect(center.addedRequests.isEmpty)
     }
@@ -157,7 +157,7 @@ struct NotificationServiceTests {
         )
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails([recentEmail], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([recentEmail], fromBackground: false)
 
         #expect(center.addedRequests.count == 1)
     }
@@ -173,7 +173,7 @@ struct NotificationServiceTests {
         )
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails([email], fromBackground: true, activeFolderType: nil)
+        await service.processNewEmails([email], fromBackground: true)
 
         #expect(center.addedRequests.count == 1)
     }
@@ -194,7 +194,7 @@ struct NotificationServiceTests {
         let newEmail = Self.makeEmail(id: "new", dateReceived: Date())
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails([newEmail], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([newEmail], fromBackground: false)
 
         #expect(center.currentBadgeCount == 3)
     }
@@ -208,7 +208,7 @@ struct NotificationServiceTests {
         let email = Self.makeEmail(id: "email123", dateReceived: Date())
 
         service.markFirstLaunchComplete()
-        await service.processNewEmails([email], fromBackground: false, activeFolderType: nil)
+        await service.processNewEmails([email], fromBackground: false)
 
         #expect(center.addedRequests.count == 1)
 

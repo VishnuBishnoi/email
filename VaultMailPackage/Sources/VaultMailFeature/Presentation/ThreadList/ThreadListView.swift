@@ -525,8 +525,7 @@ struct ThreadListView: View {
             // Notify notification coordinator about pull-to-refresh emails (NOTIF-03)
             await notificationCoordinator.didSyncNewEmails(
                 syncedEmails,
-                fromBackground: false,
-                activeFolderType: selectedFolder?.folderType
+                fromBackground: false
             )
         }
         .accessibilityLabel("Email threads")
@@ -943,10 +942,12 @@ struct ThreadListView: View {
                     runAIClassification(for: syncedEmails)
 
                     // Notify notification coordinator about new emails (NOTIF-03)
+                    // Mark first launch complete so subsequent syncs can deliver notifications.
+                    // The initial sync emails are suppressed to avoid flooding on first open.
+                    notificationCoordinator.markFirstLaunchComplete()
                     await notificationCoordinator.didSyncNewEmails(
                         syncedEmails,
-                        fromBackground: false,
-                        activeFolderType: selectedFolder?.folderType
+                        fromBackground: false
                     )
 
                     // Start IMAP IDLE for real-time inbox updates (FR-SYNC-03)
@@ -1038,7 +1039,7 @@ struct ThreadListView: View {
         NSLog("[IDLE] Starting monitor for \(folderPath)")
         idleTask = Task {
             var retryDelay: Duration = .seconds(2)
-            let maxDelay: Duration = .seconds(60)
+            let maxDelay: Duration = .seconds(30)
 
             while !Task.isCancelled {
                 let stream = monitor.monitor(accountId: accountId, folderImapPath: folderPath)
@@ -1054,8 +1055,7 @@ struct ThreadListView: View {
                             // Notify notification coordinator about IDLE-delivered emails (NOTIF-03)
                             await notificationCoordinator.didSyncNewEmails(
                                 syncedEmails,
-                                fromBackground: false,
-                                activeFolderType: selectedFolder?.folderType
+                                fromBackground: false
                             )
                         }
                         retryDelay = .seconds(2) // reset on success

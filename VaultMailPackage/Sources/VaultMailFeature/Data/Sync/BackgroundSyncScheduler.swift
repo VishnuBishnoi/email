@@ -19,8 +19,10 @@ public final class BackgroundSyncScheduler {
     /// Background task identifier — must match Info.plist entry.
     public static let taskIdentifier = "com.vaultmail.app.sync"
 
-    /// Minimum interval between background syncs (15 minutes).
-    private static let minimumInterval: TimeInterval = 15 * 60
+    /// Minimum interval between background syncs (1 minute).
+    /// Apple's BGTaskScheduler may still throttle based on battery and usage patterns,
+    /// but requesting the minimum signals the system to run as soon as possible.
+    private static let minimumInterval: TimeInterval = 1 * 60
 
     private let syncEmails: SyncEmailsUseCaseProtocol
     private let manageAccounts: ManageAccountsUseCaseProtocol
@@ -103,7 +105,7 @@ public final class BackgroundSyncScheduler {
                         notificationCoordinator?.markFirstLaunchComplete()
                         isFirst = false
                     }
-                    await notificationCoordinator?.didSyncNewEmails(fromBackground: true, activeFolderType: nil)
+                    await notificationCoordinator?.didSyncNewEmails(fromBackground: true)
                 }
 
                 if Task.isCancelled {

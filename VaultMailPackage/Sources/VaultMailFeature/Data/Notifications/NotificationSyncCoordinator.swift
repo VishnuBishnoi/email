@@ -20,8 +20,8 @@ public final class NotificationSyncCoordinator {
     }
 
     /// Called after a sync completes with newly fetched emails.
-    public func didSyncNewEmails(_ emails: [Email] = [], fromBackground: Bool, activeFolderType: String?) async {
-        await notificationService.processNewEmails(emails, fromBackground: fromBackground, activeFolderType: activeFolderType)
+    public func didSyncNewEmails(_ emails: [Email] = [], fromBackground: Bool) async {
+        await notificationService.processNewEmails(emails, fromBackground: fromBackground)
     }
 
     /// Called when a thread is marked as read.

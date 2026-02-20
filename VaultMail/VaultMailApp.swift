@@ -264,7 +264,6 @@ private struct AppDependencies {
         // Notification system (NOTIF-01..08)
         let accountFilter = AccountNotificationFilter(settingsStore: settingsStore)
         let spamFilter = SpamNotificationFilter()
-        let folderTypeFilter = FolderTypeNotificationFilter()
         let categoryFilter = CategoryNotificationFilter(settingsStore: settingsStore)
         let mutedFilter = MutedThreadFilter(settingsStore: settingsStore)
         let quietHoursFilter = QuietHoursFilter(settingsStore: settingsStore)
@@ -273,7 +272,7 @@ private struct AppDependencies {
 
         let filterPipeline = NotificationFilterPipeline(
             vipFilter: vipFilter,
-            filters: [accountFilter, spamFilter, folderTypeFilter, categoryFilter, mutedFilter, quietHoursFilter, focusFilter]
+            filters: [accountFilter, spamFilter, categoryFilter, mutedFilter, quietHoursFilter, focusFilter]
         )
 
         let notifCenter = UNUserNotificationCenterWrapper()

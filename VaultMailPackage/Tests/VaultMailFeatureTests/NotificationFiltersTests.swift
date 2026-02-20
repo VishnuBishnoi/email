@@ -2,17 +2,16 @@ import Foundation
 import Testing
 @testable import VaultMailFeature
 
-/// Tests all 8 individual notification filters.
+/// Tests all 7 individual notification filters.
 ///
 /// Filters tested:
 /// 1. AccountNotificationFilter — checks account notification enable/disable
 /// 2. SpamNotificationFilter — filters out spam emails
-/// 3. FolderTypeNotificationFilter — only notifies for inbox emails
-/// 4. CategoryNotificationFilter — checks per-category notification preferences
-/// 5. VIPContactFilter — checks if sender is a VIP contact
-/// 6. MutedThreadFilter — filters out muted threads
-/// 7. QuietHoursFilter — respects quiet hours settings
-/// 8. FocusModeFilter — stub filter (always returns true)
+/// 3. CategoryNotificationFilter — checks per-category notification preferences
+/// 4. VIPContactFilter — checks if sender is a VIP contact
+/// 5. MutedThreadFilter — filters out muted threads
+/// 6. QuietHoursFilter — respects quiet hours settings
+/// 7. FocusModeFilter — stub filter (always returns true)
 ///
 /// Spec ref: NOTIF-07 through NOTIF-15
 @Suite("NotificationFilters")
@@ -92,19 +91,6 @@ struct NotificationFiltersTests {
     func spamFilterBlocksSpam() async {
         let filter = SpamNotificationFilter()
         let email = Self.makeEmail(isSpam: true)
-
-        let result = await filter.shouldNotify(for: email)
-        #expect(result == false)
-    }
-
-    // MARK: - FolderTypeNotificationFilter Tests
-
-    @Test("FolderType filter: returns false when no folders")
-    @MainActor
-    func folderTypeFilterNoFolders() async {
-        let filter = FolderTypeNotificationFilter()
-        let email = Self.makeEmail()
-        // email.emailFolders is empty by default
 
         let result = await filter.shouldNotify(for: email)
         #expect(result == false)

@@ -435,8 +435,7 @@ public struct MacOSMainView: View {
                     // Notify notification coordinator about manual sync emails (NOTIF-03)
                     await notificationCoordinator.didSyncNewEmails(
                         syncedEmails,
-                        fromBackground: false,
-                        activeFolderType: selectedFolder?.folderType
+                        fromBackground: false
                     )
                 }
             } label: {
@@ -646,11 +645,13 @@ public struct MacOSMainView: View {
                 }
                 await loadThreadsAndCounts()
             }
+            // Mark first launch complete so subsequent syncs can deliver notifications.
+            // The initial sync emails are suppressed to avoid flooding on first open.
+            notificationCoordinator.markFirstLaunchComplete()
             // Notify notification coordinator about synced emails (NOTIF-03)
             await notificationCoordinator.didSyncNewEmails(
                 syncedEmails,
-                fromBackground: false,
-                activeFolderType: selectedFolder?.folderType
+                fromBackground: false
             )
         } catch is CancellationError {
             // cancelled
@@ -926,8 +927,7 @@ public struct MacOSMainView: View {
                             // Notify notification coordinator about IDLE-delivered emails (NOTIF-03)
                             await notificationCoordinator.didSyncNewEmails(
                                 syncedEmails,
-                                fromBackground: false,
-                                activeFolderType: selectedFolder?.folderType
+                                fromBackground: false
                             )
                         }
                         retryDelay = .seconds(2)
@@ -935,7 +935,7 @@ public struct MacOSMainView: View {
                 }
                 guard !Task.isCancelled else { break }
                 try? await Task.sleep(for: retryDelay)
-                retryDelay = min(retryDelay * 2, .seconds(60))
+                retryDelay = min(retryDelay * 2, .seconds(30))
             }
         }
     }

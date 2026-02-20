@@ -35,18 +35,14 @@ public protocol NotificationServiceProtocol {
     /// Process newly fetched emails and schedule local notifications.
     ///
     /// Filters emails to determine which should trigger notifications
-    /// based on read status, send date recency, and folder type.
-    /// Suppresses notifications for the currently active folder to
-    /// avoid redundant alerts.
+    /// based on read status, send date recency, and the filter pipeline.
     ///
     /// - Parameters:
     ///   - emails: Newly synced emails to evaluate for notification.
     ///   - fromBackground: Whether the sync originated from a background fetch.
-    ///   - activeFolderType: The folder type currently displayed (notifications
-    ///     for this folder are suppressed), or `nil` if the app is backgrounded.
     ///
     /// Spec ref: NOTIF-03, NOTIF-04
-    func processNewEmails(_ emails: [Email], fromBackground: Bool, activeFolderType: String?) async
+    func processNewEmails(_ emails: [Email], fromBackground: Bool) async
 
     // MARK: - Notification Removal
 

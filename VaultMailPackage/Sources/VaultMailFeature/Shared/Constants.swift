@@ -113,7 +113,7 @@ public enum AppConstants {
     /// Maximum notification banners per processNewEmails() invocation.
     public static let maxNotificationsPerSync = 10
     /// Recency threshold for background sync notifications (seconds). Emails older than this are suppressed.
-    public static let backgroundNotificationRecencySeconds = 3600
+    public static let backgroundNotificationRecencySeconds = 900
     /// Recency threshold for foreground sync notifications (seconds). Emails older than this are suppressed.
-    public static let foregroundNotificationRecencySeconds = 300
+    public static let foregroundNotificationRecencySeconds = 120
 }

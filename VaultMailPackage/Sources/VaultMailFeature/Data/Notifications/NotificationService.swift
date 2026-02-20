@@ -53,7 +53,7 @@ public final class NotificationService: NotificationServiceProtocol {
 
     // MARK: - Notification Delivery (NOTIF-03, NOTIF-04)
 
-    public func processNewEmails(_ emails: [Email], fromBackground: Bool, activeFolderType: String?) async {
+    public func processNewEmails(_ emails: [Email], fromBackground: Bool) async {
         // Suppress during first launch (NOTIF-08)
         guard !isFirstLaunch else { return }
 
@@ -79,14 +79,6 @@ public final class NotificationService: NotificationServiceProtocol {
             // Recency: skip old emails
             let emailDate = email.dateReceived ?? email.dateSent ?? .distantPast
             guard emailDate > cutoffDate else { continue }
-
-            // Active folder suppression: if email is in the currently viewed folder type, skip
-            if let activeFolderType {
-                let isInActiveFolder = email.emailFolders.contains { ef in
-                    ef.folder?.folderType == activeFolderType
-                }
-                if isInActiveFolder { continue }
-            }
 
             // Run filter pipeline
             guard await filterPipeline.shouldNotify(for: email) else { continue }
@@ -218,7 +210,7 @@ public final class NotificationService: NotificationServiceProtocol {
     public init() {}
     public func requestAuthorization() async -> Bool { false }
     public func authorizationStatus() async -> NotificationAuthStatus { .denied }
-    public func processNewEmails(_ emails: [Email], fromBackground: Bool, activeFolderType: String?) async {}
+    public func processNewEmails(_ emails: [Email], fromBackground: Bool) async {}
     public func removeNotifications(forEmailIds emailIds: [String]) async {}
     public func removeNotifications(forThreadId threadId: String) async {}
     public func updateBadgeCount() async {}
