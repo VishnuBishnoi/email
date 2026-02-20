@@ -371,6 +371,44 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         return counts
     }
 
+    // MARK: - Badge Count (NOTIF-16)
+
+    public func getInboxUnreadCount() async throws -> Int {
+        // Step 1: Fetch all inbox-type folders
+        let inboxType = FolderType.inbox.rawValue
+        let folderDescriptor = FetchDescriptor<Folder>(
+            predicate: #Predicate { $0.folderType == inboxType }
+        )
+        let inboxFolders = try context.fetch(folderDescriptor)
+        let inboxFolderIds = Set(inboxFolders.map { $0.id })
+
+        guard !inboxFolderIds.isEmpty else { return 0 }
+
+        // Step 2: Fetch EmailFolder entries for those inbox folders
+        // (SwiftData #Predicate doesn't support Set.contains(), so fetch all and filter)
+        let efDescriptor = FetchDescriptor<EmailFolder>()
+        let allEmailFolders = try context.fetch(efDescriptor)
+        let inboxEmailIds = Set(
+            allEmailFolders
+                .filter { ef in
+                    guard let folderId = ef.folder?.id else { return false }
+                    return inboxFolderIds.contains(folderId)
+                }
+                .compactMap { $0.email?.id }
+        )
+
+        guard !inboxEmailIds.isEmpty else { return 0 }
+
+        // Step 3: Count unread emails whose IDs are in the inbox set
+        let emailDescriptor = FetchDescriptor<Email>(
+            predicate: #Predicate { $0.isRead == false }
+        )
+        let unreadEmails = try context.fetch(emailDescriptor)
+        let count = unreadEmails.filter { inboxEmailIds.contains($0.id) }.count
+
+        return count
+    }
+
     // MARK: - Thread Actions (FR-TL-03)
 
     public func archiveThread(id: String) async throws {

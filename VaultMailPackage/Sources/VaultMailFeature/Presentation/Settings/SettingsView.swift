@@ -185,40 +185,12 @@ public struct SettingsView: View {
     @ViewBuilder
     private var notificationsSection: some View {
         Section("Notifications") {
-            ForEach(accounts, id: \.id) { account in
-                NotificationToggleRow(
-                    account: account,
-                    isEnabled: settings.notificationsEnabled(for: account.id)
-                ) { enabled in
-                    settings.notificationPreferences[account.id] = enabled
-                    if enabled {
-                        requestNotificationPermissionIfNeeded()
-                    }
-                }
-            }
-
-            // Denied-state UX: show note + link to system Settings when OS permission denied (FR-SET-01)
-            if notificationPermissionDenied {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Notifications are disabled in system Settings.", systemImage: "bell.slash")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                    #if os(iOS)
-                    Button("Open Settings") {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    }
-                    .font(.callout)
-                    #else
-                    Text("Enable notifications in System Settings → Notifications.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    #endif
-                }
+            NavigationLink {
+                NotificationSettingsView(accounts: accounts)
+            } label: {
+                Label("Notification Settings", systemImage: "bell.badge")
             }
         }
-        .task { await checkNotificationPermission() }
     }
 
     @ViewBuilder

@@ -85,6 +85,43 @@ public final class SettingsStore {
         didSet { defaults.setJSON(notificationPreferences, forKey: Keys.notificationPreferences) }
     }
 
+    /// Per-category notification preferences. Keyed by AICategory rawValue.
+    /// Default: empty dictionary (all categories enabled when key absent).
+    /// Spec ref: NOTIF-09, NOTIF-23
+    public var notificationCategoryPreferences: [String: Bool] {
+        didSet { defaults.setJSON(notificationCategoryPreferences, forKey: Keys.notificationCategoryPreferences) }
+    }
+
+    /// VIP contact email addresses (lowercased). VIP contacts always trigger notifications.
+    /// Spec ref: NOTIF-10, NOTIF-23
+    public var vipContacts: Set<String> {
+        didSet { defaults.setJSON(Array(vipContacts), forKey: Keys.vipContacts) }
+    }
+
+    /// Muted thread IDs. Muted threads never trigger notifications.
+    /// Spec ref: NOTIF-11, NOTIF-23
+    public var mutedThreadIds: Set<String> {
+        didSet { defaults.setJSON(Array(mutedThreadIds), forKey: Keys.mutedThreadIds) }
+    }
+
+    /// Whether quiet hours are enabled. Default: false.
+    /// Spec ref: NOTIF-14, NOTIF-23
+    public var quietHoursEnabled: Bool {
+        didSet { defaults.set(quietHoursEnabled, forKey: Keys.quietHoursEnabled) }
+    }
+
+    /// Quiet hours start time in minutes since midnight (e.g., 1320 = 22:00). Default: 1320.
+    /// Spec ref: NOTIF-14, NOTIF-23
+    public var quietHoursStart: Int {
+        didSet { defaults.set(quietHoursStart, forKey: Keys.quietHoursStart) }
+    }
+
+    /// Quiet hours end time in minutes since midnight (e.g., 420 = 07:00). Default: 420.
+    /// Spec ref: NOTIF-14, NOTIF-23
+    public var quietHoursEnd: Int {
+        didSet { defaults.set(quietHoursEnd, forKey: Keys.quietHoursEnd) }
+    }
+
     // MARK: - Data Management
 
     /// Per-account attachment cache limits in MB. Keyed by account ID. Default: 500 MB.
@@ -122,6 +159,22 @@ public final class SettingsStore {
         self.blockRemoteImages = defaults.bool(forKey: Keys.blockRemoteImages)
         self.blockTrackingPixels = defaults.bool(forKey: Keys.blockTrackingPixels)
         self.notificationPreferences = defaults.json(forKey: Keys.notificationPreferences) ?? [:]
+        self.notificationCategoryPreferences = defaults.json(forKey: Keys.notificationCategoryPreferences) ?? [:]
+        let vipArray: [String] = defaults.json(forKey: Keys.vipContacts) ?? []
+        self.vipContacts = Set(vipArray)
+        let mutedArray: [String] = defaults.json(forKey: Keys.mutedThreadIds) ?? []
+        self.mutedThreadIds = Set(mutedArray)
+        self.quietHoursEnabled = defaults.bool(forKey: Keys.quietHoursEnabled)
+        if defaults.object(forKey: Keys.quietHoursStart) != nil {
+            self.quietHoursStart = defaults.integer(forKey: Keys.quietHoursStart)
+        } else {
+            self.quietHoursStart = 1320 // 22:00
+        }
+        if defaults.object(forKey: Keys.quietHoursEnd) != nil {
+            self.quietHoursEnd = defaults.integer(forKey: Keys.quietHoursEnd)
+        } else {
+            self.quietHoursEnd = 420 // 07:00
+        }
         self.attachmentCacheLimits = defaults.json(forKey: Keys.attachmentCacheLimits) ?? [:]
         self.isOnboardingComplete = defaults.bool(forKey: Keys.isOnboardingComplete)
         self.defaultSendingAccountId = defaults.string(forKey: Keys.defaultSendingAccountId)
@@ -144,6 +197,35 @@ public final class SettingsStore {
         notificationPreferences[accountId] ?? true
     }
 
+    /// Returns whether notifications are enabled for a given AI category (default true).
+    /// Returns `true` when the key is absent (empty dict = all enabled).
+    /// Spec ref: NOTIF-09
+    public func notificationCategoryEnabled(for categoryRaw: String) -> Bool {
+        notificationCategoryPreferences[categoryRaw] ?? true
+    }
+
+    /// Toggles mute state for a thread. First call mutes, second unmutes.
+    /// Spec ref: NOTIF-11
+    public func toggleMuteThread(threadId: String) {
+        if mutedThreadIds.contains(threadId) {
+            mutedThreadIds.remove(threadId)
+        } else {
+            mutedThreadIds.insert(threadId)
+        }
+    }
+
+    /// Adds a VIP contact (lowercased for case-insensitive matching).
+    /// Spec ref: NOTIF-10
+    public func addVIPContact(_ email: String) {
+        vipContacts.insert(email.lowercased())
+    }
+
+    /// Removes a VIP contact.
+    /// Spec ref: NOTIF-10
+    public func removeVIPContact(_ email: String) {
+        vipContacts.remove(email.lowercased())
+    }
+
     /// Resets all settings to defaults. Used by "Wipe All Data".
     /// Spec ref: FR-SET-03, Foundation Section 9.3
     public func resetAll() {
@@ -152,6 +234,12 @@ public final class SettingsStore {
         categoryTabVisibility = Self.defaultCategoryVisibility
         appLockEnabled = false
         notificationPreferences = [:]
+        notificationCategoryPreferences = [:]
+        vipContacts = []
+        mutedThreadIds = []
+        quietHoursEnabled = false
+        quietHoursStart = 1320
+        quietHoursEnd = 420
         attachmentCacheLimits = [:]
         blockRemoteImages = false
         blockTrackingPixels = false
@@ -178,6 +266,12 @@ public final class SettingsStore {
         static let categoryTabVisibility = "categoryTabVisibility"
         static let appLockEnabled = "appLockEnabled"
         static let notificationPreferences = "notificationPreferences"
+        static let notificationCategoryPreferences = "notifCategoryPreferences"
+        static let vipContacts = "vipContacts"
+        static let mutedThreadIds = "mutedThreadIds"
+        static let quietHoursEnabled = "quietHoursEnabled"
+        static let quietHoursStart = "quietHoursStart"
+        static let quietHoursEnd = "quietHoursEnd"
         static let attachmentCacheLimits = "attachmentCacheLimits"
         static let blockRemoteImages = "blockRemoteImages"
         static let blockTrackingPixels = "blockTrackingPixels"

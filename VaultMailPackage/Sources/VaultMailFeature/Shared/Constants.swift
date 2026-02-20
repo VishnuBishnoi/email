@@ -94,4 +94,26 @@ public enum AppConstants {
 
     /// Posted when accounts are added or removed, so other windows can refresh.
     public static let accountsDidChangeNotification = Notification.Name("VaultMail.accountsDidChange")
+
+    // MARK: - Notification Identifiers (NOTIF-03)
+
+    /// Notification category identifier for email notifications.
+    public static let notificationCategoryEmail = "EMAIL_NOTIFICATION"
+    /// Action identifier: mark thread as read.
+    public static let notificationActionMarkRead = "MARK_READ_ACTION"
+    /// Action identifier: archive thread.
+    public static let notificationActionArchive = "ARCHIVE_ACTION"
+    /// Action identifier: delete thread (move to trash).
+    public static let notificationActionDelete = "DELETE_ACTION"
+    /// Action identifier: reply to email via text input.
+    public static let notificationActionReply = "REPLY_ACTION"
+
+    // MARK: - Notification Anti-Flood (NOTIF-19)
+
+    /// Maximum notification banners per processNewEmails() invocation.
+    public static let maxNotificationsPerSync = 10
+    /// Recency threshold for background sync notifications (seconds). Emails older than this are suppressed.
+    public static let backgroundNotificationRecencySeconds = 900
+    /// Recency threshold for foreground sync notifications (seconds). Emails older than this are suppressed.
+    public static let foregroundNotificationRecencySeconds = 120
 }

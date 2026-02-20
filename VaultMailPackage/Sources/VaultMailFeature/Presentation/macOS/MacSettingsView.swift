@@ -68,7 +68,7 @@ public struct MacSettingsView: View {
                 }
 
             // Notifications Tab
-            MacNotificationsSettingsTab(accounts: accounts)
+            NotificationSettingsContent(accounts: accounts)
                 .tabItem {
                     Label("Notifications", systemImage: "bell.badge")
                 }

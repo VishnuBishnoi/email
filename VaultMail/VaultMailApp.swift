@@ -2,6 +2,10 @@ import SwiftUI
 import SwiftData
 import VaultMailFeature
 
+#if canImport(UserNotifications)
+import UserNotifications
+#endif
+
 @main @MainActor
 struct VaultMailApp: App {
     /// Holds all app dependencies. `nil` when ModelContainer creation fails.
@@ -54,6 +58,7 @@ struct VaultMailApp: App {
                     connectionTestUseCase: deps.connectionTestUseCase
                 )
                 .environment(deps.settingsStore)
+                .environment(deps.notificationCoordinator)
                 .modelContainer(deps.modelContainer)
             }
         }
@@ -84,6 +89,7 @@ struct VaultMailApp: App {
             connectionTestUseCase: deps.connectionTestUseCase
         )
         .environment(deps.settingsStore)
+        .environment(deps.notificationCoordinator)
         .modelContainer(deps.modelContainer)
         .task {
             await deps.searchIndexManager.openIndex()
@@ -112,6 +118,7 @@ struct VaultMailApp: App {
             connectionTestUseCase: deps.connectionTestUseCase
         )
         .environment(deps.settingsStore)
+        .environment(deps.notificationCoordinator)
         .modelContainer(deps.modelContainer)
         .task {
             await deps.searchIndexManager.openIndex()
@@ -152,6 +159,9 @@ private struct AppDependencies {
     let searchUseCase: SearchEmailsUseCase
     let providerDiscovery: ProviderDiscovery
     let connectionTestUseCase: ConnectionTestUseCaseProtocol
+    let notificationService: NotificationService
+    let notificationResponseHandler: NotificationResponseHandler?
+    let notificationCoordinator: NotificationSyncCoordinator
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -220,13 +230,6 @@ private struct AppDependencies {
             keychainManager: keychainManager
         )
 
-        backgroundSyncScheduler = BackgroundSyncScheduler(
-            syncEmails: syncEmails,
-            manageAccounts: manageAccounts
-        )
-        backgroundSyncScheduler.registerTasks()
-        backgroundSyncScheduler.scheduleNextSync()
-
         aiModelManager = ModelManager()
 
         // AI engine resolver + classification pipeline
@@ -257,5 +260,57 @@ private struct AppDependencies {
         // Multi-provider support (MP-08, MP-09)
         providerDiscovery = ProviderDiscovery()
         connectionTestUseCase = ConnectionTestUseCase()
+
+        // Notification system (NOTIF-01..08)
+        let accountFilter = AccountNotificationFilter(settingsStore: settingsStore)
+        let spamFilter = SpamNotificationFilter()
+        let categoryFilter = CategoryNotificationFilter(settingsStore: settingsStore)
+        let mutedFilter = MutedThreadFilter(settingsStore: settingsStore)
+        let quietHoursFilter = QuietHoursFilter(settingsStore: settingsStore)
+        let focusFilter = FocusModeFilter()
+        let vipFilter = VIPContactFilter(settingsStore: settingsStore)
+
+        let filterPipeline = NotificationFilterPipeline(
+            vipFilter: vipFilter,
+            filters: [accountFilter, spamFilter, categoryFilter, mutedFilter, quietHoursFilter, focusFilter]
+        )
+
+        let notifCenter = UNUserNotificationCenterWrapper()
+        notificationService = NotificationService(
+            center: notifCenter,
+            settingsStore: settingsStore,
+            emailRepository: emailRepo,
+            filterPipeline: filterPipeline
+        )
+
+        notificationCoordinator = NotificationSyncCoordinator(
+            notificationService: notificationService
+        )
+
+        #if canImport(UserNotifications)
+        let responseHandler = NotificationResponseHandler(
+            markReadUseCase: markRead,
+            manageThreadActions: manageThreadActions,
+            composeEmailUseCase: composeEmail,
+            emailRepository: emailRepo,
+            notificationService: notificationService,
+            coordinator: notificationCoordinator
+        )
+        notificationResponseHandler = responseHandler
+        UNUserNotificationCenter.current().delegate = responseHandler
+        #else
+        notificationResponseHandler = nil
+        #endif
+
+        notificationService.registerCategories()
+
+        // Wire notification coordinator into background sync
+        backgroundSyncScheduler = BackgroundSyncScheduler(
+            syncEmails: syncEmails,
+            manageAccounts: manageAccounts,
+            notificationCoordinator: notificationCoordinator
+        )
+        backgroundSyncScheduler.registerTasks()
+        backgroundSyncScheduler.scheduleNextSync()
     }
 }

@@ -18,6 +18,7 @@ struct ThreadRowView: View {
     var isMultiSelectMode: Bool = false
     var isSelected: Bool = false
     var accountColor: Color? = nil
+    var isMuted: Bool = false
 
     // MARK: - Derived State
 
@@ -160,6 +161,13 @@ struct ThreadRowView: View {
                     .accessibilityLabel("Flagged as spam")
             }
 
+            if isMuted {
+                Image(systemName: "bell.slash")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Muted")
+            }
+
             Text(thread.snippet ?? "")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -202,6 +210,10 @@ struct ThreadRowView: View {
 
         if hasAttachments {
             parts.append("Has attachments")
+        }
+
+        if isMuted {
+            parts.append("Muted")
         }
 
         if let category, category != .uncategorized {

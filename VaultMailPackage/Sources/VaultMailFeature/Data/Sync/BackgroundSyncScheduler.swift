@@ -19,18 +19,23 @@ public final class BackgroundSyncScheduler {
     /// Background task identifier — must match Info.plist entry.
     public static let taskIdentifier = "com.vaultmail.app.sync"
 
-    /// Minimum interval between background syncs (15 minutes).
-    private static let minimumInterval: TimeInterval = 15 * 60
+    /// Minimum interval between background syncs (1 minute).
+    /// Apple's BGTaskScheduler may still throttle based on battery and usage patterns,
+    /// but requesting the minimum signals the system to run as soon as possible.
+    private static let minimumInterval: TimeInterval = 1 * 60
 
     private let syncEmails: SyncEmailsUseCaseProtocol
     private let manageAccounts: ManageAccountsUseCaseProtocol
+    private let notificationCoordinator: NotificationSyncCoordinator?
 
     public init(
         syncEmails: SyncEmailsUseCaseProtocol,
-        manageAccounts: ManageAccountsUseCaseProtocol
+        manageAccounts: ManageAccountsUseCaseProtocol,
+        notificationCoordinator: NotificationSyncCoordinator? = nil
     ) {
         self.syncEmails = syncEmails
         self.manageAccounts = manageAccounts
+        self.notificationCoordinator = notificationCoordinator
     }
 
     // MARK: - Registration
@@ -91,10 +96,16 @@ public final class BackgroundSyncScheduler {
                 let accounts = try await manageAccounts.getAccounts()
                 let activeAccounts = accounts.filter { $0.isActive }
 
+                var isFirst = true
                 for account in activeAccounts {
                     guard !Task.isCancelled else { break }
                     try await syncEmails.syncAccount(accountId: account.id)
                     NSLog("[BackgroundSync] Synced account: \(account.email)")
+                    if isFirst {
+                        notificationCoordinator?.markFirstLaunchComplete()
+                        isFirst = false
+                    }
+                    await notificationCoordinator?.didSyncNewEmails(fromBackground: true)
                 }
 
                 if Task.isCancelled {

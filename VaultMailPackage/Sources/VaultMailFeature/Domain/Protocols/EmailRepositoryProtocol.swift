@@ -95,6 +95,12 @@ public protocol EmailRepositoryProtocol {
     /// Fetch unified unread counts across all accounts.
     func getUnreadCountsUnified() async throws -> [String?: Int]
 
+    // MARK: - Badge Count (NOTIF-16)
+
+    /// Returns total unread count across all accounts, filtered to inbox-type folders only.
+    /// Used for app badge count management.
+    func getInboxUnreadCount() async throws -> Int
+
     // MARK: - Thread Actions (FR-TL-03)
 
     /// Archive a thread (move to Archive folder).

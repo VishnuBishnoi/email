@@ -9,6 +9,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-MAC-04 (Thread List), FR-MAC-05 (Thread Interactions)
 struct MacThreadListContentView: View {
+    @Environment(SettingsStore.self) private var settings
 
     let viewState: MacOSMainView.ViewState
     let threads: [VaultMailFeature.Thread]
@@ -141,7 +142,8 @@ struct MacThreadListContentView: View {
                 ForEach(threads, id: \.id) { thread in
                     ThreadRowView(
                         thread: thread,
-                        accountColor: accountColorProvider(thread)
+                        accountColor: accountColorProvider(thread),
+                        isMuted: settings.mutedThreadIds.contains(thread.id)
                     )
                     .tag(thread.id)
                     .contextMenu { threadContextMenu(for: thread) }

@@ -241,6 +241,16 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         return try await getUnreadCounts(folderId: "")
     }
 
+    // MARK: - Badge Count (NOTIF-16)
+
+    var getInboxUnreadCountCallCount = 0
+
+    func getInboxUnreadCount() async throws -> Int {
+        getInboxUnreadCountCallCount += 1
+        if let error = errorToThrow { throw error }
+        return emails.filter { !$0.isRead }.count
+    }
+
     // MARK: - Thread Actions
 
     func archiveThread(id: String) async throws {
