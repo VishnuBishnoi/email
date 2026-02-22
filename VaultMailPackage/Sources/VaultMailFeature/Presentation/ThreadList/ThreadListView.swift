@@ -19,6 +19,7 @@ import SwiftData
 /// Spec ref: Thread List FR-TL-01..05
 struct ThreadListView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
 
     let fetchThreads: FetchThreadsUseCaseProtocol
@@ -372,7 +373,7 @@ struct ThreadListView: View {
                 AIChatView(engineResolver: resolver)
             } else {
                 Text("AI not available")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
         }
     }
@@ -474,12 +475,12 @@ struct ThreadListView: View {
     // MARK: - Loading View
 
     private var loadingView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: theme.spacing.md) {
             ProgressView()
                 .controlSize(.large)
             Text("Loading emails...")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
@@ -534,12 +535,12 @@ struct ThreadListView: View {
     @ViewBuilder
     private var syncProgressRow: some View {
         if isSyncing && !threads.isEmpty {
-            HStack(spacing: 10) {
+            HStack(spacing: theme.spacing.listRowSpacing) {
                 ProgressView()
                     .controlSize(.small)
                 Text(syncElapsedSeconds >= 15 ? "Still syncing…" : "Syncing…")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
                 Spacer()
                 if syncElapsedSeconds >= 15 {
                     Button("Cancel") {
@@ -548,12 +549,12 @@ struct ThreadListView: View {
                         isSyncing = false
                         syncElapsedSeconds = 0
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
                 }
             }
-            .padding(.vertical, 4)
-            .listRowBackground(Color.accentColor.opacity(0.05))
+            .padding(.vertical, theme.spacing.xs)
+            .listRowBackground(theme.colors.accentMuted)
             .accessibilityLabel("Syncing mailbox")
         }
     }
@@ -562,24 +563,24 @@ struct ThreadListView: View {
     private var errorBannerRow: some View {
         // Comment 3: Inline error banner when threads are already loaded
         if let errorBannerMessage {
-            HStack(spacing: 8) {
+            HStack(spacing: theme.spacing.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.colors.warning)
                 Text(errorBannerMessage)
-                    .font(.subheadline)
+                    .font(theme.typography.bodyMedium)
                     .lineLimit(2)
                 Spacer()
                 Button {
                     self.errorBannerMessage = nil
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.vertical, 4)
-            .listRowBackground(Color.orange.opacity(0.1))
+            .padding(.vertical, theme.spacing.xs)
+            .listRowBackground(theme.colors.warningMuted)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Error: \(errorBannerMessage)")
         }
@@ -640,7 +641,7 @@ struct ThreadListView: View {
                 } label: {
                     Label("Archive", systemImage: "archivebox")
                 }
-                .tint(.blue)
+                .tint(theme.colors.accent)
 
                 Button {
                     Task { await toggleReadStatus(thread) }
@@ -667,7 +668,7 @@ struct ThreadListView: View {
                         systemImage: thread.isStarred ? "star.slash" : "star.fill"
                     )
                 }
-                .tint(.orange)
+                .tint(theme.colors.starred)
 
                 Button {
                     settings.toggleMuteThread(threadId: thread.id)
@@ -677,7 +678,7 @@ struct ThreadListView: View {
                         systemImage: settings.mutedThreadIds.contains(thread.id) ? "bell" : "bell.slash"
                     )
                 }
-                .tint(.gray)
+                .tint(theme.colors.disabled)
             }
             // Comment 7: Context menu to enter multi-select mode.
             // Note: .onLongPressGesture blocks NavigationLink tap gesture in
@@ -704,18 +705,18 @@ struct ThreadListView: View {
                 HStack {
                     Spacer()
                     Text("Tap to retry")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.accentColor)
+                        .font(theme.typography.bodyMedium)
+                        .foregroundStyle(theme.colors.accent)
                     Spacer()
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, theme.spacing.sm)
             .listRowSeparator(.hidden)
         } else if hasMorePages {
             HStack {
                 Spacer()
                 ProgressView()
-                    .padding(.vertical, 8)
+                    .padding(.vertical, theme.spacing.sm)
                 Spacer()
             }
             .listRowSeparator(.hidden)
@@ -756,21 +757,21 @@ struct ThreadListView: View {
     // MARK: - Empty States
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             if isSyncing {
                 ProgressView()
                     .controlSize(.large)
                 Text("Syncing your mailbox…")
-                    .font(.title3.bold())
+                    .font(theme.typography.titleLarge)
 
                 if syncElapsedSeconds < 15 {
                     Text("This may take a moment on first login")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.bodyMedium)
+                        .foregroundStyle(theme.colors.textSecondary)
                 } else {
                     Text("Still syncing — this is taking longer than expected")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.bodyMedium)
+                        .foregroundStyle(theme.colors.textSecondary)
 
                     Button("Cancel Sync") {
                         syncTask?.cancel()
@@ -780,17 +781,17 @@ struct ThreadListView: View {
                         viewState = .error("Sync cancelled. Pull to refresh to try again.")
                     }
                     .buttonStyle(.bordered)
-                    .tint(.secondary)
+                    .tint(theme.colors.textSecondary)
                 }
             } else {
                 Image(systemName: "tray")
                     .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
                 Text("No emails yet")
-                    .font(.title3.bold())
+                    .font(theme.typography.titleLarge)
                 Text("Emails you receive will appear here")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -799,15 +800,15 @@ struct ThreadListView: View {
     }
 
     private var emptyFilteredView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             Image(systemName: "line.3.horizontal.decrease.circle")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
             Text("No emails in this category")
-                .font(.title3.bold())
+                .font(theme.typography.titleLarge)
             Text("Try selecting a different category")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
             Button("Show All") {
                 selectedCategory = nil
             }
@@ -821,15 +822,15 @@ struct ThreadListView: View {
     // MARK: - Error & Offline Views
 
     private func errorView(message: String) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
-                .foregroundStyle(.orange)
+                .foregroundStyle(theme.colors.warning)
             Text("Something went wrong")
-                .font(.title3.bold())
+                .font(theme.typography.titleLarge)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
             Button("Retry") {
@@ -843,15 +844,15 @@ struct ThreadListView: View {
     }
 
     private var offlineView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             Image(systemName: "wifi.slash")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
             Text("You're offline")
-                .font(.title3.bold())
+                .font(theme.typography.titleLarge)
             Text("Check your internet connection and try again")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
             Button("Retry") {
                 Task { await reloadThreads() }
             }

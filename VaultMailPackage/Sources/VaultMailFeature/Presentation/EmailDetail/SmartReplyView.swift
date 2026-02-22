@@ -7,6 +7,8 @@ struct SmartReplyView: View {
     let suggestions: [String]
     let onTap: (String) -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     // MARK: - Body
 
     var body: some View {
@@ -19,37 +21,37 @@ struct SmartReplyView: View {
     // MARK: - Content
 
     private var suggestionContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: theme.spacing.listRowSpacing) {
             // Header with AI icon
-            HStack(spacing: 6) {
+            HStack(spacing: theme.spacing.chipVertical) {
                 Image(systemName: "sparkles")
-                    .font(.caption)
-                    .foregroundStyle(.purple)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.aiAccent)
 
                 Text("Quick Replies")
-                    .font(.caption)
+                    .font(theme.typography.caption)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, theme.spacing.xs)
 
             // Vertical stack of suggestion chips
-            VStack(spacing: 8) {
+            VStack(spacing: theme.spacing.sm) {
                 ForEach(suggestions, id: \.self) { suggestion in
                     chipButton(for: suggestion)
                 }
             }
         }
-        .padding(12)
+        .padding(theme.spacing.md)
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: theme.shapes.large)
                 .fill(.ultraThinMaterial)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: theme.shapes.large)
                 .strokeBorder(
                     LinearGradient(
-                        colors: [.purple.opacity(0.3), .blue.opacity(0.2)],
+                        colors: [theme.colors.aiAccentMuted, theme.colors.accent.opacity(0.2)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
@@ -66,27 +68,27 @@ struct SmartReplyView: View {
         Button {
             onTap(suggestion)
         } label: {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: theme.spacing.listRowSpacing) {
                 Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.purple.opacity(0.7))
+                    .font(theme.typography.labelSmall)
+                    .foregroundStyle(theme.colors.aiAccent.opacity(0.7))
                     .padding(.top, 3)
 
                 Text(suggestion)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textPrimary)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, theme.spacing.lg)
+            .padding(.vertical, theme.spacing.listRowSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background, in: RoundedRectangle(cornerRadius: 10))
+            .background(theme.colors.surface, in: theme.shapes.smallRect)
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(.quaternary, lineWidth: 0.5)
+                theme.shapes.smallRect
+                    .strokeBorder(theme.colors.border, lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -107,6 +109,7 @@ struct SmartReplyView: View {
         onTap: { _ in }
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Empty") {
@@ -115,6 +118,7 @@ struct SmartReplyView: View {
         onTap: { _ in }
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Single Suggestion") {
@@ -123,6 +127,7 @@ struct SmartReplyView: View {
         onTap: { _ in }
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Long Suggestions") {
@@ -135,6 +140,7 @@ struct SmartReplyView: View {
         onTap: { _ in }
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Animated Appearance") {
@@ -165,4 +171,5 @@ struct SmartReplyView: View {
     }
 
     return AnimatedPreview()
+        .environment(ThemeProvider())
 }

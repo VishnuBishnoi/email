@@ -20,6 +20,8 @@ struct ThreadRowView: View {
     var accountColor: Color? = nil
     var isMuted: Bool = false
 
+    @Environment(ThemeProvider.self) private var theme
+
     // MARK: - Derived State
 
     private var participants: [Participant] {
@@ -65,7 +67,7 @@ struct ThreadRowView: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: theme.spacing.listRowSpacing) {
             if isMultiSelectMode {
                 selectCheckbox
             }
@@ -79,7 +81,7 @@ struct ThreadRowView: View {
 
             contentStack
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, theme.spacing.listRowVertical)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
     }
@@ -88,8 +90,8 @@ struct ThreadRowView: View {
 
     private var selectCheckbox: some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.title3)
-            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+            .font(theme.typography.titleLarge)
+            .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
             .accessibilityLabel(isSelected ? "Selected" : "Not selected")
     }
 
@@ -97,16 +99,16 @@ struct ThreadRowView: View {
 
     private var unreadDot: some View {
         Circle()
-            .fill(isUnread ? Color.blue : Color.clear)
+            .fill(isUnread ? theme.colors.unreadDot : Color.clear)
             .frame(width: 6, height: 6)
-            .padding(.top, 8)
+            .padding(.top, theme.spacing.sm)
             .accessibilityHidden(true)
     }
 
     // MARK: - Content Stack
 
     private var contentStack: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: theme.spacing.xxs + 1) {
             senderRow
             subjectRow
             snippetRow
@@ -117,15 +119,15 @@ struct ThreadRowView: View {
     private var senderRow: some View {
         HStack {
             Text(senderText)
-                .font(.subheadline)
-                .fontWeight(isUnread ? .bold : .regular)
+                .font(isUnread ? theme.typography.titleSmall : theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textPrimary)
                 .lineLimit(1)
 
             Spacer()
 
             Text(timestampText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textTertiary)
         }
     }
 
@@ -133,16 +135,16 @@ struct ThreadRowView: View {
     private var subjectRow: some View {
         HStack {
             Text(thread.subject)
-                .font(.subheadline)
-                .fontWeight(isUnread ? .semibold : .regular)
+                .font(isUnread ? theme.typography.bodyMediumEmphasized : theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textPrimary)
                 .lineLimit(1)
 
             Spacer()
 
             if thread.isStarred {
                 Image(systemName: "star.fill")
-                    .font(.caption)
-                    .foregroundStyle(.yellow)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.starred)
                     .accessibilityHidden(true)
             }
         }
@@ -153,32 +155,33 @@ struct ThreadRowView: View {
         HStack {
             if isSpam {
                 Label("Spam", systemImage: "exclamationmark.shield.fill")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.red, in: RoundedRectangle(cornerRadius: 4))
+                    .font(theme.typography.labelSmall)
+                    .bold()
+                    .foregroundStyle(theme.colors.textInverse)
+                    .padding(.horizontal, theme.spacing.chipHorizontal / 2)
+                    .padding(.vertical, theme.spacing.xxs)
+                    .background(theme.colors.destructive, in: RoundedRectangle(cornerRadius: 4))
                     .accessibilityLabel("Flagged as spam")
             }
 
             if isMuted {
                 Image(systemName: "bell.slash")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.labelSmall)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .accessibilityLabel("Muted")
             }
 
             Text(thread.snippet ?? "")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodySmall)
+                .foregroundStyle(theme.colors.textTertiary)
                 .lineLimit(1)
 
             Spacer()
 
             if hasAttachments {
                 Image(systemName: "paperclip")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
                     .accessibilityHidden(true)
             }
 
@@ -246,6 +249,7 @@ struct ThreadRowView: View {
         ThreadRowView(thread: thread)
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }
 
 #Preview("Read + Starred") {
@@ -266,6 +270,7 @@ struct ThreadRowView: View {
         ThreadRowView(thread: thread)
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }
 
 #Preview("Multi-Select Mode") {
@@ -286,6 +291,7 @@ struct ThreadRowView: View {
         ThreadRowView(thread: thread, isMultiSelectMode: true, isSelected: false)
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }
 
 #Preview("With Account Color") {
@@ -304,6 +310,7 @@ struct ThreadRowView: View {
         ThreadRowView(thread: thread, accountColor: .orange)
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }
 
 #Preview("No Category, No Snippet") {
@@ -323,4 +330,5 @@ struct ThreadRowView: View {
         ThreadRowView(thread: thread)
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }

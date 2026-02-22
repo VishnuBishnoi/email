@@ -21,6 +21,7 @@ public struct ComposerView: View {
     let initialBody: String?
     let onDismiss: @MainActor (ComposerDismissResult) -> Void
 
+    @Environment(ThemeProvider.self) private var theme
     @Environment(SettingsStore.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
@@ -234,11 +235,11 @@ public struct ComposerView: View {
             .overlay(alignment: .bottom) {
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(.red, in: RoundedRectangle(cornerRadius: 8))
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textInverse)
+                        .padding(.horizontal, theme.spacing.lg)
+                        .padding(.vertical, theme.spacing.sm)
+                        .background(theme.colors.destructive, in: theme.shapes.smallRect)
                         .padding()
                         .transition(.move(edge: .bottom))
                         .task {
@@ -261,31 +262,31 @@ public struct ComposerView: View {
     private var fromRow: some View {
         HStack {
             Text("From")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 36, alignment: .leading)
 
             if let account = fromAccount {
                 VStack(alignment: .leading, spacing: 1) {
                     if !account.displayName.isEmpty {
                         Text(account.displayName)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .font(theme.typography.bodyMedium)
+                            .foregroundStyle(theme.colors.textPrimary)
                     }
                     Text(account.email)
-                        .font(account.displayName.isEmpty ? .subheadline : .caption)
-                        .foregroundStyle(account.displayName.isEmpty ? .primary : .secondary)
+                        .font(account.displayName.isEmpty ? theme.typography.bodyMedium : theme.typography.caption)
+                        .foregroundStyle(account.displayName.isEmpty ? theme.colors.textPrimary : theme.colors.textSecondary)
                 }
             } else {
                 Text(mode.accountId)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textPrimary)
             }
 
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.listRowSpacing)
         .overlay(alignment: .bottom) {
             Divider().padding(.leading, 52)
         }
@@ -302,9 +303,9 @@ public struct ComposerView: View {
                     showBCC = true
                 }
             }
-            .font(.subheadline)
-            .padding(.trailing, 16)
-            .padding(.vertical, 4)
+            .font(theme.typography.bodyMedium)
+            .padding(.trailing, theme.spacing.lg)
+            .padding(.vertical, theme.spacing.xs)
         }
     }
 
@@ -312,21 +313,21 @@ public struct ComposerView: View {
 
     private var subjectField: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: theme.spacing.xs) {
                 Text("Subject")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 56, alignment: .leading)
 
                 TextField("", text: $subject)
-                    .font(.subheadline)
+                    .font(theme.typography.bodyMedium)
                     .accessibilityLabel("Subject")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, theme.spacing.lg)
+            .padding(.vertical, theme.spacing.listRowSpacing)
 
             Divider()
-                .padding(.leading, 16)
+                .padding(.leading, theme.spacing.lg)
         }
     }
 
@@ -597,6 +598,7 @@ public struct ComposerView: View {
         onDismiss: { _ in }
     )
     .environment(SettingsStore())
+    .environment(ThemeProvider())
 }
 
 // MARK: - Preview Stubs

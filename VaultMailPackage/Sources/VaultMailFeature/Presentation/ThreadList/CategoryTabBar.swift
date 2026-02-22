@@ -12,6 +12,7 @@ import SwiftUI
 /// Spec ref: Thread List FR-TL-02, Settings FR-SET-01 Appearance
 struct CategoryTabBar: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
 
     /// The currently selected category (nil = "All").
     @Binding var selectedCategory: String?
@@ -39,7 +40,7 @@ struct CategoryTabBar: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: theme.spacing.sm) {
                 // "All" tab
                 categoryTab(
                     label: "All",
@@ -60,8 +61,8 @@ struct CategoryTabBar: View {
                     }
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 6)
+            .padding(.horizontal, theme.spacing.lg)
+            .padding(.vertical, theme.spacing.chipVertical)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Category filter tabs")
@@ -76,31 +77,31 @@ struct CategoryTabBar: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: theme.spacing.xs) {
                 Text(label)
-                    .font(.subheadline)
+                    .font(theme.typography.labelMedium)
                     .fontWeight(isSelected ? .semibold : .regular)
 
                 if unreadCount > 0 {
                     Text("\(unreadCount)")
-                        .font(.caption2)
+                        .font(theme.typography.labelSmall)
                         .fontWeight(.bold)
-                        .foregroundStyle(isSelected ? .white : .secondary)
+                        .foregroundStyle(isSelected ? theme.colors.textInverse : theme.colors.textSecondary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(
-                            isSelected ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(0.2),
+                            isSelected ? theme.colors.accent.opacity(0.3) : theme.colors.surfaceElevated,
                             in: Capsule()
                         )
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, theme.spacing.chipHorizontal)
+            .padding(.vertical, theme.spacing.chipVertical)
             .background(
-                isSelected ? Color.accentColor : Color.secondary.opacity(0.15),
+                isSelected ? theme.colors.accent : theme.colors.surfaceElevated,
                 in: Capsule()
             )
-            .foregroundStyle(isSelected ? .white : .primary)
+            .foregroundStyle(isSelected ? theme.colors.textInverse : theme.colors.textPrimary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(label) category\(unreadCount > 0 ? ", \(unreadCount) unread" : "")")
@@ -121,6 +122,7 @@ struct CategoryTabBar: View {
         ]
     )
     .environment(SettingsStore())
+    .environment(ThemeProvider())
 }
 
 #Preview("Social Selected") {
@@ -132,6 +134,7 @@ struct CategoryTabBar: View {
         ]
     )
     .environment(SettingsStore())
+    .environment(ThemeProvider())
 }
 
 #Preview("No Unread") {
@@ -140,4 +143,5 @@ struct CategoryTabBar: View {
         unreadCounts: [:]
     )
     .environment(SettingsStore())
+    .environment(ThemeProvider())
 }

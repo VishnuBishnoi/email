@@ -13,6 +13,7 @@ struct MessageHeaderView: View {
     // MARK: - State
 
     @State private var showAllRecipients = false
+    @Environment(ThemeProvider.self) private var theme
 
     // MARK: - Constants
 
@@ -50,7 +51,7 @@ struct MessageHeaderView: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: theme.spacing.listRowSpacing) {
             senderAvatar
 
             if isExpanded {
@@ -70,9 +71,9 @@ struct MessageHeaderView: View {
             .frame(width: Self.avatarDiameter, height: Self.avatarDiameter)
             .overlay {
                 Text(senderInitial)
-                    .font(.callout)
+                    .font(theme.typography.bodyMedium)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textInverse)
             }
             .accessibilityLabel("Avatar for \(senderParticipant.displayName)")
     }
@@ -82,15 +83,14 @@ struct MessageHeaderView: View {
     private var collapsedContent: some View {
         HStack {
             Text(senderParticipant.displayName)
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(theme.typography.titleSmall)
                 .lineLimit(1)
 
             Spacer()
 
             Text(timestampText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textSecondary)
 
             starButton
         }
@@ -101,27 +101,26 @@ struct MessageHeaderView: View {
     // MARK: - Expanded Layout
 
     private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
             // Row 1: sender name + star
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(senderParticipant.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(theme.typography.titleSmall)
                         .lineLimit(1)
 
                     Text(email.fromAddress)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
                         .lineLimit(1)
                 }
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: theme.spacing.xs) {
                     Text(timestampText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
 
                     starButton
                 }
@@ -162,14 +161,14 @@ struct MessageHeaderView: View {
             .map(\.displayName)
             .joined(separator: ", ")
 
-        return HStack(spacing: 4) {
+        return HStack(spacing: theme.spacing.xs) {
             Text("\(label):")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Text(namesText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textSecondary)
                 .lineLimit(1)
 
             if hiddenCount > 0 {
@@ -177,8 +176,8 @@ struct MessageHeaderView: View {
                     showAllRecipients = true
                 } label: {
                     Text("and \(hiddenCount) more")
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.accent)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Show \(hiddenCount) more \(label) recipients")
@@ -195,8 +194,8 @@ struct MessageHeaderView: View {
     private var starButton: some View {
         Button(action: onStarToggle) {
             Image(systemName: email.isStarred ? "star.fill" : "star")
-                .font(.subheadline)
-                .foregroundStyle(email.isStarred ? .yellow : .secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(email.isStarred ? theme.colors.starred : theme.colors.textSecondary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(email.isStarred ? "Remove star" : "Add star")
@@ -242,6 +241,7 @@ struct MessageHeaderView: View {
         onStarToggle: {}
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Expanded - Few Recipients") {
@@ -270,6 +270,7 @@ struct MessageHeaderView: View {
         onStarToggle: {}
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Expanded - Many Recipients") {
@@ -302,6 +303,7 @@ struct MessageHeaderView: View {
         onStarToggle: {}
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Starred - Email Only Sender") {
@@ -324,4 +326,5 @@ struct MessageHeaderView: View {
         onStarToggle: {}
     )
     .padding()
+    .environment(ThemeProvider())
 }

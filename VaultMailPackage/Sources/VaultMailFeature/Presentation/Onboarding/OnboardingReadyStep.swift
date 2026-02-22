@@ -8,25 +8,26 @@ import SwiftUI
 ///
 /// Spec ref: FR-OB-01 step 5
 struct OnboardingReadyStep: View {
+    @Environment(ThemeProvider.self) private var theme
     let onComplete: () -> Void
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: theme.spacing.xxl) {
             Spacer()
 
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 60))
-                .foregroundStyle(.green)
+                .foregroundStyle(theme.colors.success)
                 .accessibilityHidden(true)
 
             Text("You're all set!")
-                .font(.title.bold())
+                .font(theme.typography.displaySmall)
 
             Text("Here's what you can do with VaultMail")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textSecondary)
 
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: theme.spacing.lg) {
                 FeatureTourItem(
                     icon: "hand.draw.fill",
                     title: "Swipe Gestures",
@@ -59,13 +60,14 @@ struct OnboardingReadyStep: View {
             .controlSize(.large)
             .accessibilityIdentifier("goToInboxButton")
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, theme.spacing.xxxl)
         .padding(.bottom, 40)
     }
 }
 
 /// A single feature tour row with icon, title, and description.
 struct FeatureTourItem: View {
+    @Environment(ThemeProvider.self) private var theme
     let icon: String
     let title: String
     let description: String
@@ -73,16 +75,16 @@ struct FeatureTourItem: View {
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .frame(width: 32)
+                .font(theme.typography.displaySmall)
+                .foregroundStyle(theme.colors.accent)
+                .frame(width: theme.spacing.xxxl)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
                 Text(title)
-                    .font(.body.bold())
+                    .font(theme.typography.titleMedium)
                 Text(description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
         }
         .accessibilityElement(children: .combine)
@@ -93,4 +95,5 @@ struct FeatureTourItem: View {
     OnboardingReadyStep {
         // Complete
     }
+    .environment(ThemeProvider())
 }

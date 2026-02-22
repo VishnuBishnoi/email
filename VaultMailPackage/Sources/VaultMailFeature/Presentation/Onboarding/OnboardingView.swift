@@ -8,6 +8,7 @@ import SwiftUI
 /// Spec ref: FR-OB-01, G-04 (5 or fewer steps)
 public struct OnboardingView: View {
     @Environment(SettingsStore.self) private var settingsStore
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let manageAccounts: ManageAccountsUseCaseProtocol
@@ -43,8 +44,8 @@ public struct OnboardingView: View {
         VStack(spacing: 0) {
             // Progress dots (G-04)
             ProgressDotsView(currentStep: currentStep, totalSteps: totalSteps)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+                .padding(.top, theme.spacing.lg)
+                .padding(.bottom, theme.spacing.sm)
 
             // Step content
             Group {
@@ -123,14 +124,15 @@ public struct OnboardingView: View {
 
 /// Horizontal progress indicator dots for onboarding steps.
 struct ProgressDotsView: View {
+    @Environment(ThemeProvider.self) private var theme
     let currentStep: Int
     let totalSteps: Int
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: theme.spacing.sm) {
             ForEach(0..<totalSteps, id: \.self) { index in
                 Circle()
-                    .fill(index <= currentStep ? Color.accentColor : Color.secondary.opacity(0.3))
+                    .fill(index <= currentStep ? theme.colors.accent : theme.colors.textSecondary.opacity(0.3))
                     .frame(width: 8, height: 8)
                     .animation(.easeInOut(duration: 0.2), value: currentStep)
             }

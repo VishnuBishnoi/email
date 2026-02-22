@@ -11,6 +11,7 @@ import SwiftData
 @MainActor
 public struct MacOSMainView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
     @Environment(NotificationSyncCoordinator.self) private var notificationCoordinator
 

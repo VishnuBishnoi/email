@@ -13,6 +13,7 @@ struct MoveToFolderSheet: View {
     let folders: [Folder]
     let onSelect: (String) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeProvider.self) private var theme
 
     private var systemFolders: [Folder] {
         folders.filter { $0.folderType != FolderType.custom.rawValue }
@@ -65,13 +66,13 @@ struct MoveToFolderSheet: View {
             onSelect(folder.id)
             dismiss()
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: theme.spacing.listRowSpacing) {
                 Image(systemName: iconName(for: folder.folderType))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 24)
 
                 Text(folder.name)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(theme.colors.textPrimary)
             }
         }
         .accessibilityLabel("Move to \(folder.name)")
@@ -120,6 +121,7 @@ struct MoveToFolderSheet: View {
         Folder(name: "Receipts", imapPath: "Receipts", folderType: FolderType.custom.rawValue),
     ]
     MoveToFolderSheet(folders: folders, onSelect: { _ in })
+        .environment(ThemeProvider())
 }
 
 #Preview("System Folders Only") {
@@ -129,6 +131,7 @@ struct MoveToFolderSheet: View {
         Folder(name: "Archive", imapPath: "[Gmail]/All Mail", folderType: FolderType.archive.rawValue),
     ]
     MoveToFolderSheet(folders: folders, onSelect: { _ in })
+        .environment(ThemeProvider())
 }
 
 #Preview("Custom Labels Only") {
@@ -137,4 +140,5 @@ struct MoveToFolderSheet: View {
         Folder(name: "Travel", imapPath: "Travel", folderType: FolderType.custom.rawValue),
     ]
     MoveToFolderSheet(folders: folders, onSelect: { _ in })
+        .environment(ThemeProvider())
 }

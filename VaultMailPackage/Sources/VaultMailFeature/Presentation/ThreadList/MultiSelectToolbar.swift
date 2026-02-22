@@ -16,6 +16,8 @@ struct MultiSelectToolbar: View {
     let onStar: () -> Void
     let onMove: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     private var isDisabled: Bool {
         selectedCount == 0
     }
@@ -23,11 +25,12 @@ struct MultiSelectToolbar: View {
     var body: some View {
         VStack(spacing: 0) {
             Divider()
+                .overlay(theme.colors.separator)
 
-            VStack(spacing: 8) {
+            VStack(spacing: theme.spacing.sm) {
                 Text("\(selectedCount) selected")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
 
                 HStack {
                     toolbarButton(
@@ -76,9 +79,9 @@ struct MultiSelectToolbar: View {
                         action: onMove
                     )
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, theme.spacing.lg)
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, theme.spacing.sm)
             .background(.bar)
         }
     }
@@ -92,7 +95,7 @@ struct MultiSelectToolbar: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.title3)
+                .font(theme.typography.titleLarge)
         }
         .disabled(isDisabled)
         .accessibilityLabel(label)
@@ -119,6 +122,7 @@ struct MultiSelectToolbar: View {
             onMove: {}
         )
     }
+    .environment(ThemeProvider())
 }
 
 #Preview("3 Selected") {
@@ -134,6 +138,7 @@ struct MultiSelectToolbar: View {
             onMove: {}
         )
     }
+    .environment(ThemeProvider())
 }
 
 #Preview("1 Selected") {
@@ -149,4 +154,5 @@ struct MultiSelectToolbar: View {
             onMove: {}
         )
     }
+    .environment(ThemeProvider())
 }

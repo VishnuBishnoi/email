@@ -13,6 +13,8 @@ struct BottomTabBar: View {
 
     // MARK: - Properties
 
+    @Environment(ThemeProvider.self) private var theme
+
     let folders: [Folder]
     let onSelectFolder: (Folder) -> Void
     let onAccountTap: () -> Void
@@ -25,6 +27,7 @@ struct BottomTabBar: View {
     var body: some View {
         VStack(spacing: 0) {
             Divider()
+                .overlay(theme.colors.separator)
 
             HStack {
                 foldersMenu
@@ -37,9 +40,9 @@ struct BottomTabBar: View {
                 Spacer()
                 tabButton(icon: "gear", label: "Settings", action: onSettingsTap)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, theme.spacing.xl)
+            .padding(.top, theme.spacing.sm)
+            .padding(.bottom, theme.spacing.xs)
         }
         .background(barBackground)
     }
@@ -60,14 +63,14 @@ struct BottomTabBar: View {
                 }
             }
         } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: theme.spacing.xs) {
                 Image(systemName: "folder")
-                    .font(.system(size: 20))
+                    .font(.system(size: theme.spacing.iconSize))
                 Text("Folders")
-                    .font(.caption2)
+                    .font(theme.typography.labelSmall)
             }
             .frame(maxWidth: .infinity)
-            .foregroundStyle(.primary)
+            .foregroundStyle(theme.colors.textPrimary)
         }
         .accessibilityLabel("Folders")
     }
@@ -80,11 +83,11 @@ struct BottomTabBar: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            VStack(spacing: theme.spacing.xs) {
                 Image(systemName: icon)
-                    .font(.system(size: 20))
+                    .font(.system(size: theme.spacing.iconSize))
                 Text(label)
-                    .font(.caption2)
+                    .font(theme.typography.labelSmall)
             }
             .frame(maxWidth: .infinity)
         }
@@ -138,4 +141,5 @@ struct BottomTabBar: View {
             onSettingsTap: {}
         )
     }
+    .environment(ThemeProvider())
 }

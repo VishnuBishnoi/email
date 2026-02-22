@@ -15,47 +15,48 @@ struct UndoSendToastView: View {
     let remainingSeconds: Int
     let onUndo: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: theme.spacing.sm) {
             HStack {
                 Image(systemName: "paperplane.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
 
                 Text("Sending in \(remainingSeconds)s...")
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textPrimary)
 
                 Spacer()
 
                 Button(action: onUndo) {
                     Text("Undo")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Color.accentColor)
+                        .font(theme.typography.titleSmall)
+                        .foregroundStyle(theme.colors.accent)
                 }
             }
 
             // Progress bar (always shown; replaces animation for Reduce Motion)
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(.tertiary)
+                    .fill(theme.colors.surfaceElevated)
                     .frame(height: 3)
                     .overlay(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.accentColor)
+                            .fill(theme.colors.accent)
                             .frame(width: max(0, geo.size.width * progressFraction), height: 3)
                     }
             }
             .frame(height: 3)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.md)
+        .background(.regularMaterial, in: theme.shapes.mediumRect)
+        .vmShadow(theme.shapes.shadowElevated)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.bottom, theme.spacing.lg)
         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Sending email in \(remainingSeconds) seconds. Tap undo to cancel.")
@@ -79,6 +80,7 @@ struct UndoSendToastView: View {
         Spacer()
         UndoSendToastView(remainingSeconds: 5, onUndo: {})
     }
+    .environment(ThemeProvider())
 }
 
 #Preview("15 Seconds") {
@@ -86,4 +88,5 @@ struct UndoSendToastView: View {
         Spacer()
         UndoSendToastView(remainingSeconds: 15, onUndo: {})
     }
+    .environment(ThemeProvider())
 }

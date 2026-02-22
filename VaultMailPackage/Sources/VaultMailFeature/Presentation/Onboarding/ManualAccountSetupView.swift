@@ -8,6 +8,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-MPROV-09 (Manual Account Setup)
 struct ManualAccountSetupView: View {
+    @Environment(ThemeProvider.self) private var theme
 
     let email: String
     let discoveredConfig: DiscoveredConfig?
@@ -159,11 +160,11 @@ struct ManualAccountSetupView: View {
             if let errorMessage {
                 Label {
                     Text(errorMessage)
-                        .font(.callout)
+                        .font(theme.typography.bodyMedium)
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                 }
-                .foregroundStyle(.red)
+                .foregroundStyle(theme.colors.destructive)
                 .accessibilityLabel("Error: \(errorMessage)")
             }
 
@@ -194,16 +195,16 @@ struct ManualAccountSetupView: View {
             switch result {
             case .pending:
                 Image(systemName: "circle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             case .testing:
                 ProgressView()
                     .controlSize(.small)
             case .success:
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(theme.colors.success)
             case .failure(let msg):
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.colors.destructive)
                     .help(msg)
             }
         }

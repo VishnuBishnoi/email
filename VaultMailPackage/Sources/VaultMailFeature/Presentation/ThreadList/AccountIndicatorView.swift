@@ -49,7 +49,7 @@ struct AccountIndicatorView: View {
     return HStack(spacing: 8) {
         AccountIndicatorView(accountId: "acc-1", accounts: [account])
         Text("Thread subject line")
-            .font(.subheadline)
+            .font(.system(size: 15))
     }
     .padding()
 }
@@ -65,7 +65,7 @@ struct AccountIndicatorView: View {
             HStack(spacing: 8) {
                 AccountIndicatorView(accountId: account.id, accounts: accounts)
                 Text(account.displayName)
-                    .font(.subheadline)
+                    .font(.system(size: 15))
             }
         }
     }

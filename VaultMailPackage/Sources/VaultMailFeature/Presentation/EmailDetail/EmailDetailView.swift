@@ -104,6 +104,7 @@ public struct EmailDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(ThemeProvider.self) private var theme
 
     // MARK: - Body
 
@@ -181,11 +182,11 @@ public struct EmailDetailView: View {
     // MARK: - Loading View
 
     private var loadingView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: theme.spacing.md) {
             ProgressView()
             Text("Loading conversation…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
@@ -203,7 +204,7 @@ public struct EmailDetailView: View {
     private var loadedView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(spacing: theme.spacing.sm) {
                     // Spam/phishing warning banner (FR-AI-06)
                     if hasSpamEmails {
                         spamWarningBanner
@@ -254,10 +255,10 @@ public struct EmailDetailView: View {
                             }
                         )
                         .padding(.horizontal)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, theme.spacing.sm)
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, theme.spacing.sm)
             }
         }
     }
@@ -265,17 +266,17 @@ public struct EmailDetailView: View {
     // MARK: - Error View
 
     private func errorView(message: String) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Text("Couldn't load this conversation")
-                .font(.headline)
+                .font(theme.typography.titleMedium)
 
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button("Retry") {
@@ -293,17 +294,17 @@ public struct EmailDetailView: View {
     // MARK: - Offline View
 
     private var offlineView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             Image(systemName: "wifi.slash")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Text("You're offline")
-                .font(.headline)
+                .font(theme.typography.titleMedium)
 
             Text("Message body not available offline")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -311,13 +312,13 @@ public struct EmailDetailView: View {
     // MARK: - Empty View
 
     private var emptyView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             Image(systemName: "tray")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Text("This conversation appears empty")
-                .font(.headline)
+                .font(theme.typography.titleMedium)
 
             Button("Go Back") {
                 dismiss()
@@ -336,16 +337,16 @@ public struct EmailDetailView: View {
                 displayedEmailCount += pageSize
             }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: theme.spacing.chipVertical) {
                 Image(systemName: "arrow.up.circle")
                 Text("Show \(min(pageSize, sortedEmails.count - displayedEmailCount)) earlier messages")
             }
-            .font(.subheadline)
-            .foregroundStyle(.blue)
+            .font(theme.typography.bodyMedium)
+            .foregroundStyle(theme.colors.accent)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(Color(red: 0.95, green: 0.95, blue: 0.97))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.vertical, theme.spacing.sm)
+            .background(theme.colors.surfaceElevated)
+            .clipShape(theme.shapes.smallRect)
         }
         .accessibilityLabel("Show earlier messages in this conversation")
     }
@@ -458,23 +459,23 @@ public struct EmailDetailView: View {
     private func undoToastView(action: UndoableAction) -> some View {
         HStack {
             Text(action.message)
-                .font(.subheadline)
-                .foregroundStyle(.white)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textInverse)
 
             Spacer()
 
             Button("Undo") {
                 performUndo(action)
             }
-            .font(.subheadline.bold())
-            .foregroundStyle(.yellow)
+            .font(theme.typography.titleSmall)
+            .foregroundStyle(theme.colors.warning)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(white: 0.25))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.md)
+        .background(theme.colors.surfaceElevated)
+        .clipShape(theme.shapes.mediumRect)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.bottom, theme.spacing.sm)
     }
 
     // MARK: - Error Toast
@@ -482,17 +483,17 @@ public struct EmailDetailView: View {
     private func errorToastView(message: String) -> some View {
         HStack {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.yellow)
+                .foregroundStyle(theme.colors.warning)
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.white)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textInverse)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.red)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.md)
+        .background(theme.colors.destructive)
+        .clipShape(theme.shapes.mediumRect)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.bottom, theme.spacing.sm)
         .task {
             try? await Task.sleep(for: .seconds(3))
             withAnimation { errorToast = nil }
@@ -754,18 +755,18 @@ public struct EmailDetailView: View {
     // MARK: - Spam Warning Banner (FR-AI-06)
 
     private var spamWarningBanner: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: theme.spacing.listRowSpacing) {
             Image(systemName: "exclamationmark.shield.fill")
-                .foregroundStyle(.white)
-                .font(.title3)
+                .foregroundStyle(theme.colors.textInverse)
+                .font(theme.typography.titleSmall)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
                 Text("This message looks suspicious")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.white)
+                    .font(theme.typography.titleSmall)
+                    .foregroundStyle(theme.colors.textInverse)
                 Text("It may be spam or a phishing attempt")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textInverse.opacity(0.85))
             }
 
             Spacer()
@@ -773,14 +774,15 @@ public struct EmailDetailView: View {
             Button("Not Spam") {
                 markThreadAsNotSpam()
             }
-            .font(.caption.bold())
-            .foregroundStyle(.red)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.white, in: RoundedRectangle(cornerRadius: 6))
+            .font(theme.typography.caption)
+            .fontWeight(.bold)
+            .foregroundStyle(theme.colors.destructive)
+            .padding(.horizontal, theme.spacing.listRowSpacing)
+            .padding(.vertical, theme.spacing.chipVertical)
+            .background(theme.colors.textInverse, in: RoundedRectangle(cornerRadius: 6))
         }
-        .padding(12)
-        .background(.red, in: RoundedRectangle(cornerRadius: 12))
+        .padding(theme.spacing.md)
+        .background(theme.colors.destructive, in: theme.shapes.mediumRect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Warning: this message may be spam or phishing. Tap Not Spam to override.")
     }

@@ -13,6 +13,7 @@ import SwiftData
 @MainActor
 public struct MacSettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
 
     let manageAccounts: ManageAccountsUseCaseProtocol
@@ -115,6 +116,7 @@ public struct MacSettingsView: View {
 /// and remove account with confirmation — all within the tab (no navigation push).
 struct MacAccountsSettingsTab: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Binding var accounts: [Account]
     let manageAccounts: ManageAccountsUseCaseProtocol
     var providerDiscovery: ProviderDiscovery?
@@ -139,21 +141,21 @@ struct MacAccountsSettingsTab: View {
                 List(selection: $selectedAccountID) {
                     ForEach(accounts, id: \.id) { account in
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
                                 Text(account.email)
-                                    .font(.body)
+                                    .font(theme.typography.bodyLarge)
                                     .lineLimit(1)
                                 if !account.isActive {
                                     Text("Needs Re-authentication")
-                                        .font(.caption)
-                                        .foregroundStyle(.orange)
+                                        .font(theme.typography.caption)
+                                        .foregroundStyle(theme.colors.warning)
                                 }
                             }
                             Spacer()
                             if !account.isActive {
                                 Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                    .font(.caption)
+                                    .foregroundStyle(theme.colors.warning)
+                                    .font(theme.typography.caption)
                             }
                         }
                         .tag(account.id)
@@ -178,7 +180,7 @@ struct MacAccountsSettingsTab: View {
                     VStack {
                         Spacer()
                         Text("Select an account to view settings")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.colors.textSecondary)
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -215,7 +217,7 @@ struct MacAccountsSettingsTab: View {
 
                 Spacer()
             }
-            .padding(8)
+            .padding(theme.spacing.sm)
             .background(.bar)
         }
         .alert("Remove Account", isPresented: $showRemoveConfirmation) {
@@ -304,6 +306,7 @@ struct MacAccountDetailView: View {
     let onRemove: () -> Void
 
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
 
     @State private var displayName: String = ""
     @State private var syncWindowDays: Int = 30
@@ -329,7 +332,7 @@ struct MacAccountDetailView: View {
                 if !account.isActive {
                     HStack {
                         Label("Account Inactive", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(theme.colors.warning)
                         Spacer()
                         Button("Re-authenticate") {
                             reAuthenticate()
@@ -339,8 +342,8 @@ struct MacAccountDetailView: View {
                 }
                 if let error = reAuthError {
                     Label(error, systemImage: "xmark.circle")
-                        .foregroundStyle(.red)
-                        .font(.callout)
+                        .foregroundStyle(theme.colors.destructive)
+                        .font(theme.typography.bodyMedium)
                 }
                 // Manual app-password update for PLAIN-auth accounts
                 if account.authType == "plain" && account.isActive {
@@ -484,6 +487,7 @@ struct MacAccountDetailView: View {
 
 struct MacGeneralSettingsTab: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     let accounts: [Account]
     let modelManager: ModelManager
 
@@ -519,10 +523,29 @@ struct MacGeneralSettingsTab: View {
             // Appearance
             Section("Appearance") {
                 Picker("Theme", selection: $settings.theme) {
-                    ForEach(AppTheme.allCases, id: \.self) { theme in
-                        Text(theme.displayLabel).tag(theme)
+                    ForEach(AppTheme.allCases, id: \.self) { appTheme in
+                        Text(appTheme.displayLabel).tag(appTheme)
                     }
                 }
+
+                VStack(alignment: .leading, spacing: theme.spacing.md) {
+                    Text("Color Theme")
+                        .font(theme.typography.labelMedium)
+                        .foregroundStyle(theme.colors.textSecondary)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 70), spacing: theme.spacing.lg)], spacing: theme.spacing.lg) {
+                        ForEach(ThemeRegistry.allThemes, id: \.id) { availableTheme in
+                            ThemePickerCell(
+                                theme: availableTheme,
+                                isSelected: settings.selectedThemeId == availableTheme.id,
+                                onSelect: {
+                                    settings.selectedThemeId = availableTheme.id
+                                    theme.apply(availableTheme.id)
+                                }
+                            )
+                        }
+                    }
+                }
+                .padding(.vertical, theme.spacing.xs)
             }
 
             // Category Tabs
@@ -532,8 +555,8 @@ struct MacGeneralSettingsTab: View {
                         "Download the AI model to enable smart categories.",
                         systemImage: "arrow.down.circle"
                     )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
                 }
 
                 ForEach(toggleableCategories, id: \.0) { key, label in
@@ -560,6 +583,7 @@ struct MacGeneralSettingsTab: View {
 // MARK: - AI Features Tab
 
 struct MacAISettingsTab: View {
+    @Environment(ThemeProvider.self) private var theme
     let modelManager: ModelManager
     var aiEngineResolver: AIEngineResolver?
 
@@ -604,17 +628,17 @@ struct MacAISettingsTab: View {
             }
 
         case .downloading(let progress):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: theme.spacing.sm) {
                 ProgressView(value: progress)
                 HStack {
                     Text("Downloading… \(Int(progress * 100))%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
                     Spacer()
                     Button("Cancel", role: .cancel) {
                         cancelDownload(modelID: model.id)
                     }
-                    .font(.caption)
+                    .font(theme.typography.caption)
                 }
             }
 
@@ -622,8 +646,8 @@ struct MacAISettingsTab: View {
             HStack {
                 ProgressView().controlSize(.small)
                 Text("Verifying integrity…")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
 
         case .downloaded:
@@ -641,10 +665,10 @@ struct MacAISettingsTab: View {
             }
 
         case .failed(let message):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: theme.spacing.sm) {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.callout)
+                    .foregroundStyle(theme.colors.destructive)
+                    .font(theme.typography.bodyMedium)
                 Button("Retry") {
                     startDownload(modelID: model.id)
                 }
@@ -654,17 +678,17 @@ struct MacAISettingsTab: View {
 
     @ViewBuilder
     private var downloadProgressView: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: theme.spacing.sm) {
             ProgressView(value: downloadProgress)
             HStack {
                 Text("Downloading… \(Int(downloadProgress * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
                 Spacer()
                 Button("Cancel", role: .cancel) {
                     if let id = downloadingModelID { cancelDownload(modelID: id) }
                 }
-                .font(.caption)
+                .font(theme.typography.caption)
             }
         }
     }
@@ -718,6 +742,7 @@ struct MacAISettingsTab: View {
 
 struct MacNotificationsSettingsTab: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     let accounts: [Account]
 
     @State private var notificationPermissionDenied = false
@@ -727,7 +752,7 @@ struct MacNotificationsSettingsTab: View {
             Section("Per-Account Notifications") {
                 if accounts.isEmpty {
                     Text("No accounts configured.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.colors.textSecondary)
                 } else {
                     ForEach(accounts, id: \.id) { account in
                         Toggle(account.email, isOn: Binding(
@@ -744,10 +769,10 @@ struct MacNotificationsSettingsTab: View {
             if notificationPermissionDenied {
                 Section {
                     Label("Notifications are disabled in system Settings.", systemImage: "bell.slash")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(theme.colors.warning)
                     Text("Enable notifications in System Settings → Notifications.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
             }
         }
@@ -781,6 +806,7 @@ struct MacNotificationsSettingsTab: View {
 
 struct MacSecuritySettingsTab: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
 
     var body: some View {
         @Bindable var settings = settings
@@ -788,20 +814,20 @@ struct MacSecuritySettingsTab: View {
             Section("App Lock") {
                 Toggle("Require authentication to open VaultMail", isOn: $settings.appLockEnabled)
                 Text("Uses Touch ID or your system password to protect access to VaultMail.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
 
             Section("Privacy") {
                 Toggle("Block Remote Images", isOn: $settings.blockRemoteImages)
                 Text("Prevents senders from knowing when you read an email.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
 
                 Toggle("Block Tracking Pixels", isOn: $settings.blockTrackingPixels)
                 Text("Removes invisible tracking images from emails.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
         }
         .formStyle(.grouped)
@@ -815,6 +841,7 @@ struct MacStorageSettingsTab: View {
     let accounts: [Account]
 
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
 
     @State private var storageInfo: AppStorageInfo?
@@ -831,13 +858,13 @@ struct MacStorageSettingsTab: View {
                     HStack {
                         ProgressView().controlSize(.small)
                         Text("Calculating storage…")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.colors.textSecondary)
                     }
                 }
             } else if let error = errorMessage {
                 Section {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.colors.destructive)
                     Button("Retry") {
                         Task { await loadStorage() }
                     }
@@ -850,8 +877,8 @@ struct MacStorageSettingsTab: View {
                     }
                     if info.exceedsWarningThreshold {
                         Label("Total storage exceeds 5 GB", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.callout)
+                            .foregroundStyle(theme.colors.warning)
+                            .font(theme.typography.bodyMedium)
                     }
                 }
 
@@ -864,8 +891,8 @@ struct MacStorageSettingsTab: View {
                             .fontWeight(.medium)
                         if accountInfo.exceedsWarningThreshold {
                             Label("Account storage exceeds 2 GB", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .font(.callout)
+                                .foregroundStyle(theme.colors.warning)
+                                .font(theme.typography.bodyMedium)
                         }
                     }
                 }
@@ -938,37 +965,38 @@ struct MacStorageSettingsTab: View {
 // MARK: - About Tab
 
 struct MacAboutSettingsTab: View {
+    @Environment(ThemeProvider.self) private var theme
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: theme.spacing.xl) {
             Spacer()
 
             Image(systemName: "envelope.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(theme.colors.accent)
 
             Text("VaultMail")
-                .font(.title.bold())
+                .font(theme.typography.displaySmall)
 
             Text("Version \(appVersion) (\(buildNumber))")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Divider()
                 .frame(width: 200)
 
-            VStack(spacing: 8) {
+            VStack(spacing: theme.spacing.sm) {
                 if let url = URL(string: "https://appripe.com/vaultmail/privacy.html") {
                     Link("Privacy Policy", destination: url)
-                        .font(.callout)
+                        .font(theme.typography.bodyMedium)
                 }
 
                 Text("All email data is stored locally on your device.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
 
                 Text("AI features run entirely on-device.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
 
             Spacer()

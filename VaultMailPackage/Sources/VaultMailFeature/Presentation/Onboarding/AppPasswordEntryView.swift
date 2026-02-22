@@ -7,6 +7,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-MPROV-10 (Onboarding & Provider Selection)
 struct AppPasswordEntryView: View {
+    @Environment(ThemeProvider.self) private var theme
 
     @State var email: String
     let providerConfig: ProviderConfiguration
@@ -22,20 +23,20 @@ struct AppPasswordEntryView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
+            VStack(spacing: theme.spacing.xxl) {
                 Spacer()
 
                 Image(systemName: providerIcon)
                     .font(.system(size: 60))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(theme.colors.accent)
                     .accessibilityHidden(true)
 
                 Text("Sign in to \(providerConfig.displayName)")
-                    .font(.title2.bold())
+                    .font(theme.typography.displaySmall)
 
                 Text("Enter your email and app-specific password. You can generate one in your \(providerConfig.displayName) account settings.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyLarge)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
@@ -43,13 +44,13 @@ struct AppPasswordEntryView: View {
                 if let helpURL = providerConfig.appPasswordHelpURL {
                     Link(destination: helpURL) {
                         Label("How to create an app password", systemImage: "questionmark.circle")
-                            .font(.callout)
+                            .font(theme.typography.bodyMedium)
                     }
                     .accessibilityLabel("Open \(providerConfig.displayName) app password instructions")
                 }
 
                 // Form
-                VStack(spacing: 12) {
+                VStack(spacing: theme.spacing.md) {
                     TextField("Email address", text: $email)
                         .textContentType(.emailAddress)
                         .autocorrectionDisabled()
@@ -57,14 +58,14 @@ struct AppPasswordEntryView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.emailAddress)
                         #endif
-                        .padding(12)
-                        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(theme.spacing.md)
+                        .background(theme.colors.surfaceElevated, in: theme.shapes.smallRect)
                         .accessibilityLabel("Email address")
 
                     SecureField("App Password", text: $password)
                         .textContentType(.password)
-                        .padding(12)
-                        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(theme.spacing.md)
+                        .background(theme.colors.surfaceElevated, in: theme.shapes.smallRect)
                         .accessibilityLabel("App password")
                 }
                 .padding(.horizontal)
@@ -73,11 +74,11 @@ struct AppPasswordEntryView: View {
                 if let errorMessage {
                     Label {
                         Text(errorMessage)
-                            .font(.callout)
+                            .font(theme.typography.bodyMedium)
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.colors.destructive)
                     .padding(.horizontal)
                     .accessibilityLabel("Error: \(errorMessage)")
                 }

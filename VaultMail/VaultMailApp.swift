@@ -58,6 +58,7 @@ struct VaultMailApp: App {
                     connectionTestUseCase: deps.connectionTestUseCase
                 )
                 .environment(deps.settingsStore)
+                .environment(deps.themeProvider)
                 .environment(deps.notificationCoordinator)
                 .modelContainer(deps.modelContainer)
             }
@@ -89,6 +90,7 @@ struct VaultMailApp: App {
             connectionTestUseCase: deps.connectionTestUseCase
         )
         .environment(deps.settingsStore)
+        .environment(deps.themeProvider)
         .environment(deps.notificationCoordinator)
         .modelContainer(deps.modelContainer)
         .task {
@@ -118,6 +120,7 @@ struct VaultMailApp: App {
             connectionTestUseCase: deps.connectionTestUseCase
         )
         .environment(deps.settingsStore)
+        .environment(deps.themeProvider)
         .environment(deps.notificationCoordinator)
         .modelContainer(deps.modelContainer)
         .task {
@@ -136,6 +139,7 @@ struct VaultMailApp: App {
 private struct AppDependencies {
     let modelContainer: ModelContainer
     let settingsStore: SettingsStore
+    let themeProvider: ThemeProvider
     let appLockManager: AppLockManager
     let manageAccounts: ManageAccountsUseCaseProtocol
     let fetchThreads: FetchThreadsUseCaseProtocol
@@ -167,6 +171,7 @@ private struct AppDependencies {
         self.modelContainer = modelContainer
 
         settingsStore = SettingsStore()
+        themeProvider = ThemeProvider(themeId: settingsStore.selectedThemeId)
         appLockManager = AppLockManager()
 
         let keychainManager = KeychainManager()

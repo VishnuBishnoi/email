@@ -7,6 +7,7 @@ import SwiftUI
 ///
 /// Spec ref: Email Composer FR-COMP-01
 struct BodyEditorView: View {
+    @Environment(ThemeProvider.self) private var theme
     @Binding var text: String
 
     var body: some View {
@@ -16,10 +17,10 @@ struct BodyEditorView: View {
             Divider()
 
             TextEditor(text: $text)
-                .font(.body)
+                .font(theme.typography.bodyLarge)
                 .frame(minHeight: 200)
                 .scrollContentBackground(.hidden)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, theme.spacing.md)
                 .accessibilityLabel("Email body")
         }
     }
@@ -27,12 +28,12 @@ struct BodyEditorView: View {
     // MARK: - Formatting Toolbar
 
     private var formattingToolbar: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: theme.spacing.lg) {
             Button {
                 insertMarkdown(prefix: "**", suffix: "**", placeholder: "bold text")
             } label: {
                 Image(systemName: "bold")
-                    .font(.body)
+                    .font(theme.typography.bodyLarge)
             }
             .accessibilityLabel("Bold")
 
@@ -40,7 +41,7 @@ struct BodyEditorView: View {
                 insertMarkdown(prefix: "*", suffix: "*", placeholder: "italic text")
             } label: {
                 Image(systemName: "italic")
-                    .font(.body)
+                    .font(theme.typography.bodyLarge)
             }
             .accessibilityLabel("Italic")
 
@@ -48,16 +49,16 @@ struct BodyEditorView: View {
                 insertMarkdown(prefix: "[", suffix: "](url)", placeholder: "link text")
             } label: {
                 Image(systemName: "link")
-                    .font(.body)
+                    .font(theme.typography.bodyLarge)
             }
             .accessibilityLabel("Insert link")
 
             Spacer()
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .foregroundStyle(theme.colors.textSecondary)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.sm)
         .background(.ultraThinMaterial)
     }
 
@@ -79,8 +80,10 @@ struct BodyEditorView: View {
 
 #Preview("Empty") {
     BodyEditorView(text: .constant(""))
+        .environment(ThemeProvider())
 }
 
 #Preview("With Content") {
     BodyEditorView(text: .constant("Hello,\n\nThis is a test email with some content.\n\nBest regards"))
+        .environment(ThemeProvider())
 }

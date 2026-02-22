@@ -9,6 +9,8 @@ import SwiftUI
 ///
 /// Spec ref: Email Composer FR-COMP-01, FR-COMP-04, NFR-COMP-03
 struct RecipientFieldView: View {
+    @Environment(ThemeProvider.self) private var theme
+
     let label: String
     @Binding var recipients: [RecipientToken]
     let queryContacts: QueryContactsUseCaseProtocol
@@ -21,19 +23,19 @@ struct RecipientFieldView: View {
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
             // Label + tokens + input
-            HStack(alignment: .top, spacing: 4) {
+            HStack(alignment: .top, spacing: theme.spacing.xs) {
                 Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .frame(width: 36, alignment: .leading)
-                    .padding(.top, 8)
+                    .padding(.top, theme.spacing.sm)
 
                 tokenFlowContent
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
+            .padding(.horizontal, theme.spacing.lg)
+            .padding(.vertical, theme.spacing.xs)
 
             // Autocomplete suggestions
             if showSuggestions && !suggestions.isEmpty {
@@ -98,23 +100,23 @@ struct RecipientFieldView: View {
 
     @ViewBuilder
     private func tokenChip(for token: RecipientToken) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: theme.spacing.xs) {
             if !token.isValid {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.white)
+                    .font(theme.typography.labelSmall)
+                    .foregroundStyle(theme.colors.textInverse)
             }
             Text(token.displayText)
-                .font(.subheadline)
+                .font(theme.typography.bodyMedium)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, theme.spacing.sm)
+        .padding(.vertical, theme.spacing.xs)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(token.isValid ? Color.accentColor.opacity(0.15) : Color.red.opacity(0.15))
+                .fill(token.isValid ? theme.colors.accentMuted : theme.colors.destructiveMuted)
         )
-        .foregroundColor(token.isValid ? .primary : .red)
+        .foregroundColor(token.isValid ? theme.colors.textPrimary : theme.colors.destructive)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(token.displayText), \(token.isValid ? "valid" : "invalid") email")
         .accessibilityRemoveTraits(.isButton)
@@ -139,30 +141,30 @@ struct RecipientFieldView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         if let name = contact.displayName, !name.isEmpty {
                             Text(name)
-                                .font(.subheadline)
-                                .foregroundStyle(.primary)
+                                .font(theme.typography.bodyMedium)
+                                .foregroundStyle(theme.colors.textPrimary)
                         }
                         Text(contact.emailAddress)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(theme.typography.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, theme.spacing.lg)
+                    .padding(.vertical, theme.spacing.sm)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
                 if contact.id != suggestions.last?.id {
                     Divider()
-                        .padding(.leading, 16)
+                        .padding(.leading, theme.spacing.lg)
                 }
             }
         }
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(theme.shapes.smallRect)
         .padding(.horizontal, 52)
-        .padding(.bottom, 4)
+        .padding(.bottom, theme.spacing.xs)
     }
 
     // MARK: - Actions
@@ -302,6 +304,7 @@ struct FlowLayoutView: Layout {
         queryContacts: PreviewQueryContactsUseCase(),
         accountIds: ["acc1"]
     )
+    .environment(ThemeProvider())
 }
 
 #Preview("With Tokens") {
@@ -315,6 +318,7 @@ struct FlowLayoutView: Layout {
         queryContacts: PreviewQueryContactsUseCase(),
         accountIds: ["acc1"]
     )
+    .environment(ThemeProvider())
 }
 
 /// Preview-only stub.

@@ -9,6 +9,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-SET-04, Proposal Section 3.4.1, Constitution LG-01, AC-A-03
 struct AIModelSettingsView: View {
+    @Environment(ThemeProvider.self) private var theme
     let modelManager: ModelManager
     var aiEngineResolver: AIEngineResolver?
 
@@ -60,17 +61,17 @@ struct AIModelSettingsView: View {
             }
 
         case .downloading(let progress):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: theme.spacing.sm) {
                 ProgressView(value: progress)
                 HStack {
                     Text("Downloading… \(Int(progress * 100))%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
                     Spacer()
                     Button("Cancel", role: .cancel) {
                         cancelDownload(modelID: model.id)
                     }
-                    .font(.caption)
+                    .font(theme.typography.caption)
                 }
             }
 
@@ -79,8 +80,8 @@ struct AIModelSettingsView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Verifying integrity…")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
 
         case .downloaded:
@@ -102,10 +103,10 @@ struct AIModelSettingsView: View {
             }
 
         case .failed(let message):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: theme.spacing.sm) {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.callout)
+                    .foregroundStyle(theme.colors.destructive)
+                    .font(theme.typography.bodyMedium)
                 Button("Retry") {
                     startDownload(modelID: model.id)
                 }
@@ -115,19 +116,19 @@ struct AIModelSettingsView: View {
 
     @ViewBuilder
     private var downloadProgressView: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: theme.spacing.sm) {
             ProgressView(value: downloadProgress)
             HStack {
                 Text("Downloading… \(Int(downloadProgress * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
                 Spacer()
                 Button("Cancel", role: .cancel) {
                     if let id = downloadingModelID {
                         cancelDownload(modelID: id)
                     }
                 }
-                .font(.caption)
+                .font(theme.typography.caption)
             }
         }
     }
@@ -188,4 +189,5 @@ struct AIModelSettingsView: View {
     NavigationStack {
         AIModelSettingsView(modelManager: ModelManager())
     }
+    .environment(ThemeProvider())
 }

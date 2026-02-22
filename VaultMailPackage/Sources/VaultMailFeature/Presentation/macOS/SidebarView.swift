@@ -12,6 +12,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-MAC-02 (Sidebar — Folder and Account Navigation)
 struct SidebarView: View {
+    @Environment(ThemeProvider.self) private var theme
     let accounts: [Account]
     let folders: [Folder]
     @Binding var selectedAccount: Account?
@@ -95,7 +96,7 @@ struct SidebarView: View {
     // MARK: - Bottom Bar
 
     private var sidebarBottomBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: theme.spacing.md) {
             SettingsLink {
                 Image(systemName: "gearshape")
             }
@@ -115,8 +116,8 @@ struct SidebarView: View {
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, theme.spacing.md)
+        .padding(.vertical, theme.spacing.sm)
         .background(.bar)
     }
 
@@ -134,7 +135,7 @@ struct SidebarView: View {
         } label: {
             Label("All Inboxes", systemImage: "tray.2")
         }
-        .font(selectedAccount == nil && selectedFolder == nil ? .body.bold() : .body)
+        .font(selectedAccount == nil && selectedFolder == nil ? theme.typography.titleMedium : theme.typography.bodyLarge)
         .tag("__unified__" as String?)
         .accessibilityLabel("All Inboxes, unified view")
     }
@@ -175,9 +176,9 @@ struct SidebarView: View {
         } label: {
             HStack {
                 Image(systemName: "person.circle")
-                    .foregroundStyle(selectedAccount?.id == account.id ? Color.accentColor : .secondary)
+                    .foregroundStyle(selectedAccount?.id == account.id ? theme.colors.accent : theme.colors.textSecondary)
                 Text(account.email)
-                    .font(selectedAccount?.id == account.id ? .body.bold() : .body)
+                    .font(selectedAccount?.id == account.id ? theme.typography.titleMedium : theme.typography.bodyLarge)
                     .lineLimit(1)
             }
             .contextMenu {
@@ -201,11 +202,11 @@ struct SidebarView: View {
                 Spacer()
                 if let count = badgeCount(for: folder), count > 0 {
                     Text("\(count)")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
+                        .font(theme.typography.labelSmall)
+                        .foregroundStyle(theme.colors.textInverse)
+                        .padding(.horizontal, theme.spacing.chipVertical)
                         .padding(.vertical, 1)
-                        .background(Color.accentColor, in: Capsule())
+                        .background(theme.colors.accent, in: Capsule())
                 }
             }
         } icon: {
@@ -224,11 +225,11 @@ struct SidebarView: View {
                 Spacer()
                 if outboxCount > 0 {
                     Text("\(outboxCount)")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
+                        .font(theme.typography.labelSmall)
+                        .foregroundStyle(theme.colors.textInverse)
+                        .padding(.horizontal, theme.spacing.chipVertical)
                         .padding(.vertical, 1)
-                        .background(Color.orange, in: Capsule())
+                        .background(theme.colors.warning, in: Capsule())
                 }
             }
         } icon: {

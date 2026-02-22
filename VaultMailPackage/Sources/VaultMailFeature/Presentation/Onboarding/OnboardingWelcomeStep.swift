@@ -9,22 +9,24 @@ import SwiftUI
 struct OnboardingWelcomeStep: View {
     let onContinue: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: theme.spacing.xxl) {
             Spacer()
 
             Image(systemName: "envelope.shield.fill")
                 .font(.system(size: 80))
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.colors.accent)
                 .accessibilityHidden(true)
 
             Text("VaultMail")
-                .font(.largeTitle.bold())
+                .font(theme.typography.displayLarge)
 
             Text("Your emails stay on your device.\nNo servers. No tracking.\nNo compromise.")
-                .font(.title3)
+                .font(theme.typography.titleLarge)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Spacer()
 
@@ -34,7 +36,7 @@ struct OnboardingWelcomeStep: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, theme.spacing.xxxl)
         .padding(.bottom, 40)
         .accessibilityElement(children: .contain)
     }
@@ -44,4 +46,5 @@ struct OnboardingWelcomeStep: View {
     OnboardingWelcomeStep {
         // Continue action
     }
+    .environment(ThemeProvider())
 }

@@ -9,6 +9,7 @@ import SwiftUI
 /// This view replaces the previous `fatalError` crash path, ensuring the
 /// app never terminates without giving the user actionable feedback.
 public struct DatabaseErrorView: View {
+    @Environment(ThemeProvider.self) private var theme
     let message: String
 
     public init(message: String) {
@@ -16,45 +17,45 @@ public struct DatabaseErrorView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: theme.spacing.xxl) {
             Spacer()
 
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(.red)
+                .foregroundStyle(theme.colors.destructive)
                 .accessibilityHidden(true)
 
             Text("Unable to Open Database")
-                .font(.title2.bold())
+                .font(theme.typography.displaySmall)
                 .multilineTextAlignment(.center)
 
             Text("VaultMail was unable to set up its local database. This may be caused by low storage space or a corrupted data file.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, theme.spacing.xxxl)
 
             // Technical detail (collapsible)
             DisclosureGroup("Technical Details") {
                 Text(message)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.captionMono)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4)
+                    .padding(.top, theme.spacing.xs)
             }
-            .padding(.horizontal, 32)
-            .tint(.secondary)
+            .padding(.horizontal, theme.spacing.xxxl)
+            .tint(theme.colors.textSecondary)
 
             if let url = URL(string: "mailto:support@appripe.com?subject=VaultMail%20Database%20Error&body=\(message.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")") {
                 Link(destination: url) {
                     Label("Contact Support", systemImage: "envelope")
-                        .font(.headline)
+                        .font(theme.typography.titleMedium)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, theme.spacing.md)
                 }
                 .buttonStyle(.borderedProminent)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, theme.spacing.xxxl)
             }
 
             Spacer()
@@ -69,4 +70,5 @@ public struct DatabaseErrorView: View {
 
 #Preview("Database Error") {
     DatabaseErrorView(message: "ModelContainer init failed: NSError Domain=NSCocoaErrorDomain Code=134060")
+        .environment(ThemeProvider())
 }

@@ -16,6 +16,7 @@ struct AccountSwitcherSheet: View {
     let onSelectAccount: (String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeProvider.self) private var theme
 
     // MARK: - Body
 
@@ -52,12 +53,12 @@ struct AccountSwitcherSheet: View {
             } label: {
                 HStack {
                     Image(systemName: "tray.2")
-                        .font(.title3)
-                        .foregroundStyle(.primary)
-                        .frame(width: 32, height: 32)
+                        .font(theme.typography.titleSmall)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .frame(width: theme.spacing.avatarSizeSmall, height: theme.spacing.avatarSizeSmall)
 
                     Text("All Accounts")
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(theme.colors.textPrimary)
 
                     Spacer()
 
@@ -67,7 +68,7 @@ struct AccountSwitcherSheet: View {
 
                     if selectedAccountId == nil {
                         Image(systemName: "checkmark")
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(theme.colors.accent)
                             .fontWeight(.semibold)
                     }
                 }
@@ -100,29 +101,29 @@ struct AccountSwitcherSheet: View {
         )
         let color = AvatarView.color(for: account.email)
 
-        return HStack(spacing: 12) {
+        return HStack(spacing: theme.spacing.md) {
             // Leading avatar circle
             Circle()
                 .fill(color)
                 .frame(width: 36, height: 36)
                 .overlay {
                     Text(initials)
-                        .font(.caption)
+                        .font(theme.typography.caption)
                         .fontWeight(.semibold)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textInverse)
                 }
                 .accessibilityHidden(true)
 
             // Name + email
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
                 Text(account.displayName)
-                    .foregroundStyle(.primary)
-                    .font(.body)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .font(theme.typography.bodyLarge)
                     .lineLimit(1)
 
                 Text(account.email)
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .font(theme.typography.caption)
                     .lineLimit(1)
             }
 
@@ -135,7 +136,7 @@ struct AccountSwitcherSheet: View {
 
             if isSelected {
                 Image(systemName: "checkmark")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(theme.colors.accent)
                     .fontWeight(.semibold)
             }
         }
@@ -147,12 +148,12 @@ struct AccountSwitcherSheet: View {
 
     private func unreadBadge(count: Int) -> some View {
         Text("\(count)")
-            .font(.caption2)
+            .font(theme.typography.labelSmall)
             .fontWeight(.semibold)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(.blue, in: Capsule())
+            .foregroundStyle(theme.colors.textInverse)
+            .padding(.horizontal, theme.spacing.chipVertical)
+            .padding(.vertical, theme.spacing.xxs)
+            .background(theme.colors.accent, in: theme.shapes.capsuleShape)
             .accessibilityHidden(true)
     }
 
@@ -207,6 +208,7 @@ struct AccountSwitcherSheet: View {
         selectedAccountId: nil,
         onSelectAccount: { _ in }
     )
+    .environment(ThemeProvider())
 }
 
 #Preview("Multiple Accounts - One Selected") {
@@ -215,6 +217,7 @@ struct AccountSwitcherSheet: View {
         selectedAccountId: "account-1",
         onSelectAccount: { _ in }
     )
+    .environment(ThemeProvider())
 }
 
 #Preview("Single Account") {
@@ -223,6 +226,7 @@ struct AccountSwitcherSheet: View {
         selectedAccountId: "account-1",
         onSelectAccount: { _ in }
     )
+    .environment(ThemeProvider())
 }
 
 // MARK: - Preview Helpers

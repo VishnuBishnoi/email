@@ -9,6 +9,7 @@ import SwiftUI
 /// Spec ref: FR-MPROV-10 (Onboarding & Provider Selection), macOS adaptation
 @MainActor
 struct MacAddAccountView: View {
+    @Environment(ThemeProvider.self) private var theme
 
     let manageAccounts: ManageAccountsUseCaseProtocol
     let connectionTestUseCase: ConnectionTestUseCaseProtocol
@@ -144,7 +145,7 @@ struct MacAddAccountView: View {
                 if isDiscovering {
                     ProgressView()
                         .controlSize(.small)
-                        .padding(.trailing, 8)
+                        .padding(.trailing, theme.spacing.sm)
                 }
                 Button("Continue") { discoverAndRoute() }
                     .keyboardShortcut(.defaultAction)
@@ -184,7 +185,7 @@ struct MacAddAccountView: View {
                     Section {
                         Link(destination: helpURL) {
                             Label("How to create an app password", systemImage: "questionmark.circle")
-                                .font(.callout)
+                                .font(theme.typography.bodyMedium)
                         }
                         .accessibilityLabel("Open \(provider.displayName) app password instructions")
                     }
@@ -209,7 +210,7 @@ struct MacAddAccountView: View {
                 if isAddingAccount {
                     ProgressView()
                         .controlSize(.small)
-                        .padding(.trailing, 8)
+                        .padding(.trailing, theme.spacing.sm)
                 }
                 Button("Sign In") { addAppPasswordAccount() }
                     .keyboardShortcut(.defaultAction)
@@ -280,7 +281,7 @@ struct MacAddAccountView: View {
                         runConnectionTest()
                     } label: {
                         if isTesting {
-                            HStack(spacing: 6) {
+                            HStack(spacing: theme.spacing.chipVertical) {
                                 ProgressView()
                                     .controlSize(.small)
                                 Text("Testing…")
@@ -313,7 +314,7 @@ struct MacAddAccountView: View {
                 if isSaving {
                     ProgressView()
                         .controlSize(.small)
-                        .padding(.trailing, 8)
+                        .padding(.trailing, theme.spacing.sm)
                 }
                 Button("Add Account") { saveManualAccount() }
                     .keyboardShortcut(.defaultAction)
@@ -326,36 +327,36 @@ struct MacAddAccountView: View {
     // MARK: - Shared Components
 
     private func macHeader(icon: String, title: String, subtitle: String) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: theme.spacing.sm) {
             Image(systemName: icon)
                 .font(.system(size: 36))
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.colors.accent)
                 .accessibilityHidden(true)
 
             Text(title)
-                .font(.headline)
+                .font(theme.typography.titleMedium)
 
             Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
         }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 24)
+        .padding(.vertical, theme.spacing.lg)
+        .padding(.horizontal, theme.spacing.xxl)
         .frame(maxWidth: .infinity)
     }
 
     private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: theme.spacing.chipVertical) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(theme.colors.destructive)
             Text(message)
-                .font(.callout)
-                .foregroundStyle(.red)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.destructive)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        .padding(.horizontal, theme.spacing.xl)
+        .padding(.vertical, theme.spacing.sm)
         .accessibilityLabel("Error: \(message)")
     }
 
@@ -366,15 +367,15 @@ struct MacAddAccountView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: theme.spacing.sm) {
                 Image(systemName: icon)
                     .foregroundStyle(color)
-                    .frame(width: 20)
+                    .frame(width: theme.spacing.iconSize)
                 Text(label)
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
         }
         .buttonStyle(.plain)
@@ -388,16 +389,16 @@ struct MacAddAccountView: View {
             switch result {
             case .pending:
                 Image(systemName: "circle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             case .testing:
                 ProgressView()
                     .controlSize(.small)
             case .success:
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(theme.colors.success)
             case .failure(let msg):
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.colors.destructive)
                     .help(msg)
             }
         }
@@ -646,6 +647,7 @@ struct MacAddAccountView: View {
         onAccountAdded: { _ in },
         onCancel: {}
     )
+    .environment(ThemeProvider())
 }
 
 /// Minimal mock for macOS previews.

@@ -56,6 +56,7 @@ struct MessageBubbleView: View {
     @Environment(SettingsStore.self) private var settingsStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(ThemeProvider.self) private var theme
 
     // MARK: - Body
 
@@ -67,9 +68,9 @@ struct MessageBubbleView: View {
                 collapsedContent
             }
         }
-        .background(.background)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+        .background(theme.colors.surface)
+        .clipShape(theme.shapes.mediumRect)
+        .vmShadow(theme.shapes.shadowSubtle)
         .accessibilityElement(children: isExpanded ? .contain : .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityAddTraits(.isButton)
@@ -89,31 +90,31 @@ struct MessageBubbleView: View {
 
     private var collapsedContent: some View {
         Button(action: onToggleExpand) {
-            HStack(spacing: 10) {
-                avatarView(size: 32)
+            HStack(spacing: theme.spacing.listRowSpacing) {
+                avatarView(size: theme.spacing.avatarSizeSmall)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: theme.spacing.xxs) {
                     HStack {
                         Text(senderDisplayName)
-                            .font(.subheadline)
+                            .font(theme.typography.bodyMedium)
                             .fontWeight(email.isRead ? .regular : .semibold)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(theme.colors.textPrimary)
                             .lineLimit(1)
 
                         Spacer()
 
                         Text(formattedDate)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(theme.typography.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
                     }
 
                     Text(email.snippet ?? "")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
                         .lineLimit(1)
                 }
             }
-            .padding(12)
+            .padding(theme.spacing.md)
         }
         .buttonStyle(.plain)
     }
@@ -121,46 +122,46 @@ struct MessageBubbleView: View {
     // MARK: - Expanded
 
     private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: theme.spacing.md) {
             // Header
             MessageHeaderView(
                 email: email,
                 isExpanded: true,
                 onStarToggle: onStarToggle
             )
-            .padding(.horizontal, 12)
-            .padding(.top, 12)
+            .padding(.horizontal, theme.spacing.md)
+            .padding(.top, theme.spacing.md)
 
             // Remote content banner (only when blocking is enabled in settings)
             if settingsStore.blockRemoteImages && hasBlockedRemoteContent && !loadRemoteImages {
                 remoteContentBanner
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, theme.spacing.md)
             }
 
             // Tracker badge (only when blocking is enabled in settings)
             if settingsStore.blockTrackingPixels && trackerCount > 0 {
                 trackerBadge
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, theme.spacing.md)
             }
 
             // Body content — minimal horizontal padding so HTML renders
             // closer to edge-to-edge within the bubble card.
             bodyContent
-                .padding(.horizontal, 4)
+                .padding(.horizontal, theme.spacing.xs)
 
             // Quoted text expander
             if hasQuotedText && !showQuotedText {
                 quotedTextButton
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, theme.spacing.md)
             }
 
             // Attachments
             if !email.attachments.isEmpty {
                 attachmentSection
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, theme.spacing.md)
             }
         }
-        .padding(.bottom, 12)
+        .padding(.bottom, theme.spacing.md)
         .task(id: "\(email.id)-\(loadRemoteImages)-\(showQuotedText)-\(dynamicTypeSize)-\(settingsStore.blockRemoteImages)-\(settingsStore.blockTrackingPixels)") {
             await processEmailBody()
         }
@@ -202,7 +203,7 @@ struct MessageBubbleView: View {
             .animation(.easeInOut(duration: 0.2), value: isWebViewLoading)
         } else if !showShimmer, let plainText = email.bodyPlain, !plainText.isEmpty {
             Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
-                .font(.body)
+                .font(theme.typography.bodyLarge)
                 .textSelection(.enabled)
         } else if showShimmer {
             bodyShimmer
@@ -237,7 +238,7 @@ struct MessageBubbleView: View {
             .animation(.easeInOut(duration: 0.2), value: isWebViewLoading)
         } else if !showShimmer, let plainText = email.bodyPlain, !plainText.isEmpty {
             Text(MIMEDecoder.stripMIMEFraming(HTMLSanitizer.stripIMAPFraming(plainText)))
-                .font(.body)
+                .font(theme.typography.bodyLarge)
                 .textSelection(.enabled)
         } else if showShimmer {
             bodyShimmer
@@ -249,33 +250,33 @@ struct MessageBubbleView: View {
 
     private var noContentPlaceholder: some View {
         Text("No content")
-            .font(.body)
-            .foregroundStyle(.secondary)
+            .font(theme.typography.bodyLarge)
+            .foregroundStyle(theme.colors.textSecondary)
             .italic()
     }
 
     /// Shimmer skeleton shown while email body is being fetched from IMAP.
     private var bodyShimmer: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: theme.spacing.listRowSpacing) {
             ShimmerLine(widthFraction: 1.0)
             ShimmerLine(widthFraction: 0.92)
             ShimmerLine(widthFraction: 0.97)
             ShimmerLine(widthFraction: 0.6)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, theme.spacing.sm)
         .accessibilityLabel("Loading email content")
     }
 
     // MARK: - Remote Content Banner
 
     private var remoteContentBanner: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: theme.spacing.sm) {
             Image(systemName: "photo.badge.exclamationmark")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Text("\(remoteImageCount) remote image\(remoteImageCount == 1 ? "" : "s") blocked")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Spacer()
 
@@ -284,7 +285,7 @@ struct MessageBubbleView: View {
                     loadRemoteImages = true
                 }
             }
-            .font(.caption)
+            .font(theme.typography.caption)
             .buttonStyle(.bordered)
             .controlSize(.mini)
 
@@ -293,14 +294,14 @@ struct MessageBubbleView: View {
                     onAlwaysLoadImages()
                     loadRemoteImages = true
                 }
-                .font(.caption)
+                .font(theme.typography.caption)
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
             }
         }
-        .padding(8)
-        .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(theme.spacing.sm)
+        .background(theme.colors.surfaceElevated)
+        .clipShape(theme.shapes.smallRect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Remote images blocked. \(remoteImageCount) images.")
     }
@@ -308,13 +309,13 @@ struct MessageBubbleView: View {
     // MARK: - Tracker Badge
 
     private var trackerBadge: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: theme.spacing.xs) {
             Image(systemName: "shield.checkmark.fill")
-                .foregroundStyle(.green)
-                .font(.caption2)
+                .foregroundStyle(theme.colors.success)
+                .font(theme.typography.labelSmall)
             Text("\(trackerCount) tracker\(trackerCount == 1 ? "" : "s") blocked")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.labelSmall)
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(trackerCount) tracking pixels blocked")
@@ -329,12 +330,12 @@ struct MessageBubbleView: View {
                 showQuotedText = true
             }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: theme.spacing.xs) {
                 Image(systemName: "ellipsis")
                 Text("Show quoted text")
-                    .font(.caption)
+                    .font(theme.typography.caption)
             }
-            .foregroundStyle(.blue)
+            .foregroundStyle(theme.colors.accent)
         }
         .accessibilityLabel("Show quoted text from previous messages")
     }
@@ -342,7 +343,7 @@ struct MessageBubbleView: View {
     // MARK: - Attachments
 
     private var attachmentSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: theme.spacing.chipVertical) {
             Divider()
 
             ForEach(email.attachments, id: \.id) { attachment in
@@ -487,7 +488,7 @@ struct MessageBubbleView: View {
 
         return Text(initial)
             .font(.system(size: size * 0.45, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.colors.textInverse)
             .frame(width: size, height: size)
             .background(color)
             .clipShape(Circle())
@@ -550,11 +551,12 @@ struct MessageBubbleView: View {
 private struct ShimmerLine: View {
     let widthFraction: CGFloat
 
+    @Environment(ThemeProvider.self) private var theme
     @State private var animating = false
 
     var body: some View {
         RoundedRectangle(cornerRadius: 4)
-            .fill(Color.gray.opacity(0.15))
+            .fill(theme.colors.shimmer)
             .frame(height: 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .scaleEffect(x: widthFraction, y: 1, anchor: .leading)
@@ -563,7 +565,7 @@ private struct ShimmerLine: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(
                             LinearGradient(
-                                colors: [.clear, Color.gray.opacity(0.15), .clear],
+                                colors: [.clear, theme.colors.shimmer, .clear],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -627,6 +629,7 @@ private final class PreviewBubbleDownloadUseCase: DownloadAttachmentUseCaseProto
         downloadUseCase: PreviewBubbleDownloadUseCase()
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Expanded - Plain Text") {
@@ -660,4 +663,5 @@ private final class PreviewBubbleDownloadUseCase: DownloadAttachmentUseCaseProto
         )
         .padding()
     }
+    .environment(ThemeProvider())
 }

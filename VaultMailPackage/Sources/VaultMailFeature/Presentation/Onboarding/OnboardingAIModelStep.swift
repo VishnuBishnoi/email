@@ -10,6 +10,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-OB-01 step 4, Proposal Section 3.4.1, Constitution TC-06, AC-A-08
 struct OnboardingAIModelStep: View {
+    @Environment(ThemeProvider.self) private var theme
     let modelManager: ModelManager
     var aiEngineResolver: AIEngineResolver?
     let onNext: () -> Void
@@ -20,40 +21,40 @@ struct OnboardingAIModelStep: View {
     @State private var downloadProgress: Double = 0
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: theme.spacing.xl) {
             Spacer()
 
             Image(systemName: "cpu.fill")
                 .font(.system(size: 60))
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.colors.accent)
                 .accessibilityHidden(true)
 
             Text("AI Features")
-                .font(.title2.bold())
+                .font(theme.typography.displaySmall)
 
             Text("Download the AI model for smart categories, reply suggestions, and email summarization.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
 
             // Model info card (Proposal Section 3.4.1)
             if let model = recommendedModel {
                 GroupBox {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: theme.spacing.sm) {
                         LabeledContent("Model", value: model.name)
                         LabeledContent("Size", value: model.formattedSize)
                         LabeledContent("License", value: model.license)
                         LabeledContent("Source", value: model.downloadURL.host ?? "Unknown")
                     }
-                    .font(.callout)
+                    .font(theme.typography.bodyMedium)
                 }
                 .padding(.horizontal)
             }
 
             // Storage disclosure (Constitution TC-06)
             Text("Syncing your email typically uses 500 MB \u{2013} 2 GB of storage on this device, depending on email volume. AI features require an additional \(recommendedModel?.formattedSize ?? "500 MB \u{2013} 1 GB").")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
@@ -68,8 +69,8 @@ struct OnboardingAIModelStep: View {
                 cancelDownloadIfNeeded()
                 onSkip()
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
+            .font(theme.typography.bodyMedium)
+            .foregroundStyle(theme.colors.textSecondary)
 
             // Next button (only after download completes)
             if case .downloaded = downloadState {
@@ -80,7 +81,7 @@ struct OnboardingAIModelStep: View {
                 .controlSize(.large)
             }
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, theme.spacing.xxxl)
         .padding(.bottom, 40)
         .task {
             await loadRecommendedModel()
@@ -100,38 +101,38 @@ struct OnboardingAIModelStep: View {
             .controlSize(.large)
 
         case .downloading(let progress):
-            VStack(spacing: 8) {
+            VStack(spacing: theme.spacing.sm) {
                 ProgressView(value: progress) {
                     Text("Downloading\u{2026}")
-                        .font(.callout)
+                        .font(theme.typography.bodyMedium)
                 }
                 Text("\(Int(progress * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
                 Button("Cancel") {
                     cancelDownloadIfNeeded()
                 }
-                .font(.callout)
+                .font(theme.typography.bodyMedium)
             }
 
         case .verifying:
-            VStack(spacing: 8) {
+            VStack(spacing: theme.spacing.sm) {
                 ProgressView()
                 Text("Verifying integrity\u{2026}")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
 
         case .downloaded:
             Label("Downloaded", systemImage: "checkmark.circle.fill")
-                .font(.body)
-                .foregroundStyle(.green)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.success)
 
         case .failed(let message):
-            VStack(spacing: 8) {
+            VStack(spacing: theme.spacing.sm) {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.red)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.destructive)
                 Button("Retry") {
                     startDownload()
                 }
@@ -210,4 +211,5 @@ enum AIDownloadState {
 
 #Preview("Not Downloaded") {
     OnboardingAIModelStep(modelManager: ModelManager(), onNext: {}, onSkip: {})
+        .environment(ThemeProvider())
 }

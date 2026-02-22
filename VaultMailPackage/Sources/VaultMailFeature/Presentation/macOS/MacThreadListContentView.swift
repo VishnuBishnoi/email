@@ -10,6 +10,7 @@ import SwiftUI
 /// Spec ref: FR-MAC-04 (Thread List), FR-MAC-05 (Thread Interactions)
 struct MacThreadListContentView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
 
     let viewState: MacOSMainView.ViewState
     let threads: [VaultMailFeature.Thread]
@@ -115,22 +116,22 @@ struct MacThreadListContentView: View {
         List(selection: $selectedThreadID) {
             // Sync progress
             if isSyncing {
-                HStack(spacing: 8) {
+                HStack(spacing: theme.spacing.sm) {
                     ProgressView().controlSize(.small)
-                    Text("Syncing…").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Syncing…").font(theme.typography.bodyMedium).foregroundStyle(theme.colors.textSecondary)
                 }
-                .listRowBackground(Color.accentColor.opacity(0.05))
+                .listRowBackground(theme.colors.accent.opacity(0.05))
             }
 
             // Error banner
             if let errorMessage {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(errorMessage).font(.subheadline).lineLimit(2)
+                HStack(spacing: theme.spacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(theme.colors.warning)
+                    Text(errorMessage).font(theme.typography.bodyMedium).lineLimit(2)
                     Spacer()
                 }
-                .padding(.vertical, 4)
-                .listRowBackground(Color.orange.opacity(0.1))
+                .padding(.vertical, theme.spacing.xs)
+                .listRowBackground(theme.colors.warning.opacity(0.1))
             }
 
             // Outbox or regular threads
@@ -154,7 +155,7 @@ struct MacThreadListContentView: View {
             if hasMorePages {
                 HStack {
                     Spacer()
-                    ProgressView().padding(.vertical, 8)
+                    ProgressView().padding(.vertical, theme.spacing.sm)
                     Spacer()
                 }
                 .listRowSeparator(.hidden)

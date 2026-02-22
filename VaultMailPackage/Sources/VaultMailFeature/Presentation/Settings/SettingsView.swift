@@ -12,6 +12,7 @@ import SwiftData
 /// Spec ref: FR-SET-01, FR-SET-02, FR-SET-03, FR-SET-04, FR-SET-05
 public struct SettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -157,14 +158,35 @@ public struct SettingsView: View {
     private var appearanceSection: some View {
         @Bindable var settings = settings
         Section("Appearance") {
-            // Theme picker (FR-SET-01)
+            // Color scheme picker (FR-SET-01)
             Picker("Theme", selection: $settings.theme) {
-                ForEach(AppTheme.allCases, id: \.self) { theme in
-                    Text(theme.displayLabel).tag(theme)
+                ForEach(AppTheme.allCases, id: \.self) { appTheme in
+                    Text(appTheme.displayLabel).tag(appTheme)
                 }
             }
             .accessibilityLabel("App theme")
             .accessibilityValue(settings.theme.displayLabel)
+
+            // Color theme picker grid (FR-SET-02)
+            VStack(alignment: .leading, spacing: theme.spacing.md) {
+                Text("Color Theme")
+                    .font(theme.typography.labelMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 70), spacing: theme.spacing.lg)], spacing: theme.spacing.lg) {
+                    ForEach(ThemeRegistry.allThemes, id: \.id) { availableTheme in
+                        ThemePickerCell(
+                            theme: availableTheme,
+                            isSelected: settings.selectedThemeId == availableTheme.id,
+                            onSelect: {
+                                settings.selectedThemeId = availableTheme.id
+                                theme.apply(availableTheme.id)
+                            }
+                        )
+                    }
+                }
+            }
+            .padding(.vertical, theme.spacing.xs)
 
             // Category tab toggles (FR-SET-01, Thread List FR-TL-02)
             NavigationLink("Category Tabs") {
@@ -357,21 +379,24 @@ public struct SettingsView: View {
 struct AccountRowView: View {
     let account: Account
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
                 Text(account.email)
-                    .font(.body)
+                    .font(theme.typography.bodyLarge)
+                    .foregroundStyle(theme.colors.textPrimary)
                 if !account.isActive {
                     Label("Re-authenticate", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.warning)
                 }
             }
             Spacer()
             if !account.isActive {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.colors.warning)
                     .accessibilityHidden(true) // Announced via label above
             }
         }
@@ -411,6 +436,7 @@ struct NotificationToggleRow: View {
 /// Spec ref: FR-SET-01 Appearance section
 struct CategoryTabsSettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     let modelManager: ModelManager
 
     @State private var isAIAvailable = false
@@ -431,8 +457,8 @@ struct CategoryTabsSettingsView: View {
                         "Download the AI model to enable smart categories.",
                         systemImage: "arrow.down.circle"
                     )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
                 }
             }
 

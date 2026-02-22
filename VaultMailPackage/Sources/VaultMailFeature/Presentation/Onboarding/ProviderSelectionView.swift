@@ -11,6 +11,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-MPROV-10 (Onboarding & Provider Selection)
 struct ProviderSelectionView: View {
+    @Environment(ThemeProvider.self) private var theme
 
     let manageAccounts: ManageAccountsUseCaseProtocol
     let connectionTestUseCase: ConnectionTestUseCaseProtocol
@@ -37,25 +38,25 @@ struct ProviderSelectionView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
+            VStack(spacing: theme.spacing.xxl) {
                 Spacer()
 
                 Image(systemName: "envelope.badge.person.crop")
                     .font(.system(size: 60))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(theme.colors.accent)
                     .accessibilityHidden(true)
 
                 Text("Add Email Account")
-                    .font(.title2.bold())
+                    .font(theme.typography.displaySmall)
 
                 Text("Enter your email address to get started, or choose a provider below.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyLarge)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
                 // Email input
-                VStack(spacing: 12) {
+                VStack(spacing: theme.spacing.md) {
                     TextField("Email address", text: $email)
                         .textContentType(.emailAddress)
                         .autocorrectionDisabled()
@@ -63,8 +64,8 @@ struct ProviderSelectionView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.emailAddress)
                         #endif
-                        .padding(12)
-                        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(theme.spacing.md)
+                        .background(theme.colors.surfaceElevated, in: theme.shapes.smallRect)
                         .accessibilityLabel("Email address")
 
                     Button {
@@ -92,11 +93,11 @@ struct ProviderSelectionView: View {
                 if let errorMessage {
                     Label {
                         Text(errorMessage)
-                            .font(.callout)
+                            .font(theme.typography.bodyMedium)
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.colors.destructive)
                     .padding(.horizontal)
                     .accessibilityLabel("Error: \(errorMessage)")
                 }
@@ -107,13 +108,13 @@ struct ProviderSelectionView: View {
                         .fill(.separator)
                         .frame(height: 1)
                     Text("or")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
                     Rectangle()
                         .fill(.separator)
                         .frame(height: 1)
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, theme.spacing.xxxl)
 
                 // Quick-add provider buttons
                 quickAddButtons
@@ -138,7 +139,7 @@ struct ProviderSelectionView: View {
     // MARK: - Quick Add Buttons
 
     private var quickAddButtons: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: theme.spacing.listRowSpacing) {
             quickAddButton(
                 label: "Sign in with Google",
                 icon: "envelope.fill",
@@ -181,12 +182,12 @@ struct ProviderSelectionView: View {
                 Text(label)
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, theme.spacing.lg)
+            .padding(.vertical, theme.spacing.md)
+            .background(theme.colors.surfaceElevated, in: theme.shapes.smallRect)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
