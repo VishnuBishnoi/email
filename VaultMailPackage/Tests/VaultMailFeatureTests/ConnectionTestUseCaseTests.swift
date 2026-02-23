@@ -1,8 +1,9 @@
 import Foundation
+import os
 import Testing
 @testable import VaultMailFeature
 
-@Suite("ConnectionTestUseCase Tests")
+@Suite("ConnectionTestUseCase Tests", .serialized)
 @MainActor
 struct ConnectionTestUseCaseTests {
 
@@ -20,19 +21,29 @@ struct ConnectionTestUseCaseTests {
         )
     }
 
-    /// Collects all results from the stream in a detached task to avoid
-    /// main-actor deadlock (the producer task is also @MainActor).
+    /// Collects all results from the stream without blocking the main actor.
+    ///
+    /// Uses a detached consumer with polling instead of `await task.value`
+    /// to avoid main-actor contention with the `@MainActor` producer.
     private func collectResults(
         from stream: AsyncStream<ConnectionTestResult>
-    ) async -> [ConnectionTestResult] {
+    ) async throws -> [ConnectionTestResult] {
+        let box = OSAllocatedUnfairLock(initialState: [ConnectionTestResult]())
+        let finished = OSAllocatedUnfairLock(initialState: false)
         let task = Task.detached {
-            var results: [ConnectionTestResult] = []
             for await result in stream {
-                results.append(result)
+                box.withLock { $0.append(result) }
             }
-            return results
+            finished.withLock { $0 = true }
         }
-        return await task.value
+        // Poll until stream finishes (max 5 seconds)
+        for _ in 0..<100 {
+            try await Task.sleep(for: .milliseconds(50))
+            if finished.withLock({ $0 }) { break }
+        }
+        task.cancel()
+        try await Task.sleep(for: .milliseconds(50))
+        return box.withLock { $0 }
     }
 
     // MARK: - Happy Path
@@ -47,7 +58,7 @@ struct ConnectionTestUseCaseTests {
             email: "test@example.com", password: "secret"
         )
 
-        let results = await collectResults(from: stream)
+        let results = try await collectResults(from: stream)
 
         // Should have multiple status updates
         #expect(!results.isEmpty)
@@ -75,7 +86,7 @@ struct ConnectionTestUseCaseTests {
             email: "test@example.com", password: "secret"
         )
 
-        let results = await collectResults(from: stream)
+        let results = try await collectResults(from: stream)
         let final = try #require(results.last)
 
         #expect(final.allPassed == false)
@@ -107,7 +118,7 @@ struct ConnectionTestUseCaseTests {
             email: "test@example.com", password: "secret"
         )
 
-        let results = await collectResults(from: stream)
+        let results = try await collectResults(from: stream)
         let final = try #require(results.last)
 
         // IMAP should still be successful
@@ -170,7 +181,7 @@ struct ConnectionTestUseCaseTests {
             email: "test@example.com", password: "secret"
         )
 
-        let results = await collectResults(from: stream)
+        let results = try await collectResults(from: stream)
 
         // Should have at least 3 updates: IMAP testing, IMAP done, SMTP testing, SMTP done
         #expect(results.count >= 3)
