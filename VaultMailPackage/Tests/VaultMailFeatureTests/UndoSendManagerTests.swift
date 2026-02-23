@@ -164,8 +164,11 @@ struct UndoSendManagerTests {
             expiredEmailId = emailId
         }
 
-        // Wait for countdown to complete (2 seconds + buffer)
-        try await Task.sleep(for: .milliseconds(3000))
+        // Poll until callback fires or timeout (5s generous buffer for 2s countdown)
+        for _ in 0..<100 {
+            try await Task.sleep(for: .milliseconds(50))
+            if expiredEmailId != nil { break }
+        }
 
         #expect(expiredEmailId == "email-1")
         #expect(manager.isCountdownActive == false)
