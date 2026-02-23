@@ -89,7 +89,16 @@
       "Bash(echo:*)",
       "Bash(pkill:*)",
       "mcp__xcode-build__session_set_defaults",
-      "mcp__xcode-build__build_sim"
+      "mcp__xcode-build__build_sim",
+      "mcp__xcode-build__test_sim",
+      "Bash(xcodebuild test:*)",
+      "mcp__xcode-build__list_schemes",
+      "Bash(xcrun simctl:*)",
+      "mcp__xcode-build__session_show_defaults",
+      "WebFetch(domain:forums.swift.org)",
+      "WebFetch(domain:blog.jacobstechtavern.com)",
+      "Bash(pgrep:*)",
+      "Bash(gtimeout 60 swift test:*)"
     ]
   },
   "enabledPlugins": {
