@@ -9,6 +9,8 @@ import SwiftUI
 ///
 /// Spec ref: Email Composer FR-COMP-01, FR-COMP-04, NFR-COMP-03
 struct RecipientFieldView: View {
+    @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     let label: String
     @Binding var recipients: [RecipientToken]
     let queryContacts: QueryContactsUseCaseProtocol
@@ -21,12 +23,28 @@ struct RecipientFieldView: View {
     @State private var isAddingRecipient = false
     @FocusState private var isInputFocused: Bool
 
+    private var fieldSurface: Color {
+        colorScheme == .dark ? Color(red: 0.18, green: 0.18, blue: 0.19) : Color(red: 0.95, green: 0.95, blue: 0.97)
+    }
+
+    private var controlSurface: Color {
+        colorScheme == .dark ? Color(red: 0.22, green: 0.22, blue: 0.24) : .white
+    }
+
+    private var primaryText: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var secondaryText: Color {
+        colorScheme == .dark ? Color.white.opacity(0.64) : Color.black.opacity(0.56)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
                 Text(label)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryText)
                     .frame(width: 34, alignment: .leading)
                     .padding(.top, 7)
 
@@ -45,11 +63,11 @@ struct RecipientFieldView: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.white.opacity(0.55), in: Capsule())
+                        .background(controlSurface, in: Capsule())
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryText)
                     .padding(.top, 6)
                     .accessibilityLabel("Add recipient")
                 }
@@ -60,7 +78,7 @@ struct RecipientFieldView: View {
                     } label: {
                         Image(systemName: "plus")
                             .font(.caption.bold())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(secondaryText)
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 6)
@@ -69,7 +87,7 @@ struct RecipientFieldView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+            .background(fieldSurface, in: RoundedRectangle(cornerRadius: 14))
 
             // Autocomplete suggestions
             if showSuggestions && !suggestions.isEmpty {
@@ -96,6 +114,7 @@ struct RecipientFieldView: View {
                     #endif
                     .autocorrectionDisabled()
                     .textFieldStyle(.plain)
+                    .foregroundStyle(primaryText)
                     .focused($isInputFocused)
                     .frame(minWidth: 120)
                     .onSubmit {
@@ -149,9 +168,9 @@ struct RecipientFieldView: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(token.isValid ? Color.accentColor.opacity(0.15) : Color.red.opacity(0.15))
+                .fill(token.isValid ? theme.colors.accentMuted : theme.colors.destructiveMuted)
         )
-        .foregroundColor(token.isValid ? .primary : .red)
+        .foregroundStyle(token.isValid ? primaryText : theme.colors.destructive)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(token.displayText), \(token.isValid ? "valid" : "invalid") email")
         .accessibilityRemoveTraits(.isButton)
@@ -177,11 +196,11 @@ struct RecipientFieldView: View {
                         if let name = contact.displayName, !name.isEmpty {
                             Text(name)
                                 .font(.subheadline)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(primaryText)
                         }
                         Text(contact.emailAddress)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(secondaryText)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -196,7 +215,11 @@ struct RecipientFieldView: View {
                 }
             }
         }
-        .background(.ultraThinMaterial)
+        .background(fieldSurface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(theme.colors.border.opacity(0.35), lineWidth: 0.5)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 40)
         .padding(.bottom, 4)

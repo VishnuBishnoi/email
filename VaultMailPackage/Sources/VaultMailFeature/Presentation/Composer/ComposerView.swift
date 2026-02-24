@@ -22,6 +22,8 @@ public struct ComposerView: View {
     let onDismiss: @MainActor (ComposerDismissResult) -> Void
 
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
 
     // MARK: - Composition State
@@ -128,6 +130,30 @@ public struct ComposerView: View {
         return "\(recipientStr)|\(subject)|\(bodyText)|\(attachments.map(\.id).joined())"
     }
 
+    private var composeBackgroundStart: Color {
+        colorScheme == .dark ? Color(red: 0.10, green: 0.10, blue: 0.11) : Color(red: 0.95, green: 0.96, blue: 0.98)
+    }
+
+    private var composeBackgroundEnd: Color {
+        colorScheme == .dark ? Color(red: 0.13, green: 0.13, blue: 0.14) : Color(red: 0.90, green: 0.93, blue: 0.97)
+    }
+
+    private var composeCard: Color {
+        colorScheme == .dark ? Color(red: 0.14, green: 0.14, blue: 0.15) : Color.white.opacity(0.94)
+    }
+
+    private var composeField: Color {
+        colorScheme == .dark ? Color(red: 0.18, green: 0.18, blue: 0.19) : Color(red: 0.95, green: 0.95, blue: 0.97)
+    }
+
+    private var composePrimaryText: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var composeSecondaryText: Color {
+        colorScheme == .dark ? Color.white.opacity(0.64) : Color.black.opacity(0.56)
+    }
+
     // MARK: - Body
 
     public var body: some View {
@@ -135,8 +161,8 @@ public struct ComposerView: View {
             ZStack {
                 LinearGradient(
                     colors: [
-                        Color(red: 0.78, green: 0.84, blue: 0.95),
-                        Color(red: 0.71, green: 0.79, blue: 0.92)
+                        composeBackgroundStart,
+                        composeBackgroundEnd
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -195,11 +221,19 @@ public struct ComposerView: View {
 
                         if showAttachments || !attachments.isEmpty {
                             AttachmentPickerView(attachments: $attachments)
-                                .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 16))
+                                .background(composeField, in: RoundedRectangle(cornerRadius: 16))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .stroke(theme.colors.border.opacity(0.35), lineWidth: 0.5)
+                                )
                         }
                     }
                     .padding(16)
-                    .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 34))
+                    .background(composeCard, in: RoundedRectangle(cornerRadius: 34))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 34)
+                            .stroke(theme.colors.border.opacity(0.4), lineWidth: 0.5)
+                    )
                     .padding(.horizontal, 16)
                     .padding(.vertical, 20)
                 }
@@ -255,7 +289,11 @@ public struct ComposerView: View {
             }
         }
         .task {
+            theme.colorScheme = colorScheme
             await prefillFromMode()
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            theme.colorScheme = newValue
         }
         .task(id: draftId) {
             await autoSaveLoop()
@@ -268,7 +306,7 @@ public struct ComposerView: View {
         HStack {
             Text("From")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(composeSecondaryText)
                 .frame(width: 34, alignment: .leading)
 
             if let account = fromAccount {
@@ -276,23 +314,23 @@ public struct ComposerView: View {
                     if !account.displayName.isEmpty {
                         Text(account.displayName)
                             .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(composePrimaryText)
                     }
                     Text(account.email)
                         .font(account.displayName.isEmpty ? .subheadline : .caption)
-                        .foregroundStyle(account.displayName.isEmpty ? .primary : .secondary)
+                        .foregroundStyle(account.displayName.isEmpty ? composePrimaryText : composeSecondaryText)
                 }
             } else {
                 Text(mode.accountId)
                     .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(composePrimaryText)
             }
 
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+        .background(composeField, in: RoundedRectangle(cornerRadius: 14))
     }
 
     // MARK: - Top Action Row
@@ -316,7 +354,7 @@ public struct ComposerView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(canSend ? Color.blue : Color.blue.opacity(0.35))
+                        .fill(canSend ? theme.colors.accent : theme.colors.disabled)
                         .frame(width: 44, height: 44)
 
                     if viewState == .sending {
@@ -355,12 +393,12 @@ public struct ComposerView: View {
                 }
             } label: {
                 Circle()
-                    .fill(Color.primary.opacity(0.06))
+                    .fill(composeField)
                     .frame(width: 44, height: 44)
                     .overlay {
                         Image(systemName: "ellipsis")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(composeSecondaryText)
                     }
             }
             .buttonStyle(.plain)
@@ -374,28 +412,29 @@ public struct ComposerView: View {
             HStack(spacing: 4) {
                 Text("Subject")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(composeSecondaryText)
                     .frame(width: 60, alignment: .leading)
 
                 TextField("", text: $subject)
                     .font(.subheadline)
+                    .foregroundStyle(composePrimaryText)
                     .accessibilityLabel("Subject")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+        .background(composeField, in: RoundedRectangle(cornerRadius: 14))
     }
 
     private func circleButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Circle()
-                .fill(Color.primary.opacity(0.06))
+                .fill(composeField)
                 .frame(width: 44, height: 44)
                 .overlay {
                     Image(systemName: systemName)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(composePrimaryText)
                 }
         }
         .buttonStyle(.plain)

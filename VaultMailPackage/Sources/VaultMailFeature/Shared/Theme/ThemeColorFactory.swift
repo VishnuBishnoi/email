@@ -39,11 +39,11 @@ enum ThemeColorFactory {
             textPrimary: isDark ? .white : .black,
             textSecondary: Color(
                 light: Color(hex: 0x636366),
-                dark: Color.white.opacity(0.6)
+                dark: Color.white.opacity(0.72)
             ),
             textTertiary: Color(
                 light: Color(hex: 0x8E8E93),
-                dark: Color.white.opacity(0.4)
+                dark: Color.white.opacity(0.6)
             ),
             textInverse: .white,
 

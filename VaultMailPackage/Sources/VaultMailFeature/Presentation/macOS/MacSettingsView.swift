@@ -14,6 +14,7 @@ import SwiftData
 public struct MacSettingsView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
 
     let manageAccounts: ManageAccountsUseCaseProtocol
@@ -96,6 +97,13 @@ public struct MacSettingsView: View {
                 }
         }
         .frame(width: 550, height: 420)
+        .preferredColorScheme(settings.colorScheme)
+        .onAppear {
+            theme.colorScheme = colorScheme
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            theme.colorScheme = newValue
+        }
         .task { await loadAccounts() }
     }
 

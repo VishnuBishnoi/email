@@ -21,6 +21,7 @@ struct ThreadListView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
 
     let fetchThreads: FetchThreadsUseCaseProtocol
     let manageThreadActions: ManageThreadActionsUseCaseProtocol
@@ -355,6 +356,12 @@ struct ThreadListView: View {
             } else {
                 loadRecentSearches()
             }
+        }
+        .onAppear {
+            theme.colorScheme = colorScheme
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            theme.colorScheme = newValue
         }
     }
 
