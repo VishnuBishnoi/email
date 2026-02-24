@@ -112,7 +112,7 @@ struct SidebarView: View {
                     .frame(width: 18, alignment: .center)
 
                 Text(title)
-                    .font(theme.typography.bodySmall)
+                    .font(theme.typography.bodyMedium)
                     .lineLimit(1)
 
                 Spacer()

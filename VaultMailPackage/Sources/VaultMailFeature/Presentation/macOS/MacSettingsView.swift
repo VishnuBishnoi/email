@@ -42,36 +42,34 @@ public struct MacSettingsView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: theme.spacing.sm) {
-                    ForEach(SettingsTab.allCases) { tab in
-                        let isSelected = selectedTab == tab
-                        Button {
-                            selectedTab = tab
-                        } label: {
-                            VStack(spacing: theme.spacing.xxs) {
-                                Image(systemName: tab.icon)
-                                    .font(theme.typography.titleMedium)
-                                Text(tab.title)
-                                    .font(theme.typography.bodyMedium)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.85)
-                            }
-                            .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
-                            .padding(.horizontal, theme.spacing.md)
-                            .padding(.vertical, theme.spacing.sm)
-                            .frame(minWidth: 88)
-                            .background(
-                                isSelected ? AnyShapeStyle(theme.colors.accentMuted) : AnyShapeStyle(Color.clear),
-                                in: RoundedRectangle(cornerRadius: theme.shapes.large)
-                            )
+            HStack(spacing: theme.spacing.xxs) {
+                ForEach(SettingsTab.allCases) { tab in
+                    let isSelected = selectedTab == tab
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        VStack(spacing: theme.spacing.xxs) {
+                            Image(systemName: tab.icon)
+                                .font(theme.typography.titleMedium)
+                            Text(tab.title)
+                                .font(theme.typography.bodyMedium)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                         }
-                        .buttonStyle(.plain)
+                        .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
+                        .padding(.horizontal, theme.spacing.sm)
+                        .padding(.vertical, theme.spacing.sm)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            isSelected ? AnyShapeStyle(theme.colors.accentMuted) : AnyShapeStyle(Color.clear),
+                            in: RoundedRectangle(cornerRadius: theme.shapes.large)
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, theme.spacing.md)
-                .padding(.vertical, theme.spacing.sm)
             }
+            .padding(.horizontal, theme.spacing.sm)
+            .padding(.vertical, theme.spacing.sm)
 
             Divider()
 
