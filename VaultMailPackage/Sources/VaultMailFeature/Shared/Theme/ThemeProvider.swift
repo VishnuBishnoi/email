@@ -20,13 +20,15 @@ public final class ThemeProvider {
 
     /// The active color scheme, updated from SwiftUI environment.
     public var colorScheme: ColorScheme = .light
+    /// Global font scale applied to theme typography.
+    public var fontScale: CGFloat = 1.0
 
     // MARK: - Convenience Accessors
 
     /// Color tokens resolved for the current color scheme.
     public var colors: ThemeColors { currentTheme.colors(for: colorScheme) }
     /// Typography tokens.
-    public var typography: ThemeTypography { currentTheme.typography }
+    public var typography: ThemeTypography { currentTheme.typography.scaled(by: fontScale) }
     /// Spacing tokens.
     public var spacing: ThemeSpacing { currentTheme.spacing }
     /// Shape tokens resolved for the current color scheme (shadows suppressed in dark).

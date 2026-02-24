@@ -172,6 +172,7 @@ private struct AppDependencies {
 
         settingsStore = SettingsStore()
         themeProvider = ThemeProvider(themeId: settingsStore.selectedThemeId)
+        themeProvider.fontScale = settingsStore.fontSize.scale
         appLockManager = AppLockManager()
 
         let keychainManager = KeychainManager()

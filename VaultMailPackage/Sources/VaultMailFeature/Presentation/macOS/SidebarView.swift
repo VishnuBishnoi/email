@@ -40,16 +40,7 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: Binding<String?>(
-                get: { selectedFolder?.id },
-                set: { newId in
-                    // Find and select the folder with this ID
-                    if let folderId = newId,
-                       let folder = allFolders.first(where: { $0.id == folderId }) {
-                        onSelectFolder(folder)
-                    }
-                }
-            )) {
+            List {
                 // Unified Inbox
                 unifiedInboxRow
 
@@ -59,6 +50,8 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            .tint(theme.colors.accent)
+            .accentColor(theme.colors.accent)
 
             Divider()
 
@@ -130,13 +123,24 @@ struct SidebarView: View {
     // MARK: - Unified Inbox
 
     private var unifiedInboxRow: some View {
-        Button {
+        let isSelected = selectedAccount == nil && selectedFolder == nil
+        return Button {
             onSelectUnifiedInbox()
         } label: {
             Label("All Inboxes", systemImage: "tray.2")
+                .font(isSelected ? theme.typography.titleMedium : theme.typography.bodyLarge)
+                .foregroundStyle(isSelected ? theme.colors.textInverse : theme.colors.textPrimary)
+                .padding(.horizontal, theme.spacing.sm)
+                .padding(.vertical, theme.spacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    isSelected ? AnyShapeStyle(theme.colors.accent) : AnyShapeStyle(Color.clear),
+                    in: RoundedRectangle(cornerRadius: theme.shapes.large)
+                )
         }
-        .font(selectedAccount == nil && selectedFolder == nil ? theme.typography.titleMedium : theme.typography.bodyLarge)
-        .tag("__unified__" as String?)
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .listRowBackground(Color.clear)
         .accessibilityLabel("All Inboxes, unified view")
     }
 
@@ -195,24 +199,40 @@ struct SidebarView: View {
     // MARK: - Folder Row
 
     private func folderRow(folder: Folder) -> some View {
-        Label {
-            HStack {
-                Text(folder.name)
-                    .lineLimit(1)
-                Spacer()
-                if let count = badgeCount(for: folder), count > 0 {
-                    Text("\(count)")
-                        .font(theme.typography.labelSmall)
-                        .foregroundStyle(theme.colors.textInverse)
-                        .padding(.horizontal, theme.spacing.chipVertical)
-                        .padding(.vertical, 1)
-                        .background(theme.colors.accent, in: Capsule())
+        let isSelected = selectedFolder?.id == folder.id
+        return Button {
+            onSelectFolder(folder)
+        } label: {
+            Label {
+                HStack {
+                    Text(folder.name)
+                        .lineLimit(1)
+                    Spacer()
+                    if let count = badgeCount(for: folder), count > 0 {
+                        Text("\(count)")
+                            .font(theme.typography.labelSmall)
+                            .foregroundStyle(theme.colors.textInverse)
+                            .padding(.horizontal, theme.spacing.chipVertical)
+                            .padding(.vertical, 1)
+                            .background(isSelected ? theme.colors.accentHover : theme.colors.accent, in: Capsule())
+                    }
                 }
+            } icon: {
+                Image(systemName: iconName(for: folder.folderType))
             }
-        } icon: {
-            Image(systemName: iconName(for: folder.folderType))
         }
-        .tag(folder.id as String?)
+        .font(isSelected ? theme.typography.titleMedium : theme.typography.bodyLarge)
+        .foregroundStyle(isSelected ? theme.colors.textInverse : theme.colors.textPrimary)
+        .padding(.horizontal, theme.spacing.sm)
+        .padding(.vertical, theme.spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected ? AnyShapeStyle(theme.colors.accent) : AnyShapeStyle(Color.clear),
+            in: RoundedRectangle(cornerRadius: theme.shapes.large)
+        )
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .listRowBackground(Color.clear)
         .accessibilityLabel("\(folder.name)\(badgeLabel(for: folder))")
     }
 

@@ -22,7 +22,9 @@ import SwiftData
 /// Spec ref: FR-OB-01, FR-SET-01
 public struct ContentView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
 
     let manageAccounts: ManageAccountsUseCaseProtocol
@@ -141,6 +143,20 @@ public struct ContentView: View {
             } else if oldPhase == .background && newPhase == .active {
                 undoSendManager.resume()
             }
+        }
+        .onAppear {
+            theme.fontScale = settings.fontSize.scale
+        }
+        .onChange(of: settings.fontSize) { _, newValue in
+            theme.fontScale = newValue.scale
+        }
+        .tint(theme.colors.accent)
+        .dynamicTypeSize(settings.fontSize.dynamicTypeSize)
+        .onAppear {
+            theme.colorScheme = colorScheme
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            theme.colorScheme = newValue
         }
     }
 

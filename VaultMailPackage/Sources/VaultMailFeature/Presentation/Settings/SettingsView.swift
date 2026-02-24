@@ -13,6 +13,7 @@ import SwiftData
 public struct SettingsView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -78,6 +79,17 @@ public struct SettingsView: View {
         #endif
         .navigationTitle("Settings")
         .task { await loadAccounts() }
+        .tint(theme.colors.accent)
+        .onAppear {
+            theme.colorScheme = colorScheme
+            theme.fontScale = settings.fontSize.scale
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            theme.colorScheme = newValue
+        }
+        .onChange(of: settings.fontSize) { _, newValue in
+            theme.fontScale = newValue.scale
+        }
         .sheet(isPresented: $showProviderSelection) {
             if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
                 ProviderSelectionView(
@@ -166,6 +178,17 @@ public struct SettingsView: View {
             }
             .accessibilityLabel("App theme")
             .accessibilityValue(settings.theme.displayLabel)
+
+            Picker("Font Size", selection: $settings.fontSize) {
+                ForEach(AppFontSize.allCases, id: \.self) { size in
+                    Text(size.displayLabel).tag(size)
+                }
+            }
+            .accessibilityLabel("App font size")
+            .accessibilityValue(settings.fontSize.displayLabel)
+            .onChange(of: settings.fontSize) { _, newValue in
+                theme.fontScale = newValue.scale
+            }
 
             // Color theme picker grid (FR-SET-02)
             VStack(alignment: .leading, spacing: theme.spacing.md) {

@@ -12,6 +12,7 @@ import SwiftData
 public struct MacOSMainView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(NotificationSyncCoordinator.self) private var notificationCoordinator
 
@@ -378,6 +379,18 @@ public struct MacOSMainView: View {
             Task { await refreshAfterAccountChange() }
         }
         .preferredColorScheme(settings.colorScheme)
+        .tint(theme.colors.accent)
+        .dynamicTypeSize(settings.fontSize.dynamicTypeSize)
+        .onAppear {
+            theme.colorScheme = colorScheme
+            theme.fontScale = settings.fontSize.scale
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            theme.colorScheme = newValue
+        }
+        .onChange(of: settings.fontSize) { _, newValue in
+            theme.fontScale = newValue.scale
+        }
     }
 
     // MARK: - Placeholders

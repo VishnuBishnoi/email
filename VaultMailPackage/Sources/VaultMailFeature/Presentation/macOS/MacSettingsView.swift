@@ -24,11 +24,7 @@ public struct MacSettingsView: View {
     var connectionTestUseCase: ConnectionTestUseCaseProtocol?
 
     @State private var accounts: [Account] = []
-
-    /// Whether multi-provider support is available.
-    private var hasMultiProvider: Bool {
-        providerDiscovery != nil && connectionTestUseCase != nil
-    }
+    @State private var selectedTab: SettingsTab = .accounts
 
     public init(
         manageAccounts: ManageAccountsUseCaseProtocol,
@@ -45,64 +41,74 @@ public struct MacSettingsView: View {
     }
 
     public var body: some View {
-        TabView {
-            // Accounts Tab
-            MacAccountsSettingsTab(
-                accounts: $accounts,
-                manageAccounts: manageAccounts,
-                providerDiscovery: providerDiscovery,
-                connectionTestUseCase: connectionTestUseCase
-            )
-            .tabItem {
-                Label("Accounts", systemImage: "person.crop.circle")
+        VStack(spacing: 0) {
+            HStack(spacing: theme.spacing.sm) {
+                ForEach(SettingsTab.allCases) { tab in
+                    let isSelected = selectedTab == tab
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        VStack(spacing: theme.spacing.xxs) {
+                            Image(systemName: tab.icon)
+                                .font(theme.typography.titleLarge)
+                            Text(tab.title)
+                                .font(theme.typography.bodyLarge)
+                        }
+                        .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
+                        .padding(.horizontal, theme.spacing.md)
+                        .padding(.vertical, theme.spacing.sm)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            isSelected ? AnyShapeStyle(theme.colors.accentMuted) : AnyShapeStyle(Color.clear),
+                            in: RoundedRectangle(cornerRadius: theme.shapes.large)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.horizontal, theme.spacing.md)
+            .padding(.vertical, theme.spacing.sm)
 
-            // General Tab (Composition + Appearance)
-            MacGeneralSettingsTab(accounts: accounts, modelManager: modelManager)
-                .tabItem {
-                    Label("General", systemImage: "gearshape")
-                }
+            Divider()
 
-            // AI Features Tab
-            MacAISettingsTab(modelManager: modelManager, aiEngineResolver: aiEngineResolver)
-                .tabItem {
-                    Label("AI Features", systemImage: "brain")
+            Group {
+                switch selectedTab {
+                case .accounts:
+                    MacAccountsSettingsTab(
+                        accounts: $accounts,
+                        manageAccounts: manageAccounts,
+                        providerDiscovery: providerDiscovery,
+                        connectionTestUseCase: connectionTestUseCase
+                    )
+                case .general:
+                    MacGeneralSettingsTab(accounts: accounts, modelManager: modelManager)
+                case .aiFeatures:
+                    MacAISettingsTab(modelManager: modelManager, aiEngineResolver: aiEngineResolver)
+                case .notifications:
+                    NotificationSettingsContent(accounts: accounts)
+                case .security:
+                    MacSecuritySettingsTab()
+                case .storage:
+                    MacStorageSettingsTab(manageAccounts: manageAccounts, accounts: accounts)
+                case .about:
+                    MacAboutSettingsTab()
                 }
-
-            // Notifications Tab
-            NotificationSettingsContent(accounts: accounts)
-                .tabItem {
-                    Label("Notifications", systemImage: "bell.badge")
-                }
-
-            // Security Tab
-            MacSecuritySettingsTab()
-                .tabItem {
-                    Label("Security", systemImage: "lock.shield")
-                }
-
-            // Storage Tab
-            MacStorageSettingsTab(
-                manageAccounts: manageAccounts,
-                accounts: accounts
-            )
-                .tabItem {
-                    Label("Storage", systemImage: "internaldrive")
-                }
-
-            // About Tab
-            MacAboutSettingsTab()
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
+            }
         }
         .frame(width: 550, height: 420)
+        .tint(theme.colors.accent)
+        .accentColor(theme.colors.accent)
+        .dynamicTypeSize(settings.fontSize.dynamicTypeSize)
         .preferredColorScheme(settings.colorScheme)
         .onAppear {
             theme.colorScheme = colorScheme
+            theme.fontScale = settings.fontSize.scale
         }
         .onChange(of: colorScheme) { _, newValue in
             theme.colorScheme = newValue
+        }
+        .onChange(of: settings.fontSize) { _, newValue in
+            theme.fontScale = newValue.scale
         }
         .task { await loadAccounts() }
     }
@@ -112,6 +118,42 @@ public struct MacSettingsView: View {
             accounts = try await manageAccounts.getAccounts()
         } catch {
             // Silently handle
+        }
+    }
+}
+
+private enum SettingsTab: String, CaseIterable, Identifiable {
+    case accounts
+    case general
+    case aiFeatures
+    case notifications
+    case security
+    case storage
+    case about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .accounts: "Accounts"
+        case .general: "General"
+        case .aiFeatures: "AI Features"
+        case .notifications: "Notifications"
+        case .security: "Security"
+        case .storage: "Storage"
+        case .about: "About"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .accounts: "person.crop.circle"
+        case .general: "gearshape"
+        case .aiFeatures: "brain"
+        case .notifications: "bell.badge"
+        case .security: "lock.shield"
+        case .storage: "internaldrive"
+        case .about: "info.circle"
         }
     }
 }
@@ -534,6 +576,15 @@ struct MacGeneralSettingsTab: View {
                     ForEach(AppTheme.allCases, id: \.self) { appTheme in
                         Text(appTheme.displayLabel).tag(appTheme)
                     }
+                }
+
+                Picker("Font Size", selection: $settings.fontSize) {
+                    ForEach(AppFontSize.allCases, id: \.self) { size in
+                        Text(size.displayLabel).tag(size)
+                    }
+                }
+                .onChange(of: settings.fontSize) { _, newValue in
+                    theme.fontScale = newValue.scale
                 }
 
                 VStack(alignment: .leading, spacing: theme.spacing.md) {
