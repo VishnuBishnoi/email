@@ -42,32 +42,36 @@ public struct MacSettingsView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: theme.spacing.sm) {
-                ForEach(SettingsTab.allCases) { tab in
-                    let isSelected = selectedTab == tab
-                    Button {
-                        selectedTab = tab
-                    } label: {
-                        VStack(spacing: theme.spacing.xxs) {
-                            Image(systemName: tab.icon)
-                                .font(theme.typography.titleLarge)
-                            Text(tab.title)
-                                .font(theme.typography.bodyLarge)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: theme.spacing.sm) {
+                    ForEach(SettingsTab.allCases) { tab in
+                        let isSelected = selectedTab == tab
+                        Button {
+                            selectedTab = tab
+                        } label: {
+                            VStack(spacing: theme.spacing.xxs) {
+                                Image(systemName: tab.icon)
+                                    .font(theme.typography.titleMedium)
+                                Text(tab.title)
+                                    .font(theme.typography.bodyMedium)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+                            }
+                            .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
+                            .padding(.horizontal, theme.spacing.md)
+                            .padding(.vertical, theme.spacing.sm)
+                            .frame(minWidth: 88)
+                            .background(
+                                isSelected ? AnyShapeStyle(theme.colors.accentMuted) : AnyShapeStyle(Color.clear),
+                                in: RoundedRectangle(cornerRadius: theme.shapes.large)
+                            )
                         }
-                        .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
-                        .padding(.horizontal, theme.spacing.md)
-                        .padding(.vertical, theme.spacing.sm)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            isSelected ? AnyShapeStyle(theme.colors.accentMuted) : AnyShapeStyle(Color.clear),
-                            in: RoundedRectangle(cornerRadius: theme.shapes.large)
-                        )
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, theme.spacing.md)
+                .padding(.vertical, theme.spacing.sm)
             }
-            .padding(.horizontal, theme.spacing.md)
-            .padding(.vertical, theme.spacing.sm)
 
             Divider()
 
@@ -188,27 +192,41 @@ struct MacAccountsSettingsTab: View {
             // Account list with detail on selection
             HSplitView {
                 // Left: account list
-                List(selection: $selectedAccountID) {
+                List {
                     ForEach(accounts, id: \.id) { account in
-                        HStack {
-                            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
-                                Text(account.email)
-                                    .font(theme.typography.bodyLarge)
-                                    .lineLimit(1)
+                        let isSelected = selectedAccountID == account.id
+                        Button {
+                            selectedAccountID = account.id
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: theme.spacing.xxs) {
+                                    Text(account.email)
+                                        .font(theme.typography.bodyMedium)
+                                        .foregroundStyle(theme.colors.textPrimary)
+                                        .lineLimit(1)
+                                    if !account.isActive {
+                                        Text("Needs Re-authentication")
+                                            .font(theme.typography.caption)
+                                            .foregroundStyle(theme.colors.warning)
+                                    }
+                                }
+                                Spacer()
                                 if !account.isActive {
-                                    Text("Needs Re-authentication")
+                                    Image(systemName: "exclamationmark.triangle.fill")
                                         .font(theme.typography.caption)
                                         .foregroundStyle(theme.colors.warning)
                                 }
                             }
-                            Spacer()
-                            if !account.isActive {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(theme.colors.warning)
-                                    .font(theme.typography.caption)
-                            }
+                            .padding(.horizontal, theme.spacing.xs)
+                            .padding(.vertical, theme.spacing.xs)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                isSelected ? theme.colors.accentMuted : Color.clear,
+                                in: RoundedRectangle(cornerRadius: theme.shapes.medium)
+                            )
                         }
-                        .tag(account.id)
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.bordered(alternatesRowBackgrounds: true))

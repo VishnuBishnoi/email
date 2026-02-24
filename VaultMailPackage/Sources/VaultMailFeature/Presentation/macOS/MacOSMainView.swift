@@ -237,7 +237,7 @@ public struct MacOSMainView: View {
                     Task { await removeAccountFromSidebar(account) }
                 }
             )
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 150, ideal: 200)
         } content: {
             // CONTENT — Thread List
             MacThreadListContentView(

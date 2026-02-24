@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Typography tokens for the VaultMail theming engine.
 ///
-/// All tokens use SF Pro (system font) via `Font.system(size:weight:design:)`.
+/// All tokens use SF Pro Rounded (system rounded design) via
+/// `Font.system(size:weight:design:)`.
 /// Dynamic Type scaling is automatic since we use `Font.system()`.
 ///
 /// Spec ref: FR-TY-01, FR-TY-02, FR-TY-03
@@ -37,21 +38,21 @@ public struct ThemeTypography: Sendable {
     /// 12pt regular monospaced — technical details, IDs.
     public let captionMono: Font
 
-    /// Default typography using SF Pro system fonts.
+    /// Default typography using SF Pro Rounded system fonts.
     public static let `default` = ThemeTypography(
-        displayLarge: .system(size: 34, weight: .bold),
-        displaySmall: .system(size: 28, weight: .bold),
-        titleLarge: .system(size: 22, weight: .semibold),
-        titleMedium: .system(size: 17, weight: .semibold),
-        titleSmall: .system(size: 15, weight: .semibold),
-        bodyLarge: .system(size: 17, weight: .regular),
-        bodyMedium: .system(size: 15, weight: .regular),
-        bodyMediumEmphasized: .system(size: 15, weight: .medium),
-        bodySmall: .system(size: 13, weight: .regular),
-        labelLarge: .system(size: 15, weight: .medium),
-        labelMedium: .system(size: 13, weight: .medium),
-        labelSmall: .system(size: 11, weight: .medium),
-        caption: .system(size: 12, weight: .regular),
+        displayLarge: .system(size: 34, weight: .bold, design: .rounded),
+        displaySmall: .system(size: 28, weight: .bold, design: .rounded),
+        titleLarge: .system(size: 22, weight: .semibold, design: .rounded),
+        titleMedium: .system(size: 17, weight: .semibold, design: .rounded),
+        titleSmall: .system(size: 15, weight: .semibold, design: .rounded),
+        bodyLarge: .system(size: 17, weight: .regular, design: .rounded),
+        bodyMedium: .system(size: 15, weight: .regular, design: .rounded),
+        bodyMediumEmphasized: .system(size: 15, weight: .medium, design: .rounded),
+        bodySmall: .system(size: 13, weight: .regular, design: .rounded),
+        labelLarge: .system(size: 15, weight: .medium, design: .rounded),
+        labelMedium: .system(size: 13, weight: .medium, design: .rounded),
+        labelSmall: .system(size: 11, weight: .medium, design: .rounded),
+        caption: .system(size: 12, weight: .regular, design: .rounded),
         captionMono: .system(size: 12, weight: .regular, design: .monospaced)
     )
 
@@ -90,19 +91,19 @@ public struct ThemeTypography: Sendable {
     /// Returns typography scaled by a global user-selected factor.
     public func scaled(by factor: CGFloat) -> ThemeTypography {
         ThemeTypography(
-            displayLarge: .system(size: 34 * factor, weight: .bold),
-            displaySmall: .system(size: 28 * factor, weight: .bold),
-            titleLarge: .system(size: 22 * factor, weight: .semibold),
-            titleMedium: .system(size: 17 * factor, weight: .semibold),
-            titleSmall: .system(size: 15 * factor, weight: .semibold),
-            bodyLarge: .system(size: 17 * factor, weight: .regular),
-            bodyMedium: .system(size: 15 * factor, weight: .regular),
-            bodyMediumEmphasized: .system(size: 15 * factor, weight: .medium),
-            bodySmall: .system(size: 13 * factor, weight: .regular),
-            labelLarge: .system(size: 15 * factor, weight: .medium),
-            labelMedium: .system(size: 13 * factor, weight: .medium),
-            labelSmall: .system(size: 11 * factor, weight: .medium),
-            caption: .system(size: 12 * factor, weight: .regular),
+            displayLarge: .system(size: 34 * factor, weight: .bold, design: .rounded),
+            displaySmall: .system(size: 28 * factor, weight: .bold, design: .rounded),
+            titleLarge: .system(size: 22 * factor, weight: .semibold, design: .rounded),
+            titleMedium: .system(size: 17 * factor, weight: .semibold, design: .rounded),
+            titleSmall: .system(size: 15 * factor, weight: .semibold, design: .rounded),
+            bodyLarge: .system(size: 17 * factor, weight: .regular, design: .rounded),
+            bodyMedium: .system(size: 15 * factor, weight: .regular, design: .rounded),
+            bodyMediumEmphasized: .system(size: 15 * factor, weight: .medium, design: .rounded),
+            bodySmall: .system(size: 13 * factor, weight: .regular, design: .rounded),
+            labelLarge: .system(size: 15 * factor, weight: .medium, design: .rounded),
+            labelMedium: .system(size: 13 * factor, weight: .medium, design: .rounded),
+            labelSmall: .system(size: 11 * factor, weight: .medium, design: .rounded),
+            caption: .system(size: 12 * factor, weight: .regular, design: .rounded),
             captionMono: .system(size: 12 * factor, weight: .regular, design: .monospaced)
         )
     }
