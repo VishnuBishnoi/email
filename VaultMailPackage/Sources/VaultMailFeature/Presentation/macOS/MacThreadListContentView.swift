@@ -25,6 +25,8 @@ struct MacThreadListContentView: View {
     let isLoadingMore: Bool
     let isSyncing: Bool
     let errorMessage: String?
+    let searchQuery: String
+    let isSearching: Bool
     let accountColorProvider: (VaultMailFeature.Thread) -> Color?
 
     // Actions
@@ -64,49 +66,67 @@ struct MacThreadListContentView: View {
 
     @ViewBuilder
     private var contentBody: some View {
-        switch viewState {
-        case .loading:
-            VStack {
-                Spacer()
-                ProgressView("Loading emails...")
-                Spacer()
+        let trimmedSearch = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isSearchMode = !trimmedSearch.isEmpty
+
+        if isSearchMode {
+            if isSearching {
+                VStack {
+                    Spacer()
+                    ProgressView("Searching emails...")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if threads.isEmpty {
+                ContentUnavailableView.search(text: trimmedSearch)
+            } else {
+                threadList
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch viewState {
+            case .loading:
+                VStack {
+                    Spacer()
+                    ProgressView("Loading emails...")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        case .loaded:
-            threadList
+            case .loaded:
+                threadList
 
-        case .empty:
-            ContentUnavailableView(
-                "No Emails",
-                systemImage: "tray",
-                description: Text("Emails you receive will appear here.")
-            )
+            case .empty:
+                ContentUnavailableView(
+                    "No Emails",
+                    systemImage: "tray",
+                    description: Text("Emails you receive will appear here.")
+                )
 
-        case .emptyFiltered:
-            ContentUnavailableView {
-                Label("No Emails in This Category", systemImage: "line.3.horizontal.decrease.circle")
-            } description: {
-                Text("Try selecting a different category.")
-            } actions: {
-                Button("Show All") { selectedCategory = nil }
+            case .emptyFiltered:
+                ContentUnavailableView {
+                    Label("No Emails in This Category", systemImage: "line.3.horizontal.decrease.circle")
+                } description: {
+                    Text("Try selecting a different category.")
+                } actions: {
+                    Button("Show All") { selectedCategory = nil }
+                }
+
+            case .error(let msg):
+                ContentUnavailableView {
+                    Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(msg)
+                } actions: {
+                    Button("Retry") { onLoadMore() }
+                }
+
+            case .offline:
+                ContentUnavailableView(
+                    "You're Offline",
+                    systemImage: "wifi.slash",
+                    description: Text("Check your internet connection.")
+                )
             }
-
-        case .error(let msg):
-            ContentUnavailableView {
-                Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(msg)
-            } actions: {
-                Button("Retry") { onLoadMore() }
-            }
-
-        case .offline:
-            ContentUnavailableView(
-                "You're Offline",
-                systemImage: "wifi.slash",
-                description: Text("Check your internet connection.")
-            )
         }
     }
 
