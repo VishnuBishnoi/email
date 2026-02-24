@@ -21,7 +21,6 @@ public struct ComposerView: View {
     let initialBody: String?
     let onDismiss: @MainActor (ComposerDismissResult) -> Void
 
-    @Environment(ThemeProvider.self) private var theme
     @Environment(SettingsStore.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
@@ -46,6 +45,7 @@ public struct ComposerView: View {
     @State private var showEmptyBodyAlert = false
     @State private var errorMessage: String? = nil
     @State private var smartReplies: [String] = []
+    @State private var showAttachments = true
 
     // MARK: - View State Enum
 
@@ -132,77 +132,82 @@ public struct ComposerView: View {
 
     public var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // From account (read-only)
-                    fromRow
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.78, green: 0.84, blue: 0.95),
+                        Color(red: 0.71, green: 0.79, blue: 0.92)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
 
-                    // To recipients
-                    RecipientFieldView(
-                        label: "To",
-                        recipients: $toRecipients,
-                        queryContacts: queryContacts,
-                        accountIds: accountIds
-                    )
+                ScrollView {
+                    VStack(spacing: 14) {
+                        topActionRow
 
-                    // CC/BCC toggle
-                    if !showCC && !showBCC {
-                        ccBccToggle
-                    }
+                        fromRow
 
-                    // CC field
-                    if showCC {
                         RecipientFieldView(
-                            label: "Cc",
-                            recipients: $ccRecipients,
+                            label: "To",
+                            recipients: $toRecipients,
                             queryContacts: queryContacts,
                             accountIds: accountIds
                         )
-                    }
 
-                    // BCC field
-                    if showBCC {
-                        RecipientFieldView(
-                            label: "Bcc",
-                            recipients: $bccRecipients,
-                            queryContacts: queryContacts,
-                            accountIds: accountIds
-                        )
-                    }
+                        if showCC {
+                            RecipientFieldView(
+                                label: "Cc",
+                                recipients: $ccRecipients,
+                                queryContacts: queryContacts,
+                                accountIds: accountIds
+                            )
+                        }
 
-                    // Subject
-                    subjectField
+                        if showBCC {
+                            RecipientFieldView(
+                                label: "Bcc",
+                                recipients: $bccRecipients,
+                                queryContacts: queryContacts,
+                                accountIds: accountIds
+                            )
+                        }
 
-                    // Smart reply chips (reply modes only)
-                    if isReplyMode && !smartReplies.isEmpty {
-                        SmartReplyChipView(replies: smartReplies) { reply in
-                            if bodyTextWithoutQuote.isEmpty {
-                                // Insert before quoted text
-                                if let range = bodyText.range(of: "\n\n>") {
-                                    bodyText = reply + String(bodyText[range.lowerBound...])
+                        subjectField
+
+                        if isReplyMode && !smartReplies.isEmpty {
+                            SmartReplyChipView(replies: smartReplies) { reply in
+                                if bodyTextWithoutQuote.isEmpty {
+                                    if let range = bodyText.range(of: "\n\n>") {
+                                        bodyText = reply + String(bodyText[range.lowerBound...])
+                                    } else {
+                                        bodyText = reply + bodyText
+                                    }
                                 } else {
                                     bodyText = reply + bodyText
                                 }
-                            } else {
-                                bodyText = reply + bodyText
+                                smartReplies = []
                             }
-                            smartReplies = []
+                        }
+
+                        BodyEditorView(text: $bodyText)
+
+                        if showAttachments || !attachments.isEmpty {
+                            AttachmentPickerView(attachments: $attachments)
+                                .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 16))
                         }
                     }
-
-                    // Body editor
-                    BodyEditorView(text: $bodyText)
-
-                    // Attachments
-                    AttachmentPickerView(attachments: $attachments)
+                    .padding(16)
+                    .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 34))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 20)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle(navigationTitle)
             #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             #endif
-            .toolbar { composerToolbar }
             .alert("No Subject", isPresented: $showEmptySubjectAlert) {
                 Button("Send Anyway") {
                     Task { await performSend() }
@@ -235,11 +240,11 @@ public struct ComposerView: View {
             .overlay(alignment: .bottom) {
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(theme.typography.caption)
-                        .foregroundStyle(theme.colors.textInverse)
-                        .padding(.horizontal, theme.spacing.lg)
-                        .padding(.vertical, theme.spacing.sm)
-                        .background(theme.colors.destructive, in: theme.shapes.smallRect)
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.red, in: RoundedRectangle(cornerRadius: 8))
                         .padding()
                         .transition(.move(edge: .bottom))
                         .task {
@@ -262,50 +267,103 @@ public struct ComposerView: View {
     private var fromRow: some View {
         HStack {
             Text("From")
-                .font(theme.typography.bodyMedium)
-                .foregroundStyle(theme.colors.textSecondary)
-                .frame(width: 36, alignment: .leading)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .leading)
 
             if let account = fromAccount {
                 VStack(alignment: .leading, spacing: 1) {
                     if !account.displayName.isEmpty {
                         Text(account.displayName)
-                            .font(theme.typography.bodyMedium)
-                            .foregroundStyle(theme.colors.textPrimary)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
                     }
                     Text(account.email)
-                        .font(account.displayName.isEmpty ? theme.typography.bodyMedium : theme.typography.caption)
-                        .foregroundStyle(account.displayName.isEmpty ? theme.colors.textPrimary : theme.colors.textSecondary)
+                        .font(account.displayName.isEmpty ? .subheadline : .caption)
+                        .foregroundStyle(account.displayName.isEmpty ? .primary : .secondary)
                 }
             } else {
                 Text(mode.accountId)
-                    .font(theme.typography.bodyMedium)
-                    .foregroundStyle(theme.colors.textPrimary)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
             }
 
             Spacer()
         }
-        .padding(.horizontal, theme.spacing.lg)
-        .padding(.vertical, theme.spacing.listRowSpacing)
-        .overlay(alignment: .bottom) {
-            Divider().padding(.leading, 52)
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    // MARK: - CC/BCC Toggle
+    // MARK: - Top Action Row
 
-    private var ccBccToggle: some View {
-        HStack {
-            Spacer()
-            Button("Cc/Bcc") {
-                withAnimation {
-                    showCC = true
-                    showBCC = true
+    private var topActionRow: some View {
+        HStack(spacing: 14) {
+            circleButton(systemName: "xmark") {
+                handleCancel()
+            }
+
+            circleButton(systemName: "paperclip") {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showAttachments.toggle()
                 }
             }
-            .font(theme.typography.bodyMedium)
-            .padding(.trailing, theme.spacing.lg)
-            .padding(.vertical, theme.spacing.xs)
+
+            Spacer()
+
+            Button {
+                Task { await handleSend() }
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(canSend ? Color.blue : Color.blue.opacity(0.35))
+                        .frame(width: 44, height: 44)
+
+                    if viewState == .sending {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            .disabled(!canSend)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Send")
+
+            Menu {
+                if !showCC {
+                    Button("Show Cc") {
+                        withAnimation(.easeInOut(duration: 0.2)) { showCC = true }
+                    }
+                }
+                if !showBCC {
+                    Button("Show Bcc") {
+                        withAnimation(.easeInOut(duration: 0.2)) { showBCC = true }
+                    }
+                }
+                if showCC {
+                    Button("Hide Cc") {
+                        withAnimation(.easeInOut(duration: 0.2)) { showCC = false }
+                    }
+                }
+                if showBCC {
+                    Button("Hide Bcc") {
+                        withAnimation(.easeInOut(duration: 0.2)) { showBCC = false }
+                    }
+                }
+            } label: {
+                Circle()
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        Image(systemName: "ellipsis")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -313,48 +371,34 @@ public struct ComposerView: View {
 
     private var subjectField: some View {
         VStack(spacing: 0) {
-            HStack(spacing: theme.spacing.xs) {
+            HStack(spacing: 4) {
                 Text("Subject")
-                    .font(theme.typography.bodyMedium)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .frame(width: 56, alignment: .leading)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 60, alignment: .leading)
 
                 TextField("", text: $subject)
-                    .font(theme.typography.bodyMedium)
+                    .font(.subheadline)
                     .accessibilityLabel("Subject")
             }
-            .padding(.horizontal, theme.spacing.lg)
-            .padding(.vertical, theme.spacing.listRowSpacing)
-
-            Divider()
-                .padding(.leading, theme.spacing.lg)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
         }
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var composerToolbar: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") {
-                handleCancel()
-            }
-        }
-
-        ToolbarItem(placement: .confirmationAction) {
-            if viewState == .sending {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Button {
-                    Task { await handleSend() }
-                } label: {
-                    Image(systemName: "paperplane.fill")
+    private func circleButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Circle()
+                .fill(Color.primary.opacity(0.06))
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Image(systemName: systemName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
                 }
-                .disabled(!canSend)
-                .accessibilityLabel("Send")
-            }
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Prefill
@@ -598,7 +642,6 @@ public struct ComposerView: View {
         onDismiss: { _ in }
     )
     .environment(SettingsStore())
-    .environment(ThemeProvider())
 }
 
 // MARK: - Preview Stubs

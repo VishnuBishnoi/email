@@ -9,8 +9,6 @@ import SwiftUI
 ///
 /// Spec ref: Email Composer FR-COMP-01, FR-COMP-04, NFR-COMP-03
 struct RecipientFieldView: View {
-    @Environment(ThemeProvider.self) private var theme
-
     let label: String
     @Binding var recipients: [RecipientToken]
     let queryContacts: QueryContactsUseCaseProtocol
@@ -20,30 +18,63 @@ struct RecipientFieldView: View {
     @State private var suggestions: [ContactCacheEntry] = []
     @State private var showSuggestions = false
     @State private var suggestionTask: Task<Void, Never>?
+    @State private var isAddingRecipient = false
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.xs) {
-            // Label + tokens + input
-            HStack(alignment: .top, spacing: theme.spacing.xs) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
                 Text(label)
-                    .font(theme.typography.bodyMedium)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .frame(width: 36, alignment: .leading)
-                    .padding(.top, theme.spacing.sm)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, alignment: .leading)
+                    .padding(.top, 7)
 
                 tokenFlowContent
+
+                if shouldShowAddButton {
+                    Button {
+                        isAddingRecipient = true
+                        isInputFocused = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.caption.bold())
+                            Text("Add email")
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.white.opacity(0.55), in: Capsule())
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
+                    .accessibilityLabel("Add recipient")
+                }
+
+                if !shouldShowAddButton {
+                    Button {
+                        commitCurrentInput()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                    .accessibilityLabel("Add recipient")
+                }
             }
-            .padding(.horizontal, theme.spacing.lg)
-            .padding(.vertical, theme.spacing.xs)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
 
             // Autocomplete suggestions
             if showSuggestions && !suggestions.isEmpty {
                 suggestionsList
             }
-
-            Divider()
-                .padding(.leading, 52)
         }
     }
 
@@ -57,66 +88,70 @@ struct RecipientFieldView: View {
                 tokenChip(for: token)
             }
 
-            TextField("", text: $inputText)
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.emailAddress)
-                #endif
-                .autocorrectionDisabled()
-                .focused($isInputFocused)
-                .frame(minWidth: 100)
-                .onSubmit {
-                    commitCurrentInput()
-                }
-                .onChange(of: isInputFocused) { _, focused in
-                    if !focused {
+            if shouldShowInputField {
+                TextField("", text: $inputText)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                    #endif
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.plain)
+                    .focused($isInputFocused)
+                    .frame(minWidth: 120)
+                    .onSubmit {
                         commitCurrentInput()
                     }
-                }
-                .onChange(of: inputText) { _, newValue in
-                    // Auto-commit on comma or space separator
-                    if newValue.hasSuffix(",") || newValue.hasSuffix(" ") {
-                        let cleaned = String(newValue.dropLast())
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !cleaned.isEmpty {
-                            inputText = cleaned
+                    .onChange(of: isInputFocused) { _, focused in
+                        if !focused {
                             commitCurrentInput()
-                            return
                         }
                     }
-                    // Cancel any in-flight query and debounce by 250 ms
-                    suggestionTask?.cancel()
-                    suggestionTask = Task {
-                        try? await Task.sleep(for: .milliseconds(250))
-                        guard !Task.isCancelled else { return }
-                        await fetchSuggestions(prefix: newValue)
+                    .onChange(of: inputText) { _, newValue in
+                        // Auto-commit on comma or space separator
+                        if newValue.hasSuffix(",") || newValue.hasSuffix(" ") {
+                            let cleaned = String(newValue.dropLast())
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !cleaned.isEmpty {
+                                inputText = cleaned
+                                commitCurrentInput()
+                                return
+                            }
+                        }
+                        // Cancel any in-flight query and debounce by 250 ms
+                        suggestionTask?.cancel()
+                        suggestionTask = Task {
+                            try? await Task.sleep(for: .milliseconds(250))
+                            guard !Task.isCancelled else { return }
+                            await fetchSuggestions(prefix: newValue)
+                        }
                     }
-                }
-                .accessibilityLabel("\(label) recipient field")
+                    .accessibilityLabel("\(label) recipient field")
+            }
         }
+        .padding(.vertical, 2)
     }
 
     // MARK: - Token Chip
 
     @ViewBuilder
     private func tokenChip(for token: RecipientToken) -> some View {
-        HStack(spacing: theme.spacing.xs) {
+        HStack(spacing: 4) {
             if !token.isValid {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(theme.typography.labelSmall)
-                    .foregroundStyle(theme.colors.textInverse)
+                    .font(.caption2)
+                    .foregroundStyle(.white)
             }
             Text(token.displayText)
-                .font(theme.typography.bodyMedium)
+                .font(.subheadline)
                 .lineLimit(1)
         }
-        .padding(.horizontal, theme.spacing.sm)
-        .padding(.vertical, theme.spacing.xs)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(token.isValid ? theme.colors.accentMuted : theme.colors.destructiveMuted)
+                .fill(token.isValid ? Color.accentColor.opacity(0.15) : Color.red.opacity(0.15))
         )
-        .foregroundColor(token.isValid ? theme.colors.textPrimary : theme.colors.destructive)
+        .foregroundColor(token.isValid ? .primary : .red)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(token.displayText), \(token.isValid ? "valid" : "invalid") email")
         .accessibilityRemoveTraits(.isButton)
@@ -141,37 +176,40 @@ struct RecipientFieldView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         if let name = contact.displayName, !name.isEmpty {
                             Text(name)
-                                .font(theme.typography.bodyMedium)
-                                .foregroundStyle(theme.colors.textPrimary)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
                         }
                         Text(contact.emailAddress)
-                            .font(theme.typography.caption)
-                            .foregroundStyle(theme.colors.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, theme.spacing.lg)
-                    .padding(.vertical, theme.spacing.sm)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
                 if contact.id != suggestions.last?.id {
                     Divider()
-                        .padding(.leading, theme.spacing.lg)
+                        .padding(.leading, 16)
                 }
             }
         }
         .background(.ultraThinMaterial)
-        .clipShape(theme.shapes.smallRect)
-        .padding(.horizontal, 52)
-        .padding(.bottom, theme.spacing.xs)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 40)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Actions
 
     private func commitCurrentInput() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else {
+            isAddingRecipient = false
+            return
+        }
 
         let isValid = Self.isValidEmail(text)
         let token = RecipientToken(
@@ -180,6 +218,8 @@ struct RecipientFieldView: View {
         )
         recipients.append(token)
         inputText = ""
+        isAddingRecipient = false
+        isInputFocused = false
         showSuggestions = false
     }
 
@@ -201,6 +241,8 @@ struct RecipientFieldView: View {
         }
         recipients.append(token)
         inputText = ""
+        isAddingRecipient = false
+        isInputFocused = false
         showSuggestions = false
     }
 
@@ -232,6 +274,14 @@ struct RecipientFieldView: View {
     static func isValidEmail(_ email: String) -> Bool {
         let pattern = #"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
         return email.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private var shouldShowInputField: Bool {
+        recipients.isEmpty || isAddingRecipient || isInputFocused || !inputText.isEmpty
+    }
+
+    private var shouldShowAddButton: Bool {
+        !shouldShowInputField
     }
 }
 
@@ -304,7 +354,6 @@ struct FlowLayoutView: Layout {
         queryContacts: PreviewQueryContactsUseCase(),
         accountIds: ["acc1"]
     )
-    .environment(ThemeProvider())
 }
 
 #Preview("With Tokens") {
@@ -318,7 +367,6 @@ struct FlowLayoutView: Layout {
         queryContacts: PreviewQueryContactsUseCase(),
         accountIds: ["acc1"]
     )
-    .environment(ThemeProvider())
 }
 
 /// Preview-only stub.
