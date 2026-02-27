@@ -60,6 +60,9 @@ public protocol EmailRepositoryProtocol {
 
     /// Save an EmailFolder join entry (email ↔ folder with IMAP UID).
     func saveEmailFolder(_ emailFolder: EmailFolder) async throws
+    /// Remove all EmailFolder join entries for a folder.
+    /// Used when UIDVALIDITY changes invalidate folder UID mappings.
+    func removeEmailFolderAssociations(folderId: String) async throws
 
     /// Save an Attachment.
     func saveAttachment(_ attachment: Attachment) async throws

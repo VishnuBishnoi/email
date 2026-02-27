@@ -22,7 +22,10 @@ struct MacThreadListContentView: View {
     let isOutboxSelected: Bool
     let outboxEmails: [Email]
     let hasMorePages: Bool
+    let shouldShowServerCatchUpSentinel: Bool
     let isLoadingMore: Bool
+    let syncStatusText: String?
+    let paginationError: Bool
     let isSyncing: Bool
     let errorMessage: String?
     let searchQuery: String
@@ -132,8 +135,18 @@ struct MacThreadListContentView: View {
 
     // MARK: - Thread List
 
+    private var uniqueThreads: [VaultMailFeature.Thread] {
+        var seen = Set<String>()
+        var output: [VaultMailFeature.Thread] = []
+        output.reserveCapacity(threads.count)
+        for thread in threads where seen.insert(thread.id).inserted {
+            output.append(thread)
+        }
+        return output
+    }
+
     private var threadList: some View {
-        ScrollView {
+        return ScrollView {
             LazyVStack(spacing: 0) {
                 // Sync progress
                 if isSyncing {
@@ -167,7 +180,7 @@ struct MacThreadListContentView: View {
                         Divider().padding(.leading, theme.spacing.xxxl)
                     }
                 } else {
-                    ForEach(threads, id: \.id) { thread in
+                    ForEach(Array(uniqueThreads.enumerated()), id: \.offset) { index, thread in
                         MacThreadRow(
                             thread: thread,
                             isSelected: selectedThreadID == thread.id,
@@ -176,19 +189,62 @@ struct MacThreadListContentView: View {
                             onTap: { selectedThreadID = thread.id }
                         )
                         .contextMenu { threadContextMenu(for: thread) }
+                        .onAppear {
+                            if !paginationError,
+                               !isLoadingMore,
+                               (hasMorePages || shouldShowServerCatchUpSentinel),
+                               index == uniqueThreads.count - 1 {
+                                onLoadMore()
+                            }
+                        }
 
                         Divider().padding(.leading, theme.spacing.xxxl)
                     }
                 }
 
                 // Pagination sentinel
-                if hasMorePages {
+                if let syncStatusText {
+                    HStack {
+                        Spacer()
+                        Text(syncStatusText)
+                            .font(theme.typography.bodyMedium)
+                            .foregroundStyle(theme.colors.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, theme.spacing.xs)
+                }
+
+                switch MacThreadListPaginationFooterMode.resolve(
+                    hasMorePages: hasMorePages,
+                    shouldShowServerCatchUpSentinel: shouldShowServerCatchUpSentinel,
+                    paginationError: paginationError
+                ) {
+                case .retry:
+                    Button("Retry") {
+                        onLoadMore()
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, theme.spacing.sm)
+                case .localSentinel:
                     HStack {
                         Spacer()
                         ProgressView().padding(.vertical, theme.spacing.sm)
                         Spacer()
                     }
                     .onAppear { onLoadMore() }
+                case .catchUpSentinel:
+                    HStack(spacing: theme.spacing.sm) {
+                        Spacer()
+                        ProgressView()
+                        Text("Loading older messages…")
+                            .font(theme.typography.bodyMedium)
+                            .foregroundStyle(theme.colors.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, theme.spacing.sm)
+                    .onAppear { onLoadMore() }
+                case .none:
+                    EmptyView()
                 }
             }
         }
@@ -236,6 +292,30 @@ struct MacThreadListContentView: View {
                 systemImage: thread.isStarred ? "star.slash" : "star"
             )
         }
+    }
+}
+
+enum MacThreadListPaginationFooterMode {
+    case none
+    case retry
+    case localSentinel
+    case catchUpSentinel
+
+    static func resolve(
+        hasMorePages: Bool,
+        shouldShowServerCatchUpSentinel: Bool,
+        paginationError: Bool
+    ) -> MacThreadListPaginationFooterMode {
+        if paginationError {
+            return .retry
+        }
+        if hasMorePages {
+            return .localSentinel
+        }
+        if shouldShowServerCatchUpSentinel {
+            return .catchUpSentinel
+        }
+        return .none
     }
 }
 

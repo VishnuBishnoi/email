@@ -99,13 +99,19 @@ public final class BackgroundSyncScheduler {
                 var isFirst = true
                 for account in activeAccounts {
                     guard !Task.isCancelled else { break }
-                    try await syncEmails.syncAccount(accountId: account.id)
+                    let result = try await syncEmails.syncAccount(
+                        accountId: account.id,
+                        options: .incremental
+                    )
                     NSLog("[BackgroundSync] Synced account: \(account.email)")
                     if isFirst {
                         notificationCoordinator?.markFirstLaunchComplete()
                         isFirst = false
                     }
-                    await notificationCoordinator?.didSyncNewEmails(fromBackground: true)
+                    await notificationCoordinator?.didSyncNewEmails(
+                        result.newEmails,
+                        fromBackground: true
+                    )
                 }
 
                 if Task.isCancelled {

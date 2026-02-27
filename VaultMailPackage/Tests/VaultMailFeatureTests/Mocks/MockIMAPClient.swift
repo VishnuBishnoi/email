@@ -40,6 +40,7 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     private(set) var lastConnectSecurity: ConnectionSecurity?
     private(set) var lastConnectCredential: IMAPCredential?
     private(set) var lastSelectedPath: String?
+    private(set) var selectedPaths: [String] = []
     private(set) var lastSearchDate: Date?
     private(set) var lastFetchedUIDs: [UInt32]?
     private(set) var lastStoreFlagUID: UInt32?
@@ -142,6 +143,7 @@ final class MockIMAPClient: IMAPClientProtocol, @unchecked Sendable {
     func selectFolder(_ imapPath: String) async throws -> (uidValidity: UInt32, messageCount: UInt32) {
         selectFolderCallCount += 1
         lastSelectedPath = imapPath
+        selectedPaths.append(imapPath)
         selectedFolder = imapPath
         return try selectFolderResult.get()
     }

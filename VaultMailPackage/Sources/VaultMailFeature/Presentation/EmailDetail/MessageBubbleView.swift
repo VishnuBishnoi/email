@@ -162,9 +162,17 @@ struct MessageBubbleView: View {
             }
         }
         .padding(.bottom, theme.spacing.md)
-        .task(id: "\(email.id)-\(loadRemoteImages)-\(showQuotedText)-\(dynamicTypeSize)-\(settingsStore.blockRemoteImages)-\(settingsStore.blockTrackingPixels)") {
+        .task(id: processingTaskID) {
             await processEmailBody()
         }
+    }
+
+    /// Includes mutable body payload fields so processing reruns when lazy IMAP body
+    /// hydration updates an already-visible message bubble.
+    private var processingTaskID: String {
+        let htmlHash = email.bodyHTML?.hashValue ?? 0
+        let plainHash = email.bodyPlain?.hashValue ?? 0
+        return "\(email.id)-\(htmlHash)-\(plainHash)-\(loadRemoteImages)-\(showQuotedText)-\(dynamicTypeSize)-\(settingsStore.blockRemoteImages)-\(settingsStore.blockTrackingPixels)"
     }
 
     // MARK: - Body Content
@@ -194,6 +202,7 @@ struct MessageBubbleView: View {
 
                 if isWebViewLoading {
                     bodyShimmer
+                        .allowsHitTesting(false)
                         .transition(.opacity)
                 }
             }
@@ -229,6 +238,7 @@ struct MessageBubbleView: View {
 
                 if isWebViewLoading {
                     bodyShimmer
+                        .allowsHitTesting(false)
                         .transition(.opacity)
                 }
             }

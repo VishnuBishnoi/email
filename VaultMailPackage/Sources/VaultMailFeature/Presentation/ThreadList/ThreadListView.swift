@@ -76,6 +76,7 @@ struct ThreadListView: View {
     @State private var paginationCursor: Date? = nil
     @State private var hasMorePages = false
     @State private var isLoadingMore = false
+    @State private var reachedServerHistoryBoundary = false
 
     // Account & folder selection
     @State private var accounts: [Account] = []
@@ -109,6 +110,7 @@ struct ThreadListView: View {
 
     // Background sync progress feedback
     @State private var isSyncing = false
+    @State private var syncStatusText: String? = nil
 
     // Outbox emails (Comment 6: display outbox with OutboxRowView)
     @State private var outboxEmails: [Email] = []
@@ -523,7 +525,12 @@ struct ThreadListView: View {
             var syncedEmails: [Email] = []
             if let accountId = selectedAccount?.id, let folderId = selectedFolder?.id {
                 do {
-                    syncedEmails = try await syncEmails.syncFolder(accountId: accountId, folderId: folderId)
+                    let result = try await syncEmails.syncFolder(
+                        accountId: accountId,
+                        folderId: folderId,
+                        options: .incremental
+                    )
+                    syncedEmails = result.newEmails
                 } catch {
                     errorBannerMessage = "Sync failed: \(error.localizedDescription)"
                 }
@@ -545,7 +552,7 @@ struct ThreadListView: View {
             HStack(spacing: theme.spacing.listRowSpacing) {
                 ProgressView()
                     .controlSize(.small)
-                Text(syncElapsedSeconds >= 15 ? "Still syncing…" : "Syncing…")
+                Text(syncStatusText ?? (syncElapsedSeconds >= 15 ? "Still syncing…" : "Syncing…"))
                     .font(theme.typography.bodyMedium)
                     .foregroundStyle(theme.colors.textSecondary)
                 Spacer()
@@ -730,6 +737,20 @@ struct ThreadListView: View {
             .onAppear {
                 Task { await loadMoreThreads() }
             }
+        } else if selectedAccount != nil && selectedFolder != nil && !isSearchActive && !reachedServerHistoryBoundary {
+            HStack {
+                Spacer()
+                ProgressView()
+                Text("Loading older messages…")
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
+                Spacer()
+            }
+            .padding(.vertical, theme.spacing.sm)
+            .listRowSeparator(.hidden)
+            .onAppear {
+                Task { await loadOlderFromServer() }
+            }
         }
     }
 
@@ -768,7 +789,7 @@ struct ThreadListView: View {
             if isSyncing {
                 ProgressView()
                     .controlSize(.large)
-                Text("Syncing your mailbox…")
+                Text(syncStatusText ?? "Syncing your mailbox…")
                     .font(theme.typography.titleLarge)
 
                 if syncElapsedSeconds < 15 {
@@ -906,12 +927,14 @@ struct ThreadListView: View {
             // so the user sees their emails without waiting for all folders.
             NSLog("[UI] Starting background sync for account: \(firstAccount.id)")
             isSyncing = true
+            syncStatusText = "Syncing older mail..."
             syncElapsedSeconds = 0
 
             let accountId = firstAccount.id
             syncTask = Task {
                 defer {
                     isSyncing = false
+                    syncStatusText = nil
                     syncElapsedSeconds = 0
                     syncTask = nil
                 }
@@ -927,6 +950,7 @@ struct ThreadListView: View {
                                 selectedFolder = freshFolders.first(where: { $0.folderType == inboxType }) ?? freshFolders.first
                             }
                             await loadThreadsAndCounts()
+                            syncStatusText = "Inbox ready"
                             NSLog("[UI] Inbox threads loaded, count: \(threads.count)")
                         }
                     )
@@ -944,6 +968,7 @@ struct ThreadListView: View {
                         selectedFolder = folders.first(where: { $0.folderType == inboxType }) ?? folders.first
                     }
                     await loadThreadsAndCounts()
+                    syncStatusText = nil
                     NSLog("[UI] Threads reloaded, count: \(threads.count)")
 
                     // Run AI classification on ALL synced emails
@@ -972,6 +997,7 @@ struct ThreadListView: View {
                         // Have cached threads — show inline banner
                         errorBannerMessage = "Sync failed: \(error.localizedDescription)"
                     }
+                    syncStatusText = nil
                 }
             }
 
@@ -1040,9 +1066,10 @@ struct ThreadListView: View {
 
         guard let monitor = idleMonitor,
               let accountId = selectedAccount?.id,
-              let folderPath = selectedFolder?.imapPath else {
+              let inboxFolder = folders.first(where: { $0.folderType == FolderType.inbox.rawValue }) else {
             return
         }
+        let folderPath = inboxFolder.imapPath
 
         NSLog("[IDLE] Starting monitor for \(folderPath)")
         idleTask = Task {
@@ -1056,16 +1083,19 @@ struct ThreadListView: View {
                     switch event {
                     case .newMail:
                         NSLog("[IDLE] New mail notification, syncing folder...")
-                        if let folderId = selectedFolder?.id {
-                            let syncedEmails = (try? await syncEmails.syncFolder(accountId: accountId, folderId: folderId)) ?? []
-                            await loadThreadsAndCounts()
-                            runAIClassification(for: syncedEmails)
-                            // Notify notification coordinator about IDLE-delivered emails (NOTIF-03)
-                            await notificationCoordinator.didSyncNewEmails(
-                                syncedEmails,
-                                fromBackground: false
-                            )
-                        }
+                        let result = try? await syncEmails.syncFolder(
+                            accountId: accountId,
+                            folderId: inboxFolder.id,
+                            options: .incremental
+                        )
+                        let syncedEmails = result?.newEmails ?? []
+                        await loadThreadsAndCounts()
+                        runAIClassification(for: syncedEmails)
+                        // Notify notification coordinator about IDLE-delivered emails (NOTIF-03)
+                        await notificationCoordinator.didSyncNewEmails(
+                            syncedEmails,
+                            fromBackground: false
+                        )
                         retryDelay = .seconds(2) // reset on success
                     case .disconnected:
                         NSLog("[IDLE] Monitor disconnected, will retry in \(retryDelay)")
@@ -1092,6 +1122,7 @@ struct ThreadListView: View {
         threads = []
         paginationCursor = nil
         hasMorePages = false
+        reachedServerHistoryBoundary = false
         await loadThreadsAndCounts()
     }
 
@@ -1148,7 +1179,11 @@ struct ThreadListView: View {
 
     /// Load more threads for pagination.
     private func loadMoreThreads() async {
-        guard hasMorePages, !isLoadingMore else { return }
+        guard !isLoadingMore else { return }
+        if !hasMorePages {
+            await loadOlderFromServer()
+            return
+        }
         isLoadingMore = true
         defer { isLoadingMore = false }
 
@@ -1175,9 +1210,41 @@ struct ThreadListView: View {
             threads.append(contentsOf: page.threads)
             paginationCursor = page.nextCursor
             hasMorePages = page.hasMore
+            reachedServerHistoryBoundary = false
         } catch {
             // Comment 10: Show inline retry instead of silently stopping
             paginationError = true
+        }
+    }
+
+    /// Fetches an older page directly from IMAP once local pagination is exhausted.
+    private func loadOlderFromServer() async {
+        guard !isLoadingMore else { return }
+        guard let accountId = selectedAccount?.id, let folderId = selectedFolder?.id else { return }
+        isLoadingMore = true
+        syncStatusText = "Syncing older mail..."
+        defer { isLoadingMore = false }
+        do {
+            let result = try await syncEmails.syncFolder(
+                accountId: accountId,
+                folderId: folderId,
+                options: .catchUp
+            )
+            guard !result.newEmails.isEmpty else {
+                if selectedFolder?.catchUpStatus == SyncCatchUpStatus.paused.rawValue {
+                    syncStatusText = "Catch-up paused"
+                } else {
+                    syncStatusText = nil
+                }
+                reachedServerHistoryBoundary = true
+                return
+            }
+            reachedServerHistoryBoundary = false
+            await loadThreadsAndCounts()
+            syncStatusText = nil
+        } catch {
+            paginationError = true
+            syncStatusText = nil
         }
     }
 

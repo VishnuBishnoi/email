@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import SwiftData
+import OSLog
 
 /// Root macOS view using NavigationSplitView for a native three-pane layout.
 ///
@@ -111,8 +112,12 @@ public struct MacOSMainView: View {
 
     // Pagination
     @State private var paginationCursor: Date? = nil
+    @State private var paginationAnchorCursor: Date? = nil
     @State private var hasMorePages = false
     @State private var isLoadingMore = false
+    @State private var reachedServerHistoryBoundary = false
+    @State private var syncStatusText: String? = nil
+    @State private var paginationError = false
 
     // Sync
     @State private var isSyncing = false
@@ -142,6 +147,7 @@ public struct MacOSMainView: View {
 
     // Menu bar command state (FR-MAC-07)
     @State private var commandState = MacCommandState()
+    private let paginationLog = Logger(subsystem: "com.vaultmail.mac", category: "Pagination")
 
     // MARK: - View State Enum
 
@@ -200,6 +206,17 @@ public struct MacOSMainView: View {
         return threads
     }
 
+    private var isCatchUpEligibleContext: Bool {
+        guard let folder = selectedFolder else { return false }
+        guard selectedAccount != nil else { return false }
+        guard !isOutboxSelected && !isSearchActive else { return false }
+        return MacPaginationRuleEngine.isSyncableFolder(folderType: folder.folderType, imapPath: folder.imapPath)
+    }
+
+    private var shouldShowServerCatchUpSentinel: Bool {
+        isCatchUpEligibleContext && !reachedServerHistoryBoundary
+    }
+
     // MARK: - Body
 
     public var body: some View {
@@ -218,6 +235,7 @@ public struct MacOSMainView: View {
                     selectedCategory = nil
                     selectedThreadID = nil
                     selectedThreadIDs.removeAll()
+                    resetPaginationState()
                     Task { await reloadThreads() }
                 },
                 onSelectAccount: { account in
@@ -225,6 +243,7 @@ public struct MacOSMainView: View {
                     selectedCategory = nil
                     selectedThreadID = nil
                     selectedThreadIDs.removeAll()
+                    resetPaginationState()
                     Task { await switchToAccount(account) }
                 },
                 onSelectFolder: { folder in
@@ -251,7 +270,10 @@ public struct MacOSMainView: View {
                 isOutboxSelected: isOutboxSelected,
                 outboxEmails: outboxEmails,
                 hasMorePages: hasMorePages,
+                shouldShowServerCatchUpSentinel: shouldShowServerCatchUpSentinel,
                 isLoadingMore: isLoadingMore,
+                syncStatusText: syncStatusText,
+                paginationError: paginationError,
                 isSyncing: isSyncing,
                 errorMessage: errorMessage,
                 searchQuery: searchText,
@@ -344,11 +366,15 @@ public struct MacOSMainView: View {
             await initialLoad()
         }
         .onChange(of: selectedCategory) {
+            resetPaginationState()
             Task { await reloadThreads() }
         }
         .onChange(of: searchText) { _, value in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             isSearchActive = !trimmed.isEmpty
+            if !trimmed.isEmpty {
+                resetPaginationState()
+            }
             if trimmed.isEmpty {
                 searchThreads = []
                 isSearchLoading = false
@@ -781,6 +807,7 @@ public struct MacOSMainView: View {
         threads = []
         paginationCursor = nil
         hasMorePages = false
+        resetPaginationState()
         selectedThreadID = nil
         selectedThreadIDs.removeAll()
         await loadThreadsAndCounts()
@@ -806,11 +833,12 @@ public struct MacOSMainView: View {
                 counts = try await fetchThreads.fetchUnreadCountsUnified()
             }
 
-            threads = page.threads
+            threads = uniqueByThreadId(page.threads)
             if !isSearchActive {
                 searchThreads = []
             }
             paginationCursor = page.nextCursor
+            paginationAnchorCursor = page.nextCursor ?? page.threads.compactMap(\.latestDate).min()
             hasMorePages = page.hasMore
             unreadCounts = counts
             viewState = threads.isEmpty ? (selectedCategory != nil ? .emptyFiltered : .empty) : .loaded
@@ -825,36 +853,132 @@ public struct MacOSMainView: View {
     }
 
     private func loadMoreThreads() async {
-        guard hasMorePages, !isLoadingMore else { return }
+        guard !isLoadingMore else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
+        if !hasMorePages {
+            await loadOlderFromServer()
+            return
+        }
+        await appendNextLocalPage()
+        // If local DB pagination just ended, continue with server catch-up
+        // without waiting for a second sentinel appearance.
+        if !hasMorePages {
+            await loadOlderFromServer()
+        }
+    }
+
+    private func loadOlderFromServer() async {
+        guard MacPaginationRuleEngine.shouldAttemptCatchUp(
+            hasMorePages: hasMorePages,
+            isUnifiedMode: selectedAccount == nil,
+            isSearchActive: isSearchActive,
+            hasSelectedFolder: selectedFolder != nil,
+            isOutboxSelected: isOutboxSelected,
+            folderType: selectedFolder?.folderType,
+            folderImapPath: selectedFolder?.imapPath
+        ) else { return }
+        guard let account = selectedAccount, let folder = selectedFolder else { return }
+
+        syncStatusText = "Syncing older mail..."
+
+        do {
+            let result = try await syncEmails.syncFolder(
+                accountId: account.id,
+                folderId: folder.id,
+                options: .catchUp
+            )
+            let anyNewEmails = !result.newEmails.isEmpty
+            let anyPaused = folder.catchUpStatus == SyncCatchUpStatus.paused.rawValue
+
+            guard anyNewEmails else {
+                syncStatusText = anyPaused ? "Catch-up paused" : nil
+                reachedServerHistoryBoundary = true
+                return
+            }
+
+            reachedServerHistoryBoundary = false
+            paginationError = false
+            await appendNextLocalPage()
+            syncStatusText = nil
+        } catch {
+            paginationError = true
+            syncStatusText = nil
+            paginationLog.error("catchUp failed error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func appendNextLocalPage() async {
         do {
             let page: ThreadPage
+            let previousCursor = paginationCursor
+            let oldestLoadedDate = threads.compactMap(\.latestDate).min()
+            let effectiveCursor = paginationCursor ?? oldestLoadedDate ?? paginationAnchorCursor
+            if paginationCursor == nil, !threads.isEmpty, oldestLoadedDate == nil, paginationAnchorCursor == nil {
+                paginationError = true
+                paginationLog.error("appendNextLocalPage aborted: no valid date cursor for non-empty thread list")
+                return
+            }
             if let account = selectedAccount, let folder = selectedFolder {
                 page = try await fetchThreads.fetchThreads(
-                    accountId: account.id, folderId: folder.id,
-                    category: selectedCategory, cursor: paginationCursor,
+                    accountId: account.id,
+                    folderId: folder.id,
+                    category: selectedCategory,
+                    cursor: effectiveCursor,
                     pageSize: AppConstants.threadListPageSize
                 )
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
-                    category: selectedCategory, folderType: selectedFolder?.folderType,
-                    cursor: paginationCursor, pageSize: AppConstants.threadListPageSize
+                    category: selectedCategory,
+                    folderType: selectedFolder?.folderType,
+                    cursor: effectiveCursor,
+                    pageSize: AppConstants.threadListPageSize
                 )
             }
-            threads.append(contentsOf: page.threads)
+
+            if !page.threads.isEmpty {
+                var seen = Set(threads.map(\.id))
+                let uniqueNewThreads = page.threads.filter { seen.insert($0.id).inserted }
+                threads.append(contentsOf: uniqueNewThreads)
+                // Safety: if backend returns duplicate-only rows with unchanged cursor,
+                // don't stay in local-pagination spinner forever.
+                if uniqueNewThreads.isEmpty && page.hasMore && page.nextCursor == previousCursor {
+                    hasMorePages = false
+                    paginationLog.warning(
+                        "appendNextLocalPage duplicate-only page; forcing hasMorePages=false nextCursor=\(String(describing: page.nextCursor), privacy: .public)"
+                    )
+                }
+            }
             if !isSearchActive {
                 searchThreads = []
             }
+            if let pageMinDate = page.threads.compactMap(\.latestDate).min() {
+                if let anchor = paginationAnchorCursor {
+                    paginationAnchorCursor = min(anchor, pageMinDate)
+                } else {
+                    paginationAnchorCursor = pageMinDate
+                }
+            }
+            if let nextCursor = page.nextCursor {
+                if let anchor = paginationAnchorCursor {
+                    paginationAnchorCursor = min(anchor, nextCursor)
+                } else {
+                    paginationAnchorCursor = nextCursor
+                }
+            }
             paginationCursor = page.nextCursor
             hasMorePages = page.hasMore
+            reachedServerHistoryBoundary = !page.hasMore && page.threads.isEmpty
+            paginationError = false
         } catch {
-            // Silently fail pagination on macOS — user can scroll again to retry
+            paginationError = true
+            paginationLog.error("appendNextLocalPage failed error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
     private func switchToAccount(_ account: Account) async {
         do {
+            resetPaginationState()
             let freshFolders = try await fetchThreads.fetchFolders(accountId: account.id)
             folders = freshFolders
             allFolders = allFolders.filter { $0.account?.id != account.id } + freshFolders
@@ -870,6 +994,10 @@ public struct MacOSMainView: View {
         if let currentFolder = selectedFolder {
             categoryPerFolder[currentFolder.id] = selectedCategory
         }
+        if folder.name != "Outbox", let folderAccount = folder.account {
+            selectedAccount = folderAccount
+        }
+        resetPaginationState()
         selectedFolder = folder
         selectedThreadID = nil
         selectedThreadIDs.removeAll()
@@ -894,6 +1022,23 @@ public struct MacOSMainView: View {
         } catch {
             viewState = .error(error.localizedDescription)
         }
+    }
+
+    private func resetPaginationState() {
+        reachedServerHistoryBoundary = false
+        syncStatusText = nil
+        paginationError = false
+        paginationAnchorCursor = nil
+    }
+
+    private func uniqueByThreadId(_ input: [VaultMailFeature.Thread]) -> [VaultMailFeature.Thread] {
+        var seen = Set<String>()
+        var output: [VaultMailFeature.Thread] = []
+        output.reserveCapacity(input.count)
+        for thread in input where seen.insert(thread.id).inserted {
+            output.append(thread)
+        }
+        return output
     }
 
     // MARK: - Thread Actions
@@ -1180,6 +1325,41 @@ public struct MacOSMainView: View {
             .sorted { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) }
         guard !sorted.isEmpty else { return }
         queue.enqueue(emails: sorted)
+    }
+}
+
+enum MacPaginationRuleEngine {
+    static func shouldAttemptCatchUp(
+        hasMorePages: Bool,
+        isUnifiedMode: Bool,
+        isSearchActive: Bool,
+        hasSelectedFolder: Bool,
+        isOutboxSelected: Bool,
+        folderType: String?,
+        folderImapPath: String?
+    ) -> Bool {
+        guard !hasMorePages else { return false }
+        guard !isUnifiedMode else { return false }
+        guard !isSearchActive else { return false }
+        guard hasSelectedFolder else { return false }
+        guard !isOutboxSelected else { return false }
+        guard let folderType, let folderImapPath else { return false }
+        return isSyncableFolder(folderType: folderType, imapPath: folderImapPath)
+    }
+
+    static func shouldShowSentinel(
+        hasMorePages: Bool,
+        isCatchUpEligibleContext: Bool,
+        reachedServerHistoryBoundary: Bool
+    ) -> Bool {
+        hasMorePages || (isCatchUpEligibleContext && !reachedServerHistoryBoundary)
+    }
+
+    static func isSyncableFolder(folderType: String, imapPath: String) -> Bool {
+        guard !imapPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return FolderType(rawValue: folderType) != nil
     }
 }
 

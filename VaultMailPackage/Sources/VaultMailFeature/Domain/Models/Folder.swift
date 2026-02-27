@@ -20,6 +20,14 @@ public final class Folder {
     public var folderType: String
     /// IMAP UIDVALIDITY value for incremental sync (Section 5.4)
     public var uidValidity: Int
+    /// Highest UID successfully persisted for forward incremental sync.
+    public var forwardCursorUID: Int?
+    /// Oldest UID boundary successfully persisted for backward catch-up.
+    public var backfillCursorUID: Int?
+    /// Whether the initial fast bootstrap stage has completed.
+    public var initialFastCompleted: Bool
+    /// Historical catch-up lifecycle status (idle|running|paused|completed|error).
+    public var catchUpStatus: String
     /// Last successful sync date for this folder
     public var lastSyncDate: Date?
 
@@ -39,6 +47,10 @@ public final class Folder {
         totalCount: Int = 0,
         folderType: String = FolderType.custom.rawValue,
         uidValidity: Int = 0,
+        forwardCursorUID: Int? = nil,
+        backfillCursorUID: Int? = nil,
+        initialFastCompleted: Bool = false,
+        catchUpStatus: String = SyncCatchUpStatus.idle.rawValue,
         lastSyncDate: Date? = nil
     ) {
         self.id = id
@@ -48,6 +60,10 @@ public final class Folder {
         self.totalCount = totalCount
         self.folderType = folderType
         self.uidValidity = uidValidity
+        self.forwardCursorUID = forwardCursorUID
+        self.backfillCursorUID = backfillCursorUID
+        self.initialFastCompleted = initialFastCompleted
+        self.catchUpStatus = catchUpStatus
         self.lastSyncDate = lastSyncDate
         self.emailFolders = []
     }

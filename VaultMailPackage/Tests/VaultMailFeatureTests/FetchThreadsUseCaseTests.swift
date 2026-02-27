@@ -21,13 +21,14 @@ struct FetchThreadsUseCaseTests {
     private static func makeThread(
         index: Int,
         accountId: String = "acc1",
-        category: String? = nil
+        category: String? = nil,
+        latestDate: Date? = nil
     ) -> VaultMailFeature.Thread {
         VaultMailFeature.Thread(
             id: "thread-\(index)",
             accountId: accountId,
             subject: "Subject \(index)",
-            latestDate: baseDate.addingTimeInterval(TimeInterval(-index * 60)),
+            latestDate: latestDate ?? baseDate.addingTimeInterval(TimeInterval(-index * 60)),
             messageCount: 1,
             unreadCount: index % 2 == 0 ? 1 : 0,
             aiCategory: category
@@ -75,6 +76,34 @@ struct FetchThreadsUseCaseTests {
         // nextCursor should be the latestDate of the 25th thread (index 24)
         let expectedCursor = Self.baseDate.addingTimeInterval(TimeInterval(-24 * 60))
         #expect(page.nextCursor == expectedCursor)
+    }
+
+    @Test("fetchThreads pagination disables hasMore when page has no valid cursor")
+    func fetchThreadsPaginationWithoutCursorBoundary() async throws {
+        let (useCase, repo) = Self.makeSUT()
+        repo.threads = (0..<26).map { index in
+            VaultMailFeature.Thread(
+                id: "thread-nil-\(index)",
+                accountId: "acc1",
+                subject: "No Date \(index)",
+                latestDate: nil,
+                messageCount: 1,
+                unreadCount: 0,
+                aiCategory: nil
+            )
+        }
+
+        let page = try await useCase.fetchThreads(
+            accountId: "acc1",
+            folderId: "folder1",
+            category: nil,
+            cursor: nil,
+            pageSize: 25
+        )
+
+        #expect(page.threads.count == 25)
+        #expect(page.hasMore == false)
+        #expect(page.nextCursor == nil)
     }
 
     @Test("fetchThreads cursor returns older threads")

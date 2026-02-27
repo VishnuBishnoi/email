@@ -37,6 +37,7 @@ struct VaultMailApp: App {
                 mainView(deps: deps)
             } else {
                 DatabaseErrorView(message: containerError ?? "Unknown error")
+                    .environment(ThemeProvider())
             }
         }
         #if os(macOS)

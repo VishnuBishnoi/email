@@ -55,6 +55,10 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             existing.totalCount = folder.totalCount
             existing.folderType = folder.folderType
             existing.uidValidity = folder.uidValidity
+            existing.forwardCursorUID = folder.forwardCursorUID
+            existing.backfillCursorUID = folder.backfillCursorUID
+            existing.initialFastCompleted = folder.initialFastCompleted
+            existing.catchUpStatus = folder.catchUpStatus
             existing.lastSyncDate = folder.lastSyncDate
         } else {
             context.insert(folder)
@@ -242,8 +246,10 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
 
             return true
         }
-
-        return Array(filtered.prefix(limit))
+        // Guard against duplicate Thread rows in local store. Keep first
+        // occurrence in sorted order so pagination remains deterministic.
+        let deduped = deduplicateThreadsPreservingOrder(filtered)
+        return Array(deduped.prefix(limit))
     }
 
     public func getThreadsUnified(
@@ -293,7 +299,18 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
             }
         }
 
-        return Array(threads.prefix(limit))
+        let deduped = deduplicateThreadsPreservingOrder(threads)
+        return Array(deduped.prefix(limit))
+    }
+
+    private func deduplicateThreadsPreservingOrder(_ input: [VaultMailFeature.Thread]) -> [VaultMailFeature.Thread] {
+        var seen = Set<String>()
+        var output: [VaultMailFeature.Thread] = []
+        output.reserveCapacity(input.count)
+        for thread in input where seen.insert(thread.id).inserted {
+            output.append(thread)
+        }
+        return output
     }
 
     public func getOutboxEmails(accountId: String?) async throws -> [Email] {
@@ -741,6 +758,17 @@ public final class EmailRepositoryImpl: EmailRepositoryProtocol {
         )
         for sender in try context.fetch(descriptor) {
             context.delete(sender)
+        }
+        try context.save()
+    }
+
+    public func removeEmailFolderAssociations(folderId: String) async throws {
+        let descriptor = FetchDescriptor<EmailFolder>(
+            predicate: #Predicate<EmailFolder> { $0.folder?.id == folderId }
+        )
+        let rows = try context.fetch(descriptor)
+        for row in rows {
+            context.delete(row)
         }
         try context.save()
     }

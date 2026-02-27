@@ -58,7 +58,7 @@ public struct EmailDetailView: View {
     @State private var thread: Thread?
     @State private var sortedEmails: [Email] = []
     @State private var expandedEmailIds: Set<String> = []
-    @State private var isLoadingBodies = false
+    @State private var loadingBodyEmailIds: Set<String> = []
 
     // MARK: - AI State
 
@@ -232,7 +232,7 @@ public struct EmailDetailView: View {
                             email: email,
                             isExpanded: expandedEmailIds.contains(email.id),
                             isTrustedSender: trustedSenderEmails.contains(email.fromAddress),
-                            isLoadingBody: isLoadingBodies && email.bodyPlain == nil && email.bodyHTML == nil,
+                            isLoadingBody: loadingBodyEmailIds.contains(email.id),
                             onToggleExpand: { toggleExpand(email.id) },
                             onStarToggle: { Task { await toggleStar(email) } },
                             onPreviewAttachment: { previewAttachment($0) },
@@ -555,21 +555,12 @@ public struct EmailDetailView: View {
 
             viewState = .loaded
 
-            // Lazy-fetch missing bodies (headers-only sync for non-inbox folders).
-            // Runs after .loaded so the UI renders immediately with what we have,
-            // then updates in-place when bodies arrive from IMAP.
-            let needsBodies = emails.contains { $0.bodyPlain == nil && $0.bodyHTML == nil }
-            if needsBodies { isLoadingBodies = true }
-
-            if let count = try? await fetchEmailDetail.fetchBodiesIfNeeded(for: emails), count > 0 {
-                // Re-sort to pick up updated body content via SwiftData observation
-                sortedEmails = loadedThread.emails
-                    .sorted { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) }
-            }
-            isLoadingBodies = false
-
             // Mark as read (FR-ED-01: immediate on open)
             await markAllRead()
+
+            // Lazy-fetch missing bodies (headers-only sync for non-inbox folders).
+            // Prioritize currently expanded email first, then fetch the rest.
+            await hydrateMissingBodies(for: loadedThread, emails: emails)
 
         } catch let error as EmailDetailError {
             switch error {
@@ -581,6 +572,36 @@ public struct EmailDetailView: View {
         } catch {
             viewState = .error(error.localizedDescription)
         }
+    }
+
+    private func hydrateMissingBodies(for loadedThread: Thread, emails: [Email]) async {
+        let missingEmails = emails.filter { $0.bodyPlain == nil && $0.bodyHTML == nil }
+        guard !missingEmails.isEmpty else {
+            loadingBodyEmailIds = []
+            return
+        }
+
+        loadingBodyEmailIds = Set(missingEmails.map(\.id))
+
+        // Prioritize the expanded message so the visible content appears first.
+        let prioritizedId = expandedEmailIds.first
+        let prioritizedEmails = missingEmails.filter { $0.id == prioritizedId }
+        let remainingEmails = missingEmails.filter { $0.id != prioritizedId }
+
+        if !prioritizedEmails.isEmpty {
+            _ = try? await fetchEmailDetail.fetchBodiesIfNeeded(for: prioritizedEmails)
+            loadingBodyEmailIds.subtract(prioritizedEmails.map(\.id))
+            sortedEmails = loadedThread.emails
+                .sorted { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) }
+        }
+
+        guard !remainingEmails.isEmpty else { return }
+
+        _ = try? await Task.sleep(nanoseconds: 120_000_000)
+        _ = try? await fetchEmailDetail.fetchBodiesIfNeeded(for: remainingEmails)
+        loadingBodyEmailIds.subtract(remainingEmails.map(\.id))
+        sortedEmails = loadedThread.emails
+            .sorted { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) }
     }
 
     private func markAllRead() async {

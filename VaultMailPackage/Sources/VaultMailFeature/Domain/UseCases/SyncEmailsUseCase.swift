@@ -1,6 +1,48 @@
 import Foundation
 import CryptoKit
 
+/// Account-level sync entrypoint options (v1.3.0 contract).
+public enum SyncAccountOptions: Sendable, Equatable {
+    /// Legacy full-account sync behavior.
+    case full
+    /// Initial fast bootstrap sync (Inbox-first render path).
+    case initialFast
+    /// Forward incremental sync across all syncable folders.
+    case incremental
+}
+
+/// Folder-level sync direction/options (v1.3.0 contract).
+public enum SyncFolderOptions: Sendable, Equatable {
+    /// Forward incremental sync for new arrivals.
+    case incremental
+    /// Backward catch-up sync for historical messages.
+    case catchUp
+}
+
+/// Structured sync result for v1.3.0 API migration.
+public struct SyncResult {
+    /// Newly persisted emails for this invocation.
+    public let newEmails: [Email]
+    /// Inbox emails persisted during initial-fast stage.
+    public let inboxEmails: [Email]
+    /// Account-level mode used to produce this result.
+    public let accountOptions: SyncAccountOptions?
+    /// Folder-level mode used to produce this result.
+    public let folderOptions: SyncFolderOptions?
+
+    public init(
+        newEmails: [Email],
+        inboxEmails: [Email] = [],
+        accountOptions: SyncAccountOptions? = nil,
+        folderOptions: SyncFolderOptions? = nil
+    ) {
+        self.newEmails = newEmails
+        self.inboxEmails = inboxEmails
+        self.accountOptions = accountOptions
+        self.folderOptions = folderOptions
+    }
+}
+
 /// Domain use case for syncing emails from IMAP to SwiftData.
 ///
 /// On-demand sync triggered by view load and pull-to-refresh.
@@ -9,6 +51,20 @@ import CryptoKit
 /// Spec ref: Email Sync spec FR-SYNC-01, FR-SYNC-09
 @MainActor
 public protocol SyncEmailsUseCaseProtocol {
+    /// Unified account sync contract (v1.3.0).
+    @discardableResult
+    func syncAccount(accountId: String, options: SyncAccountOptions) async throws -> SyncResult
+
+    /// Unified folder sync contract (v1.3.0).
+    @discardableResult
+    func syncFolder(accountId: String, folderId: String, options: SyncFolderOptions) async throws -> SyncResult
+
+    /// Pause historical catch-up for account folders.
+    func pauseCatchUp(accountId: String) async
+
+    /// Resume historical catch-up for account folders.
+    func resumeCatchUp(accountId: String) async
+
     /// Full sync for an account: folders + emails for all syncable folders.
     /// Returns all newly synced emails so callers can enqueue them for AI processing.
     @discardableResult
@@ -29,6 +85,38 @@ public protocol SyncEmailsUseCaseProtocol {
     /// Returns newly synced emails so callers can enqueue them for AI processing.
     @discardableResult
     func syncFolder(accountId: String, folderId: String) async throws -> [Email]
+}
+
+extension SyncEmailsUseCaseProtocol {
+    public func pauseCatchUp(accountId: String) async {}
+
+    public func resumeCatchUp(accountId: String) async {}
+
+    @discardableResult
+    public func syncAccount(accountId: String) async throws -> [Email] {
+        let result = try await syncAccount(accountId: accountId, options: .full)
+        return result.newEmails
+    }
+
+    @discardableResult
+    public func syncAccountInboxFirst(
+        accountId: String,
+        onInboxSynced: @MainActor (_ inboxEmails: [Email]) async -> Void
+    ) async throws -> [Email] {
+        let result = try await syncAccount(accountId: accountId, options: .initialFast)
+        await onInboxSynced(result.inboxEmails)
+        return result.newEmails
+    }
+
+    @discardableResult
+    public func syncFolder(accountId: String, folderId: String) async throws -> [Email] {
+        let result = try await syncFolder(
+            accountId: accountId,
+            folderId: folderId,
+            options: .incremental
+        )
+        return result.newEmails
+    }
 }
 
 /// Abstraction for obtaining IMAP connections. ConnectionPool conforms
@@ -111,11 +199,24 @@ extension ConnectionPool: ConnectionProviding {
 /// Default implementation that bridges IMAP client and SwiftData persistence.
 @MainActor
 public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
+    private struct StageCAllocation {
+        let folder: Folder
+        let direction: SyncDirection
+        let maxHeaders: Int
+    }
+
+    private enum SyncDirection {
+        case full
+        case forward
+        case backward
+    }
 
     private let accountRepository: AccountRepositoryProtocol
     private let emailRepository: EmailRepositoryProtocol
     private let keychainManager: KeychainManagerProtocol
     private let connectionProvider: ConnectionProviding
+    private let folderSyncCoordinator: FolderSyncCoordinator
+    private var catchUpTasks: [String: Task<Void, Never>] = [:]
 
     /// Batch size for IMAP FETCH commands to avoid oversized responses.
     private let fetchBatchSize = 50
@@ -124,15 +225,62 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         accountRepository: AccountRepositoryProtocol,
         emailRepository: EmailRepositoryProtocol,
         keychainManager: KeychainManagerProtocol,
-        connectionPool: ConnectionProviding
+        connectionPool: ConnectionProviding,
+        folderSyncCoordinator: FolderSyncCoordinator = FolderSyncCoordinator()
     ) {
         self.accountRepository = accountRepository
         self.emailRepository = emailRepository
         self.keychainManager = keychainManager
         self.connectionProvider = connectionPool
+        self.folderSyncCoordinator = folderSyncCoordinator
     }
 
     // MARK: - Public API
+
+    @discardableResult
+    public func syncAccount(accountId: String, options: SyncAccountOptions) async throws -> SyncResult {
+        switch options {
+        case .full:
+            let emails = try await syncAccount(accountId: accountId)
+            return SyncResult(
+                newEmails: emails,
+                accountOptions: options
+            )
+        case .incremental:
+            let emails = try await syncAccountIncremental(accountId: accountId)
+            return SyncResult(
+                newEmails: emails,
+                accountOptions: options
+            )
+        case .initialFast:
+            var inboxEmails: [Email] = []
+            let emails = try await syncAccountInboxFirst(accountId: accountId) { syncedInbox in
+                inboxEmails = syncedInbox
+            }
+            return SyncResult(
+                newEmails: emails,
+                inboxEmails: inboxEmails,
+                accountOptions: .initialFast
+            )
+        }
+    }
+
+    @discardableResult
+    public func syncFolder(
+        accountId: String,
+        folderId: String,
+        options: SyncFolderOptions
+    ) async throws -> SyncResult {
+        let emails = try await syncFolderWithOptions(
+            accountId: accountId,
+            folderId: folderId,
+            options: options
+        )
+        return SyncResult(
+            newEmails: emails,
+            folderOptions: options
+        )
+    }
 
     @discardableResult
     public func syncAccount(accountId: String) async throws -> [Email] {
@@ -168,20 +316,31 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             // 2. Sync emails for each folder
             let existingEmails = try await emailRepository.getEmailsByAccount(accountId: account.id)
             var emailLookup = buildMessageIdLookup(from: existingEmails)
+            var canonicalLookup = buildCanonicalLookup(from: existingEmails)
             var allSyncedEmails: [Email] = []
             NSLog("[Sync] Existing emails in DB: \(existingEmails.count)")
 
             for folder in syncableFolders {
                 NSLog("[Sync] Syncing folder: \(folder.name) (\(folder.imapPath))")
-                let newEmails = try await syncFolderEmails(
-                    client: client,
-                    account: account,
-                    folder: folder,
-                    emailLookup: emailLookup
-                )
+                let newEmails = try await withFolderSyncLock(accountId: account.id, folderId: folder.id) {
+                    try await syncFolderEmails(
+                        client: client,
+                        account: account,
+                        folder: folder,
+                        emailLookup: emailLookup,
+                        canonicalLookup: canonicalLookup
+                    )
+                }
                 NSLog("[Sync] Synced \(newEmails.count) new emails from \(folder.name)")
                 for email in newEmails {
                     emailLookup[email.messageId] = email
+                    let key = canonicalDedupKey(
+                        subject: email.subject,
+                        fromAddress: email.fromAddress,
+                        date: email.dateReceived,
+                        sizeBytes: email.sizeBytes
+                    )
+                    canonicalLookup[key] = email
                 }
                 allSyncedEmails.append(contentsOf: newEmails)
             }
@@ -233,6 +392,7 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
 
             let existingEmails = try await emailRepository.getEmailsByAccount(accountId: account.id)
             var emailLookup = buildMessageIdLookup(from: existingEmails)
+            var canonicalLookup = buildCanonicalLookup(from: existingEmails)
             var allSyncedEmails: [Email] = []
 
             // 2. Sync INBOX first for fast initial load
@@ -241,15 +401,30 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
 
             if let inbox = inboxFolder {
                 NSLog("[Sync] Priority: syncing Inbox first (\(inbox.imapPath))")
-                let inboxEmails = try await syncFolderEmails(
-                    client: client,
-                    account: account,
-                    folder: inbox,
-                    emailLookup: emailLookup
-                )
+                let inboxEmails = try await withFolderSyncLock(accountId: account.id, folderId: inbox.id) {
+                    try await syncFolderEmails(
+                        client: client,
+                        account: account,
+                        folder: inbox,
+                        emailLookup: emailLookup,
+                        canonicalLookup: canonicalLookup,
+                        headersOnly: true,
+                        direction: .forward,
+                        maxUIDs: 30
+                    )
+                }
                 NSLog("[Sync] Inbox synced: \(inboxEmails.count) new emails")
+                inbox.initialFastCompleted = true
+                try await emailRepository.saveFolder(inbox)
                 for email in inboxEmails {
                     emailLookup[email.messageId] = email
+                    let key = canonicalDedupKey(
+                        subject: email.subject,
+                        fromAddress: email.fromAddress,
+                        date: email.dateReceived,
+                        sizeBytes: email.sizeBytes
+                    )
+                    canonicalLookup[key] = email
                 }
                 allSyncedEmails.append(contentsOf: inboxEmails)
 
@@ -257,31 +432,50 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 await onInboxSynced(inboxEmails)
             }
 
-            // 3. Sync remaining folders
+            // 3. Stage-C bootstrap budget allocator (non-blocking for UI).
             guard !Task.isCancelled else {
                 await connectionProvider.checkinConnection(client, accountId: account.id)
                 return allSyncedEmails
             }
 
-            let remainingFolders = syncableFolders.filter { $0.folderType != inboxType }
-            for folder in remainingFolders {
+            let stageCAllocations = buildStageCAllocations(
+                syncableFolders: syncableFolders,
+                inboxFolder: inboxFolder
+            )
+            for allocation in stageCAllocations {
                 guard !Task.isCancelled else { break }
-                NSLog("[Sync] Syncing folder: \(folder.name) (\(folder.imapPath)) [headers-only]")
-                let newEmails = try await syncFolderEmails(
-                    client: client,
-                    account: account,
-                    folder: folder,
-                    emailLookup: emailLookup,
-                    headersOnly: true
-                )
-                NSLog("[Sync] Synced \(newEmails.count) new emails from \(folder.name)")
+                NSLog("[Sync] Stage-C sync: \(allocation.folder.name) (\(allocation.folder.imapPath)) [headers-only]")
+                let newEmails = try await withFolderSyncLock(accountId: account.id, folderId: allocation.folder.id) {
+                    try await syncFolderEmails(
+                        client: client,
+                        account: account,
+                        folder: allocation.folder,
+                        emailLookup: emailLookup,
+                        canonicalLookup: canonicalLookup,
+                        headersOnly: true,
+                        direction: allocation.direction,
+                        maxUIDs: allocation.maxHeaders
+                    )
+                }
+                NSLog("[Sync] Synced \(newEmails.count) new emails from \(allocation.folder.name)")
                 for email in newEmails {
                     emailLookup[email.messageId] = email
+                    let key = canonicalDedupKey(
+                        subject: email.subject,
+                        fromAddress: email.fromAddress,
+                        date: email.dateReceived,
+                        sizeBytes: email.sizeBytes
+                    )
+                    canonicalLookup[key] = email
                 }
                 allSyncedEmails.append(contentsOf: newEmails)
             }
 
-            // 4. Update account sync date
+            // 4. Stage-D catch-up continues in background.
+            let orderedFolderIds = prioritizedFolderOrder(from: syncableFolders).map(\.id)
+            startBackgroundCatchUpIfNeeded(accountId: account.id, folderIds: orderedFolderIds)
+
+            // 5. Update account sync date
             account.lastSyncDate = Date()
             try await accountRepository.updateAccount(account)
             NSLog("[Sync] syncAccountInboxFirst completed (\(allSyncedEmails.count) total new emails)")
@@ -297,9 +491,96 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
 
     @discardableResult
     public func syncFolder(accountId: String, folderId: String) async throws -> [Email] {
+        try await syncFolderWithOptions(
+            accountId: accountId,
+            folderId: folderId,
+            options: .incremental
+        )
+    }
+
+    public func pauseCatchUp(accountId: String) async {
+        catchUpTasks[accountId]?.cancel()
+        catchUpTasks[accountId] = nil
+        guard let folders = try? await emailRepository.getFolders(accountId: accountId) else { return }
+        for folder in folders {
+            folder.catchUpStatus = SyncCatchUpStatus.paused.rawValue
+            try? await emailRepository.saveFolder(folder)
+        }
+    }
+
+    public func resumeCatchUp(accountId: String) async {
+        guard let folders = try? await emailRepository.getFolders(accountId: accountId) else { return }
+        var resumed: [Folder] = []
+        for folder in folders where folder.catchUpStatus == SyncCatchUpStatus.paused.rawValue {
+            folder.catchUpStatus = SyncCatchUpStatus.idle.rawValue
+            try? await emailRepository.saveFolder(folder)
+            resumed.append(folder)
+        }
+        let orderedFolderIds = prioritizedFolderOrder(from: resumed).map(\.id)
+        startBackgroundCatchUpIfNeeded(accountId: accountId, folderIds: orderedFolderIds)
+    }
+
+    private func syncAccountIncremental(accountId: String) async throws -> [Email] {
         let account = try await findAccount(id: accountId)
         let imapCredential = try await resolveIMAPCredential(for: account)
+        let client = try await connectionProvider.checkoutConnection(
+            accountId: account.id,
+            host: account.imapHost,
+            port: account.imapPort,
+            security: account.resolvedImapSecurity,
+            credential: imapCredential
+        )
 
+        do {
+            let imapFolders = try await client.listFolders()
+            let syncableFolders = try await syncFolders(imapFolders: imapFolders, account: account)
+            let existingEmails = try await emailRepository.getEmailsByAccount(accountId: account.id)
+            var messageLookup = buildMessageIdLookup(from: existingEmails)
+            var canonicalLookup = buildCanonicalLookup(from: existingEmails)
+            var allNew: [Email] = []
+
+            for folder in syncableFolders {
+                let newEmails = try await withFolderSyncLock(accountId: account.id, folderId: folder.id) {
+                    try await syncFolderEmails(
+                        client: client,
+                        account: account,
+                        folder: folder,
+                        emailLookup: messageLookup,
+                        canonicalLookup: canonicalLookup,
+                        headersOnly: true,
+                        direction: .forward
+                    )
+                }
+                for email in newEmails {
+                    messageLookup[email.messageId] = email
+                    let key = canonicalDedupKey(
+                        subject: email.subject,
+                        fromAddress: email.fromAddress,
+                        date: email.dateReceived,
+                        sizeBytes: email.sizeBytes
+                    )
+                    canonicalLookup[key] = email
+                }
+                allNew.append(contentsOf: newEmails)
+            }
+
+            account.lastSyncDate = Date()
+            try await accountRepository.updateAccount(account)
+            await connectionProvider.checkinConnection(client, accountId: account.id)
+            return allNew
+        } catch {
+            await connectionProvider.checkinConnection(client, accountId: account.id)
+            throw error
+        }
+    }
+
+    private func syncFolderWithOptions(
+        accountId: String,
+        folderId: String,
+        options: SyncFolderOptions
+    ) async throws -> [Email] {
+        let account = try await findAccount(id: accountId)
+        let imapCredential = try await resolveIMAPCredential(for: account)
         let folders = try await emailRepository.getFolders(accountId: account.id)
         guard let folder = folders.first(where: { $0.id == folderId }) else {
             throw SyncError.folderNotFound(folderId)
@@ -315,18 +596,44 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
 
         do {
             let existingEmails = try await emailRepository.getEmailsByAccount(accountId: account.id)
-            let emailLookup = buildMessageIdLookup(from: existingEmails)
+            let messageLookup = buildMessageIdLookup(from: existingEmails)
+            let canonicalLookup = buildCanonicalLookup(from: existingEmails)
+            let direction: SyncDirection = (options == .catchUp) ? .backward : .forward
+            let headersOnly = options == .incremental
+            let maxHeaders = options == .catchUp ? fetchBatchSize : nil
+            if options == .catchUp {
+                guard folder.catchUpStatus != SyncCatchUpStatus.paused.rawValue else {
+                    await connectionProvider.checkinConnection(client, accountId: account.id)
+                    return []
+                }
+                folder.catchUpStatus = SyncCatchUpStatus.running.rawValue
+                try await emailRepository.saveFolder(folder)
+            }
 
-            let newEmails = try await syncFolderEmails(
-                client: client,
-                account: account,
-                folder: folder,
-                emailLookup: emailLookup
-            )
+            let newEmails = try await withFolderSyncLock(accountId: account.id, folderId: folder.id) {
+                try await syncFolderEmails(
+                    client: client,
+                    account: account,
+                    folder: folder,
+                    emailLookup: messageLookup,
+                    canonicalLookup: canonicalLookup,
+                    headersOnly: headersOnly,
+                    direction: direction,
+                    maxUIDs: maxHeaders
+                )
+            }
+            if options == .catchUp {
+                folder.catchUpStatus = newEmails.isEmpty ? SyncCatchUpStatus.completed.rawValue : SyncCatchUpStatus.idle.rawValue
+                try await emailRepository.saveFolder(folder)
+            }
 
             await connectionProvider.checkinConnection(client, accountId: account.id)
             return newEmails
         } catch {
+            if options == .catchUp {
+                folder.catchUpStatus = SyncCatchUpStatus.error.rawValue
+                try? await emailRepository.saveFolder(folder)
+            }
             await connectionProvider.checkinConnection(client, accountId: account.id)
             throw error
         }
@@ -440,22 +747,22 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         account: Account,
         folder: Folder,
         emailLookup: [String: Email],
-        headersOnly: Bool = false
+        canonicalLookup: [String: Email],
+        headersOnly: Bool = false,
+        direction: SyncDirection = .full,
+        maxUIDs: Int? = nil
     ) async throws -> [Email] {
         // SELECT folder
         let (serverUidValidity, messageCount) = try await client.selectFolder(folder.imapPath)
 
         // Handle UIDVALIDITY change — all local UIDs are stale
         if folder.uidValidity != 0 && folder.uidValidity != Int(serverUidValidity) {
-            // Delete all EmailFolder entries for this folder to force re-sync
-            let existingEmails = try await emailRepository.getEmails(folderId: folder.id)
-            for email in existingEmails {
-                for ef in email.emailFolders where ef.folder?.id == folder.id {
-                    // Remove the stale join entry
-                    // We can't delete via repo directly, so we'll just reset the sync date
-                }
-            }
+            try await emailRepository.removeEmailFolderAssociations(folderId: folder.id)
             folder.lastSyncDate = nil
+            folder.forwardCursorUID = nil
+            folder.backfillCursorUID = nil
+            folder.initialFastCompleted = false
+            folder.catchUpStatus = SyncCatchUpStatus.idle.rawValue
         }
         folder.uidValidity = Int(serverUidValidity)
 
@@ -464,10 +771,15 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         // Sent/Drafts show their complete contents regardless of age.
         // On subsequent syncs, use incremental date-based search.
         let allUIDs: [UInt32]
-        if let lastSync = folder.lastSyncDate {
-            allUIDs = try await client.searchUIDs(since: lastSync)
-        } else {
-            NSLog("[Sync] First sync for '\(folder.imapPath)' — fetching all UIDs")
+        switch direction {
+        case .full:
+            if let lastSync = folder.lastSyncDate {
+                allUIDs = try await client.searchUIDs(since: lastSync)
+            } else {
+                NSLog("[Sync] First sync for '\(folder.imapPath)' — fetching all UIDs")
+                allUIDs = try await client.searchAllUIDs()
+            }
+        case .forward, .backward:
             allUIDs = try await client.searchAllUIDs()
         }
         guard !allUIDs.isEmpty else {
@@ -476,6 +788,8 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             try await emailRepository.saveFolder(folder)
             return []
         }
+
+        let sortedUIDs = allUIDs.sorted()
 
         // Filter out already-synced UIDs
         let existingEmailFolders = try await emailRepository.getEmails(folderId: folder.id)
@@ -486,9 +800,68 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                     .map { $0.imapUID }
             }
         )
-        let newUIDs = allUIDs.filter { !knownUIDs.contains(Int($0)) }
+        let minAllUID = sortedUIDs.first.map(Int.init)
+        let totalUIDCount = sortedUIDs.count
+        let knownUIDCount = knownUIDs.count
+
+        if direction == .backward,
+           let cursor = folder.backfillCursorUID,
+           let minAllUID,
+           cursor <= minAllUID,
+           knownUIDCount < totalUIDCount {
+            if let repaired = knownUIDs.min() {
+                folder.backfillCursorUID = repaired
+            } else {
+                folder.backfillCursorUID = nil
+            }
+        }
+
+        let candidateUIDs: [UInt32]
+        switch direction {
+        case .full:
+            candidateUIDs = sortedUIDs
+        case .forward:
+            if let cursor = folder.forwardCursorUID {
+                candidateUIDs = sortedUIDs.filter { Int($0) > cursor }
+            } else {
+                candidateUIDs = sortedUIDs
+            }
+        case .backward:
+            if let cursor = folder.backfillCursorUID {
+                candidateUIDs = sortedUIDs.filter { Int($0) < cursor }
+            } else {
+                candidateUIDs = sortedUIDs
+            }
+        }
+        var newUIDs = candidateUIDs.filter { !knownUIDs.contains(Int($0)) }
+        if let maxUIDs, newUIDs.count > maxUIDs {
+            newUIDs = Array(newUIDs.suffix(maxUIDs))
+        }
 
         guard !newUIDs.isEmpty else {
+            // Keep cursors populated even when there are no newly persisted rows.
+            // This allows migration code to rely on cursor state immediately.
+            if let maxUID = allUIDs.max() {
+                let current = folder.forwardCursorUID ?? 0
+                folder.forwardCursorUID = max(current, Int(maxUID))
+            }
+            if direction == .backward {
+                if knownUIDCount >= totalUIDCount, let minUID = allUIDs.min() {
+                    if let existing = folder.backfillCursorUID {
+                        folder.backfillCursorUID = min(existing, Int(minUID))
+                    } else {
+                        folder.backfillCursorUID = Int(minUID)
+                    }
+                } else if let knownMin = knownUIDs.min() {
+                    folder.backfillCursorUID = knownMin
+                }
+            } else if let minUID = allUIDs.min() {
+                if let existing = folder.backfillCursorUID {
+                    folder.backfillCursorUID = min(existing, Int(minUID))
+                } else {
+                    folder.backfillCursorUID = Int(minUID)
+                }
+            }
             folder.totalCount = Int(messageCount)
             folder.lastSyncDate = Date()
             try await emailRepository.saveFolder(folder)
@@ -498,8 +871,12 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         // Fetch in batches
         var allNewEmails: [Email] = []
         var mutableLookup = emailLookup
+        var mutableCanonicalLookup = canonicalLookup
 
         for batchStart in stride(from: 0, to: newUIDs.count, by: fetchBatchSize) {
+            if direction == .backward && folder.catchUpStatus == SyncCatchUpStatus.paused.rawValue {
+                break
+            }
             let batchEnd = min(batchStart + fetchBatchSize, newUIDs.count)
             let batch = Array(newUIDs[batchStart..<batchEnd])
 
@@ -522,12 +899,21 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                     emailLookup: mutableLookup
                 )
 
+                let identity = resolveIdentity(
+                    for: header,
+                    accountId: account.id,
+                    emailLookup: mutableLookup,
+                    canonicalLookup: mutableCanonicalLookup
+                )
+
                 // Map to Email model
                 let mappedEmail = mapToEmail(
                     header: header,
                     body: body,
                     accountId: account.id,
-                    threadId: threadId
+                    threadId: threadId,
+                    identityKey: identity.identityKey,
+                    resolvedMessageId: identity.messageId
                 )
                 // Use the managed object returned by saveEmail (may be an
                 // existing record when the email was already synced via
@@ -558,11 +944,26 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 }
 
                 mutableLookup[email.messageId] = email
+                mutableCanonicalLookup[identity.canonicalKey] = email
                 allNewEmails.append(email)
             }
 
             // Flush all inserts for this batch in a single save
             try await emailRepository.flushChanges()
+
+            // Persist cursor progression after each committed batch.
+            if let maxUID = headers.map(\.uid).max() {
+                let current = folder.forwardCursorUID ?? 0
+                folder.forwardCursorUID = max(current, Int(maxUID))
+            }
+            if let minUID = headers.map(\.uid).min() {
+                if let existing = folder.backfillCursorUID {
+                    folder.backfillCursorUID = min(existing, Int(minUID))
+                } else {
+                    folder.backfillCursorUID = Int(minUID)
+                }
+            }
+            try await emailRepository.saveFolder(folder)
         }
 
         // Update thread aggregates for all affected threads
@@ -583,9 +984,148 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         folder.totalCount = Int(messageCount)
         folder.unreadCount = allFolderEmails.filter { !$0.isRead }.count
         folder.lastSyncDate = Date()
+        folder.catchUpStatus = SyncCatchUpStatus.idle.rawValue
         try await emailRepository.saveFolder(folder)
 
         return allNewEmails
+    }
+
+    private func withFolderSyncLock<T>(
+        accountId: String,
+        folderId: String,
+        operation: () async throws -> T
+    ) async throws -> T {
+        await folderSyncCoordinator.acquire(accountId: accountId, folderId: folderId)
+        do {
+            let result = try await operation()
+            await folderSyncCoordinator.release(accountId: accountId, folderId: folderId)
+            return result
+        } catch {
+            await folderSyncCoordinator.release(accountId: accountId, folderId: folderId)
+            throw error
+        }
+    }
+
+    private func buildStageCAllocations(
+        syncableFolders: [Folder],
+        inboxFolder: Folder?
+    ) -> [StageCAllocation] {
+        let totalCap = 500
+        let inboxShare = Int(Double(totalCap) * 0.60) // 300
+        let sentShare = Int(Double(totalCap) * 0.20) // 100
+        let othersShare = totalCap - inboxShare - sentShare // 100
+        let minFloor = 20
+
+        var allocations: [StageCAllocation] = []
+
+        if let inbox = inboxFolder {
+            let remainingInboxBudget = max(inboxShare - 30, 0)
+            if remainingInboxBudget > 0 {
+                allocations.append(
+                    StageCAllocation(
+                        folder: inbox,
+                        direction: .backward,
+                        maxHeaders: remainingInboxBudget
+                    )
+                )
+            }
+        }
+
+        let sentFolder = syncableFolders.first { $0.folderType == FolderType.sent.rawValue }
+        if let sentFolder, sentShare > 0 {
+            allocations.append(
+                StageCAllocation(
+                    folder: sentFolder,
+                    direction: .forward,
+                    maxHeaders: sentShare
+                )
+            )
+        }
+
+        let excluded = Set([inboxFolder?.id, sentFolder?.id].compactMap { $0 })
+        let otherFolders = syncableFolders.filter { !excluded.contains($0.id) }
+        guard !otherFolders.isEmpty else { return allocations }
+
+        var remainingBudget = othersShare
+        var perFolder = [String: Int]()
+        if remainingBudget >= otherFolders.count * minFloor {
+            for folder in otherFolders {
+                perFolder[folder.id] = minFloor
+                remainingBudget -= minFloor
+            }
+        } else {
+            let even = max(1, remainingBudget / otherFolders.count)
+            for folder in otherFolders {
+                perFolder[folder.id] = even
+                remainingBudget -= even
+            }
+        }
+
+        var index = 0
+        while remainingBudget > 0 {
+            let folder = otherFolders[index % otherFolders.count]
+            perFolder[folder.id, default: 0] += 1
+            remainingBudget -= 1
+            index += 1
+        }
+
+        for folder in otherFolders {
+            let allocation = perFolder[folder.id, default: 0]
+            guard allocation > 0 else { continue }
+            allocations.append(
+                StageCAllocation(
+                    folder: folder,
+                    direction: .forward,
+                    maxHeaders: allocation
+                )
+            )
+        }
+
+        return allocations
+    }
+
+    private func prioritizedFolderOrder(from folders: [Folder]) -> [Folder] {
+        let inbox = folders.filter { $0.folderType == FolderType.inbox.rawValue }
+        let sent = folders.filter { $0.folderType == FolderType.sent.rawValue }
+        let others = folders.filter {
+            $0.folderType != FolderType.inbox.rawValue && $0.folderType != FolderType.sent.rawValue
+        }
+        return inbox + sent + others
+    }
+
+    private func startBackgroundCatchUpIfNeeded(accountId: String, folderIds: [String]) {
+        guard !folderIds.isEmpty else { return }
+        if let existing = catchUpTasks[accountId], !existing.isCancelled {
+            return
+        }
+
+        catchUpTasks[accountId] = Task { [weak self] in
+            guard let self else { return }
+            await self.runBackgroundCatchUp(accountId: accountId, folderIds: folderIds)
+            self.catchUpTasks[accountId] = nil
+        }
+    }
+
+    private func runBackgroundCatchUp(accountId: String, folderIds: [String]) async {
+        var madeProgress = true
+        while !Task.isCancelled && madeProgress {
+            madeProgress = false
+            for folderId in folderIds {
+                guard !Task.isCancelled else { return }
+                do {
+                    let newEmails = try await syncFolderWithOptions(
+                        accountId: accountId,
+                        folderId: folderId,
+                        options: .catchUp
+                    )
+                    if !newEmails.isEmpty {
+                        madeProgress = true
+                    }
+                } catch {
+                    continue
+                }
+            }
+        }
     }
 
     // MARK: - Threading
@@ -597,6 +1137,99 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
             lookup[email.messageId] = email
         }
         return lookup
+    }
+
+    private func buildCanonicalLookup(from emails: [Email]) -> [String: Email] {
+        var lookup: [String: Email] = [:]
+        for email in emails {
+            let key = canonicalDedupKey(
+                subject: email.subject,
+                fromAddress: email.fromAddress,
+                date: email.dateReceived,
+                sizeBytes: email.sizeBytes
+            )
+            lookup[key] = email
+        }
+        return lookup
+    }
+
+    private struct ResolvedIdentity {
+        let messageId: String
+        let identityKey: String
+        let canonicalKey: String
+    }
+
+    private func resolveIdentity(
+        for header: IMAPEmailHeader,
+        accountId: String,
+        emailLookup: [String: Email],
+        canonicalLookup: [String: Email]
+    ) -> ResolvedIdentity {
+        let rawMessageId = normalizedMessageId(header.messageId)
+        let canonical = canonicalDedupKey(
+            subject: header.subject ?? "",
+            fromAddress: parseFromField(header.from).0,
+            date: header.date,
+            sizeBytes: Int(header.size)
+        )
+
+        if let rawMessageId,
+           let existing = emailLookup[rawMessageId] {
+            if looksLikeSameLogicalMessage(existing: existing, incomingHeader: header) {
+                return ResolvedIdentity(messageId: existing.messageId, identityKey: existing.messageId, canonicalKey: canonical)
+            }
+            // Duplicate Message-ID with conflicting content: fall back to canonical identity.
+            let composite = "\(rawMessageId)|\(canonical)"
+            return ResolvedIdentity(messageId: rawMessageId, identityKey: composite, canonicalKey: canonical)
+        }
+
+        if let existing = canonicalLookup[canonical] {
+            return ResolvedIdentity(messageId: existing.messageId, identityKey: existing.messageId, canonicalKey: canonical)
+        }
+
+        if let rawMessageId {
+            return ResolvedIdentity(messageId: rawMessageId, identityKey: rawMessageId, canonicalKey: canonical)
+        }
+
+        let synthetic = "<canon-\(canonical)@\(accountId)>"
+        return ResolvedIdentity(messageId: synthetic, identityKey: "canon:\(canonical)", canonicalKey: canonical)
+    }
+
+    private func normalizedMessageId(_ messageId: String?) -> String? {
+        guard let messageId else { return nil }
+        let trimmed = messageId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func looksLikeSameLogicalMessage(existing: Email, incomingHeader: IMAPEmailHeader) -> Bool {
+        let normalizedExistingSubject = normalizeSubject(existing.subject).lowercased()
+        let normalizedIncomingSubject = normalizeSubject(incomingHeader.subject ?? "").lowercased()
+        let incomingFrom = parseFromField(incomingHeader.from).0.lowercased()
+
+        guard normalizedExistingSubject == normalizedIncomingSubject else { return false }
+        guard existing.fromAddress.lowercased() == incomingFrom else { return false }
+
+        guard let existingDate = existing.dateReceived, let incomingDate = incomingHeader.date else {
+            return true
+        }
+        return abs(existingDate.timeIntervalSince(incomingDate)) <= (3 * 24 * 60 * 60)
+    }
+
+    private func canonicalDedupKey(
+        subject: String,
+        fromAddress: String,
+        date: Date?,
+        sizeBytes: Int
+    ) -> String {
+        let normalizedSubject = normalizeSubject(subject).lowercased()
+        let normalizedFrom = fromAddress.lowercased()
+        let dayBucket: Int
+        if let date {
+            dayBucket = Int(date.timeIntervalSince1970 / 86_400)
+        } else {
+            dayBucket = 0
+        }
+        return "\(normalizedFrom)|\(normalizedSubject)|\(dayBucket)|\(sizeBytes)"
     }
 
     /// Resolve which thread an email belongs to.
@@ -727,11 +1360,13 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
         header: IMAPEmailHeader,
         body: IMAPEmailBody?,
         accountId: String,
-        threadId: String
+        threadId: String,
+        identityKey: String,
+        resolvedMessageId: String
     ) -> Email {
-        let messageId = header.messageId ?? "<uid-\(header.uid)@\(accountId)>"
-        // Deterministic ID for dedup across folders
-        let emailId = stableId(accountId: accountId, messageId: messageId)
+        let messageId = resolvedMessageId
+        // Deterministic ID for dedup across folders/fallback identity.
+        let emailId = stableId(accountId: accountId, messageId: identityKey)
 
         // Parse from name from "Name <email>" format
         let (fromAddress, fromName) = parseFromField(header.from)
