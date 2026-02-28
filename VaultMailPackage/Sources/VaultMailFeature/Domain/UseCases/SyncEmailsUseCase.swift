@@ -1054,10 +1054,16 @@ public final class SyncEmailsUseCase: SyncEmailsUseCaseProtocol {
                 remainingBudget -= minFloor
             }
         } else {
-            let even = max(1, remainingBudget / otherFolders.count)
+            // If we can't afford a minimum floor for each folder, assign one
+            // header to only the first N folders (N == remaining budget) so we
+            // never exceed the total othersShare cap.
             for folder in otherFolders {
-                perFolder[folder.id] = even
-                remainingBudget -= even
+                if remainingBudget > 0 {
+                    perFolder[folder.id] = 1
+                    remainingBudget -= 1
+                } else {
+                    perFolder[folder.id] = 0
+                }
             }
         }
 

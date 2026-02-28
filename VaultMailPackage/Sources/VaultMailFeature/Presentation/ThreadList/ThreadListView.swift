@@ -521,19 +521,28 @@ struct ThreadListView: View {
         .listStyle(.plain)
         .refreshable {
             errorBannerMessage = nil
-            // Sync current folder from IMAP, then reload from SwiftData
             var syncedEmails: [Email] = []
-            if let accountId = selectedAccount?.id, let folderId = selectedFolder?.id {
-                do {
+            do {
+                if let account = selectedAccount, let folderId = selectedFolder?.id {
+                    // Single-account mode: refresh selected folder only.
                     let result = try await syncEmails.syncFolder(
-                        accountId: accountId,
+                        accountId: account.id,
                         folderId: folderId,
                         options: .incremental
                     )
                     syncedEmails = result.newEmails
-                } catch {
-                    errorBannerMessage = "Sync failed: \(error.localizedDescription)"
+                } else {
+                    // Unified mode: user requested full sync across all accounts.
+                    for account in accounts where account.isActive {
+                        let result = try await syncEmails.syncAccount(
+                            accountId: account.id,
+                            options: .full
+                        )
+                        syncedEmails.append(contentsOf: result.newEmails)
+                    }
                 }
+            } catch {
+                errorBannerMessage = "Sync failed: \(error.localizedDescription)"
             }
             await reloadThreads()
             runAIClassification(for: syncedEmails)
@@ -931,6 +940,7 @@ struct ThreadListView: View {
             syncElapsedSeconds = 0
 
             let accountId = firstAccount.id
+            let allAccountIDs = accounts.map(\.id)
             syncTask = Task {
                 defer {
                     isSyncing = false
@@ -939,27 +949,36 @@ struct ThreadListView: View {
                     syncTask = nil
                 }
                 do {
-                    let syncedEmails = try await syncEmails.syncAccountInboxFirst(
-                        accountId: accountId,
-                        onInboxSynced: { _ in
-                            // Inbox synced — reload folders and re-select inbox immediately
-                            NSLog("[UI] Inbox synced, refreshing folder list and threads...")
-                            if let freshFolders = try? await fetchThreads.fetchFolders(accountId: accountId) {
-                                folders = freshFolders
-                                let inboxType = FolderType.inbox.rawValue
-                                selectedFolder = freshFolders.first(where: { $0.folderType == inboxType }) ?? freshFolders.first
-                            }
-                            await loadThreadsAndCounts()
-                            syncStatusText = "Inbox ready"
-                            NSLog("[UI] Inbox threads loaded, count: \(threads.count)")
+                    var allSyncedEmails: [Email] = []
+                    for syncAccountId in allAccountIDs {
+                        guard !Task.isCancelled else { return }
+                        if syncAccountId == accountId {
+                            let syncedEmails = try await syncEmails.syncAccountInboxFirst(
+                                accountId: syncAccountId,
+                                onInboxSynced: { _ in
+                                    // Inbox synced — reload folders and re-select inbox immediately.
+                                    NSLog("[UI] Inbox synced, refreshing folder list and threads...")
+                                    if let freshFolders = try? await fetchThreads.fetchFolders(accountId: syncAccountId) {
+                                        folders = freshFolders
+                                        let inboxType = FolderType.inbox.rawValue
+                                        selectedFolder = freshFolders.first(where: { $0.folderType == inboxType }) ?? freshFolders.first
+                                    }
+                                    await loadThreadsAndCounts()
+                                    syncStatusText = "Inbox ready"
+                                    NSLog("[UI] Inbox threads loaded, count: \(threads.count)")
+                                }
+                            )
+                            allSyncedEmails.append(contentsOf: syncedEmails)
+                        } else {
+                            let syncedEmails = try await syncEmails.syncAccount(accountId: syncAccountId)
+                            allSyncedEmails.append(contentsOf: syncedEmails)
                         }
-                    )
+                    }
                     guard !Task.isCancelled else { return }
-                    NSLog("[UI] Full sync completed, final reload...")
+                    NSLog("[UI] Full sync completed for all accounts, final reload...")
 
-                    // Final reload to pick up emails from all folders
+                    // Final reload to pick up emails from all folders for selected account.
                     folders = try await fetchThreads.fetchFolders(accountId: accountId)
-                    // Always re-select folder (SwiftData objects may have changed)
                     let currentFolderType = selectedFolder?.folderType
                     if let currentType = currentFolderType {
                         selectedFolder = folders.first(where: { $0.folderType == currentType }) ?? folders.first
@@ -971,15 +990,14 @@ struct ThreadListView: View {
                     syncStatusText = nil
                     NSLog("[UI] Threads reloaded, count: \(threads.count)")
 
-                    // Run AI classification on ALL synced emails
-                    runAIClassification(for: syncedEmails)
+                    runAIClassification(for: allSyncedEmails)
 
                     // Notify notification coordinator about new emails (NOTIF-03)
                     // Mark first launch complete so subsequent syncs can deliver notifications.
                     // The initial sync emails are suppressed to avoid flooding on first open.
                     notificationCoordinator.markFirstLaunchComplete()
                     await notificationCoordinator.didSyncNewEmails(
-                        syncedEmails,
+                        allSyncedEmails,
                         fromBackground: false
                     )
 
@@ -1066,10 +1084,12 @@ struct ThreadListView: View {
 
         guard let monitor = idleMonitor,
               let accountId = selectedAccount?.id,
-              let inboxFolder = folders.first(where: { $0.folderType == FolderType.inbox.rawValue }) else {
+              let selectedFolder,
+              FolderType(rawValue: selectedFolder.folderType) != nil else {
             return
         }
-        let folderPath = inboxFolder.imapPath
+        let folderPath = selectedFolder.imapPath
+        let folderId = selectedFolder.id
 
         NSLog("[IDLE] Starting monitor for \(folderPath)")
         idleTask = Task {
@@ -1085,7 +1105,7 @@ struct ThreadListView: View {
                         NSLog("[IDLE] New mail notification, syncing folder...")
                         let result = try? await syncEmails.syncFolder(
                             accountId: accountId,
-                            folderId: inboxFolder.id,
+                            folderId: folderId,
                             options: .incremental
                         )
                         let syncedEmails = result?.newEmails ?? []
