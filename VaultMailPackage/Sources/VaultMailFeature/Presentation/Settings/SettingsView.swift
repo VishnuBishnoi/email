@@ -32,6 +32,11 @@ public struct SettingsView: View {
     @State private var errorMessage: String?
     @State private var notificationPermissionDenied = false
 
+    /// Forces UIKit-backed picker rows to re-instantiate when visual tokens change.
+    private var pickerRenderKey: String {
+        "\(settings.selectedThemeId)-\(settings.fontSize.rawValue)-\(settings.theme.rawValue)"
+    }
+
     /// Whether multi-provider support is available.
     private var hasMultiProvider: Bool {
         providerDiscovery != nil && connectionTestUseCase != nil
@@ -158,9 +163,16 @@ public struct SettingsView: View {
             // Undo send delay picker (FR-SET-01, FR-COMP-02)
             Picker("Undo Send Delay", selection: $settings.undoSendDelay) {
                 ForEach(UndoSendDelay.allCases, id: \.self) { delay in
-                    Text(delay.displayLabel).tag(delay)
+                    Text(delay.displayLabel)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .tag(delay)
                 }
             }
+            .font(theme.typography.bodyLarge)
+            .tint(theme.colors.accent)
+            .foregroundStyle(theme.colors.textPrimary)
+            .id("undo-picker-\(pickerRenderKey)")
             .accessibilityLabel("Undo send delay")
             .accessibilityValue(settings.undoSendDelay.displayLabel)
         }
@@ -173,17 +185,31 @@ public struct SettingsView: View {
             // Color scheme picker (FR-SET-01)
             Picker("Theme", selection: $settings.theme) {
                 ForEach(AppTheme.allCases, id: \.self) { appTheme in
-                    Text(appTheme.displayLabel).tag(appTheme)
+                    Text(appTheme.displayLabel)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .tag(appTheme)
                 }
             }
+            .font(theme.typography.bodyLarge)
+            .tint(theme.colors.accent)
+            .foregroundStyle(theme.colors.textPrimary)
+            .id("appearance-theme-picker-\(pickerRenderKey)")
             .accessibilityLabel("App theme")
             .accessibilityValue(settings.theme.displayLabel)
 
             Picker("Font Size", selection: $settings.fontSize) {
                 ForEach(AppFontSize.allCases, id: \.self) { size in
-                    Text(size.displayLabel).tag(size)
+                    Text(size.displayLabel)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .tag(size)
                 }
             }
+            .font(theme.typography.bodyLarge)
+            .tint(theme.colors.accent)
+            .foregroundStyle(theme.colors.textPrimary)
+            .id("appearance-fontsize-picker-\(pickerRenderKey)")
             .accessibilityLabel("App font size")
             .accessibilityValue(settings.fontSize.displayLabel)
             .onChange(of: settings.fontSize) { _, newValue in
