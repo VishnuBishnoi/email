@@ -1,17 +1,13 @@
 #if os(macOS)
 import SwiftUI
 
-/// macOS sidebar with account selector, folder tree, and Unified Inbox.
+/// macOS sidebar with Finder-style sections and icon + label rows.
 ///
-/// Uses `.listStyle(.sidebar)` for native macOS appearance.
-/// Each account is expandable with system folders in fixed order,
-/// followed by custom labels, plus a virtual Outbox entry.
-///
-/// Bottom bar provides quick access to Settings and Add Account.
-/// Right-click on account headers provides Remove Account option.
+/// Account switching is available from the bottom-left control.
 ///
 /// Spec ref: FR-MAC-02 (Sidebar — Folder and Account Navigation)
 struct SidebarView: View {
+    @Environment(ThemeProvider.self) private var theme
     let accounts: [Account]
     let folders: [Folder]
     @Binding var selectedAccount: Account?
@@ -25,55 +21,58 @@ struct SidebarView: View {
     let onAddAccount: () -> Void
     let onRemoveAccount: (Account) -> Void
 
-    /// Tracks which accounts are expanded in the sidebar.
-    @SceneStorage("macOS.sidebarExpandedAccounts")
-    private var expandedAccountsData: String = ""
-
-    @State private var expandedAccounts: Set<String> = []
-    @State private var folderLoadError: Set<String> = []
-    @State private var isAddingAccount = false
     @State private var showRemoveConfirmation = false
     @State private var accountToRemove: Account?
 
-    // MARK: - Body
+    private enum ShortcutKind: String, CaseIterable, Identifiable {
+        case inbox
+        case starred
+        case sent
+        case drafts
+        case spam
+        case trash
+        case outbox
+
+        var id: String { rawValue }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: Binding<String?>(
-                get: { selectedFolder?.id },
-                set: { newId in
-                    // Find and select the folder with this ID
-                    if let folderId = newId,
-                       let folder = allFolders.first(where: { $0.id == folderId }) {
-                        onSelectFolder(folder)
+            ScrollView {
+                VStack(alignment: .leading, spacing: theme.spacing.sm) {
+                    sectionHeader("Quick Access")
+                    VStack(spacing: theme.spacing.xxs) {
+                        sidebarRow(
+                            title: "All Inboxes",
+                            icon: "tray.2",
+                            isSelected: selectedAccount == nil && selectedFolder == nil,
+                            badgeCount: unreadCounts[nil]
+                        ) {
+                            onSelectUnifiedInbox()
+                        }
+                    }
+
+                    sectionHeader("Mailboxes")
+                    VStack(spacing: theme.spacing.xxs) {
+                        ForEach(ShortcutKind.allCases) { kind in
+                            sidebarRow(
+                                title: title(for: kind),
+                                icon: iconName(for: kind),
+                                isSelected: isSelected(kind: kind),
+                                badgeCount: badgeCount(for: kind)
+                            ) {
+                                handleSelection(for: kind)
+                            }
+                            .disabled(kind != .outbox && resolvedFolder(for: kind) == nil)
+                        }
                     }
                 }
-            )) {
-                // Unified Inbox
-                unifiedInboxRow
-
-                // Per-account sections
-                ForEach(accounts, id: \.id) { account in
-                    accountSection(for: account)
-                }
+                .padding(.horizontal, theme.spacing.md)
+                .padding(.vertical, theme.spacing.md)
             }
-            .listStyle(.sidebar)
 
             Divider()
-
-            // Bottom bar with settings and add account
-            sidebarBottomBar
-        }
-        .onAppear {
-            // Restore expanded accounts from SceneStorage
-            expandedAccounts = Set(expandedAccountsData.split(separator: ",").map(String.init))
-            // Auto-expand first account if none expanded
-            if expandedAccounts.isEmpty, let first = accounts.first {
-                expandedAccounts.insert(first.id)
-            }
-        }
-        .onChange(of: expandedAccounts) {
-            expandedAccountsData = expandedAccounts.joined(separator: ",")
+            bottomBar
         }
         .alert("Remove Account", isPresented: $showRemoveConfirmation) {
             Button("Remove", role: .destructive) {
@@ -92,208 +91,189 @@ struct SidebarView: View {
         }
     }
 
-    // MARK: - Bottom Bar
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(theme.typography.labelMedium)
+            .foregroundStyle(theme.colors.textSecondary)
+            .padding(.top, theme.spacing.xs)
+    }
 
-    private var sidebarBottomBar: some View {
-        HStack(spacing: 12) {
+    private func sidebarRow(
+        title: String,
+        icon: String,
+        isSelected: Bool,
+        badgeCount: Int?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: theme.spacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .regular))
+                    .frame(width: 18, alignment: .center)
+
+                Text(title)
+                    .font(theme.typography.bodyMedium)
+                    .lineLimit(1)
+
+                Spacer()
+
+                if let badgeCount, badgeCount > 0 {
+                    Text("\(badgeCount)")
+                        .font(theme.typography.labelSmall)
+                        .foregroundStyle(theme.colors.textInverse)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(theme.colors.accent, in: Capsule())
+                }
+            }
+            .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textPrimary)
+            .padding(.horizontal, theme.spacing.sm)
+            .padding(.vertical, theme.spacing.xxs)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isSelected ? theme.colors.accentMuted : Color.clear,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+    }
+
+    private var bottomBar: some View {
+        HStack(spacing: theme.spacing.md) {
             SettingsLink {
                 Image(systemName: "gearshape")
+                    .font(.system(size: 17))
             }
             .buttonStyle(.borderless)
             .help("Settings")
             .accessibilityLabel("Open Settings")
 
-            Button {
-                onAddAccount()
+            Menu {
+                Button("All Inboxes") {
+                    onSelectUnifiedInbox()
+                }
+
+                if !accounts.isEmpty {
+                    Divider()
+                    ForEach(accounts, id: \.id) { account in
+                        Button {
+                            onSelectAccount(account)
+                        } label: {
+                            if selectedAccount?.id == account.id {
+                                Label(account.email, systemImage: "checkmark")
+                            } else {
+                                Text(account.email)
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+                Button("Add Account") {
+                    onAddAccount()
+                }
+                if let selectedAccount {
+                    Button("Remove \(selectedAccount.email)", role: .destructive) {
+                        accountToRemove = selectedAccount
+                        showRemoveConfirmation = true
+                    }
+                }
             } label: {
-                Image(systemName: "plus")
+                HStack(spacing: theme.spacing.xs) {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 18))
+                    Text(selectedAccount?.email ?? "Accounts")
+                        .font(theme.typography.bodyMedium)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(theme.typography.caption)
+                }
             }
-            .buttonStyle(.borderless)
-            .disabled(isAddingAccount)
-            .help("Add Account")
-            .accessibilityLabel("Add Account")
+            .menuStyle(.borderlessButton)
+            .help("Switch Account")
+            .accessibilityLabel("Switch Account")
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, theme.spacing.md)
+        .padding(.vertical, theme.spacing.sm)
         .background(.bar)
     }
 
-    // MARK: - All Folders Helper
-
-    private var allFolders: [Folder] {
-        folders
-    }
-
-    // MARK: - Unified Inbox
-
-    private var unifiedInboxRow: some View {
-        Button {
-            onSelectUnifiedInbox()
-        } label: {
-            Label("All Inboxes", systemImage: "tray.2")
-        }
-        .font(selectedAccount == nil && selectedFolder == nil ? .body.bold() : .body)
-        .tag("__unified__" as String?)
-        .accessibilityLabel("All Inboxes, unified view")
-    }
-
-    // MARK: - Account Section
-
-    @ViewBuilder
-    private func accountSection(for account: Account) -> some View {
-        let isExpanded = Binding<Bool>(
-            get: { expandedAccounts.contains(account.id) },
-            set: { newValue in
-                if newValue { expandedAccounts.insert(account.id) }
-                else { expandedAccounts.remove(account.id) }
-            }
-        )
-
-        DisclosureGroup(isExpanded: isExpanded) {
-            // System folders
-            let accountFolders = folders.filter { $0.account?.id == account.id }
-            let systemFolders = sortedSystemFolders(from: accountFolders)
-            let customFolders = sortedCustomFolders(from: accountFolders)
-
-            ForEach(systemFolders, id: \.id) { folder in
-                folderRow(folder: folder)
-            }
-
-            // Virtual Outbox
-            outboxRow(for: account)
-
-            // Custom Labels
-            if !customFolders.isEmpty {
-                Section("Labels") {
-                    ForEach(customFolders, id: \.id) { folder in
-                        folderRow(folder: folder)
-                    }
-                }
-            }
-        } label: {
-            HStack {
-                Image(systemName: "person.circle")
-                    .foregroundStyle(selectedAccount?.id == account.id ? Color.accentColor : .secondary)
-                Text(account.email)
-                    .font(selectedAccount?.id == account.id ? .body.bold() : .body)
-                    .lineLimit(1)
-            }
-            .contextMenu {
-                Button(role: .destructive) {
-                    accountToRemove = account
-                    showRemoveConfirmation = true
-                } label: {
-                    Label("Remove Account", systemImage: "trash")
-                }
-            }
+    private func title(for kind: ShortcutKind) -> String {
+        switch kind {
+        case .inbox: return "Inbox"
+        case .starred: return "Starred"
+        case .sent: return "Sent"
+        case .drafts: return "Drafts"
+        case .spam: return "Spam"
+        case .trash: return "Trash"
+        case .outbox: return "Outbox"
         }
     }
 
-    // MARK: - Folder Row
-
-    private func folderRow(folder: Folder) -> some View {
-        Label {
-            HStack {
-                Text(folder.name)
-                    .lineLimit(1)
-                Spacer()
-                if let count = badgeCount(for: folder), count > 0 {
-                    Text("\(count)")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Color.accentColor, in: Capsule())
-                }
-            }
-        } icon: {
-            Image(systemName: iconName(for: folder.folderType))
-        }
-        .tag(folder.id as String?)
-        .accessibilityLabel("\(folder.name)\(badgeLabel(for: folder))")
-    }
-
-    // MARK: - Virtual Outbox Row
-
-    private func outboxRow(for account: Account) -> some View {
-        Label {
-            HStack {
-                Text("Outbox")
-                Spacer()
-                if outboxCount > 0 {
-                    Text("\(outboxCount)")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Color.orange, in: Capsule())
-                }
-            }
-        } icon: {
-            Image(systemName: "tray.and.arrow.up")
-        }
-        .accessibilityLabel("Outbox\(outboxCount > 0 ? ", \(outboxCount) pending" : "")")
-    }
-
-    // MARK: - Sorting
-
-    private static let systemFolderOrder: [FolderType] = [
-        .inbox, .starred, .sent, .drafts, .spam, .trash, .archive
-    ]
-
-    private func sortedSystemFolders(from accountFolders: [Folder]) -> [Folder] {
-        let systemTypes = Set(Self.systemFolderOrder.map(\.rawValue))
-        return accountFolders
-            .filter { systemTypes.contains($0.folderType) }
-            .sorted { lhs, rhs in
-                let li = Self.systemFolderOrder.firstIndex(where: { $0.rawValue == lhs.folderType }) ?? Int.max
-                let ri = Self.systemFolderOrder.firstIndex(where: { $0.rawValue == rhs.folderType }) ?? Int.max
-                return li < ri
-            }
-    }
-
-    private func sortedCustomFolders(from accountFolders: [Folder]) -> [Folder] {
-        accountFolders
-            .filter { $0.folderType == FolderType.custom.rawValue }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    // MARK: - Badges
-
-    private func badgeCount(for folder: Folder) -> Int? {
-        switch FolderType(rawValue: folder.folderType) {
-        case .inbox, .spam:
-            return folder.unreadCount > 0 ? folder.unreadCount : nil
-        case .drafts:
-            return folder.unreadCount > 0 ? folder.unreadCount : nil
-        default:
-            return nil
-        }
-    }
-
-    private func badgeLabel(for folder: Folder) -> String {
-        if let count = badgeCount(for: folder), count > 0 {
-            return ", \(count) unread"
-        }
-        return ""
-    }
-
-    // MARK: - Icons
-
-    private func iconName(for folderType: String) -> String {
-        switch FolderType(rawValue: folderType) {
+    private func iconName(for kind: ShortcutKind) -> String {
+        switch kind {
         case .inbox: return "tray"
         case .starred: return "star"
         case .sent: return "paperplane"
         case .drafts: return "doc.text"
-        case .trash: return "trash"
         case .spam: return "xmark.shield"
-        case .archive: return "archivebox"
-        case .custom: return "folder"
-        case .none: return "folder"
+        case .trash: return "trash"
+        case .outbox: return "tray.and.arrow.up"
         }
+    }
+
+    private func isSelected(kind: ShortcutKind) -> Bool {
+        if kind == .outbox {
+            guard let selectedFolder else { return false }
+            return selectedFolder.name == "Outbox" && FolderType(rawValue: selectedFolder.folderType) == nil
+        }
+
+        guard let selectedFolder else { return false }
+        return selectedFolder.folderType == folderType(for: kind)?.rawValue
+    }
+
+    private func badgeCount(for kind: ShortcutKind) -> Int? {
+        if kind == .outbox {
+            return outboxCount > 0 ? outboxCount : nil
+        }
+        guard let folder = resolvedFolder(for: kind) else { return nil }
+        if folder.unreadCount > 0, kind == .inbox || kind == .spam || kind == .drafts {
+            return folder.unreadCount
+        }
+        return nil
+    }
+
+    private func handleSelection(for kind: ShortcutKind) {
+        if kind == .outbox {
+            onSelectFolder(Folder(name: "Outbox", imapPath: "OUTBOX", folderType: ""))
+            return
+        }
+        guard let folder = resolvedFolder(for: kind) else { return }
+        onSelectFolder(folder)
+    }
+
+    private func folderType(for kind: ShortcutKind) -> FolderType? {
+        switch kind {
+        case .inbox: return .inbox
+        case .starred: return .starred
+        case .sent: return .sent
+        case .drafts: return .drafts
+        case .spam: return .spam
+        case .trash: return .trash
+        case .outbox: return nil
+        }
+    }
+
+    private func resolvedFolder(for kind: ShortcutKind) -> Folder? {
+        guard let type = folderType(for: kind) else { return nil }
+        let filtered = folders.filter { $0.folderType == type.rawValue }
+        if let selectedAccount {
+            return filtered.first(where: { $0.account?.id == selectedAccount.id })
+        }
+        return filtered.first
     }
 }
 #endif

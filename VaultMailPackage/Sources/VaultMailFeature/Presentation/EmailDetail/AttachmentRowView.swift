@@ -31,6 +31,7 @@ struct AttachmentRowView: View {
     @State private var pendingSecurityWarning: String?
     /// Validated local file URL, computed asynchronously to avoid blocking the main thread.
     @State private var validatedFileURL: URL?
+    @Environment(ThemeProvider.self) private var theme
 
     // MARK: - Download State
 
@@ -69,13 +70,13 @@ struct AttachmentRowView: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: theme.spacing.md) {
             fileTypeIcon
             fileInfo
             Spacer()
             actionButtons
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, theme.spacing.chipVertical)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
@@ -129,8 +130,8 @@ struct AttachmentRowView: View {
 
     private var fileTypeIcon: some View {
         Image(systemName: fileIcon)
-            .font(.title3)
-            .foregroundStyle(.secondary)
+            .font(theme.typography.titleSmall)
+            .foregroundStyle(theme.colors.textSecondary)
             .frame(width: 28, height: 28)
             .accessibilityHidden(true)
     }
@@ -138,20 +139,20 @@ struct AttachmentRowView: View {
     // MARK: - File Info
 
     private var fileInfo: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: theme.spacing.xxs) {
             Text(attachment.filename)
-                .font(.subheadline)
+                .font(theme.typography.bodyMedium)
                 .lineLimit(1)
 
-            HStack(spacing: 4) {
+            HStack(spacing: theme.spacing.xs) {
                 Text(formattedSize)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
 
                 if case .error(let message) = downloadState {
                     Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.destructive)
                         .lineLimit(1)
                 }
             }
@@ -168,14 +169,14 @@ struct AttachmentRowView: View {
                 initiateDownload()
             } label: {
                 Image(systemName: "arrow.down.circle")
-                    .font(.title3)
-                    .foregroundStyle(.tint)
+                    .font(theme.typography.titleSmall)
+                    .foregroundStyle(theme.colors.accent)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Download \(attachment.filename)")
 
         case .downloading:
-            HStack(spacing: 8) {
+            HStack(spacing: theme.spacing.sm) {
                 // TODO: V1 stub — use determinate ProgressView(value:total:) when
                 // real download with progress reporting is wired (FR-ED-03 requires
                 // determinate progress when sizeBytes is known). Wire
@@ -186,15 +187,15 @@ struct AttachmentRowView: View {
                     cancelDownload()
                 } label: {
                     Image(systemName: "xmark.circle")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(theme.typography.bodyMedium)
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Cancel download")
             }
 
         case .downloaded:
-            HStack(spacing: 8) {
+            HStack(spacing: theme.spacing.sm) {
                 #if os(macOS)
                 // Save attachment to disk via NSSavePanel
                 Button {
@@ -203,8 +204,8 @@ struct AttachmentRowView: View {
                     }
                 } label: {
                     Image(systemName: "arrow.down.to.line")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
+                        .font(theme.typography.bodyMedium)
+                        .foregroundStyle(theme.colors.accent)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Save \(attachment.filename)")
@@ -223,8 +224,8 @@ struct AttachmentRowView: View {
                     }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.subheadline)
-                        .foregroundStyle(.tint)
+                        .font(theme.typography.bodyMedium)
+                        .foregroundStyle(theme.colors.accent)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Share \(attachment.filename)")
@@ -236,8 +237,8 @@ struct AttachmentRowView: View {
                 initiateDownload()
             } label: {
                 Image(systemName: "arrow.clockwise.circle")
-                    .font(.title3)
-                    .foregroundStyle(.tint)
+                    .font(theme.typography.titleSmall)
+                    .foregroundStyle(theme.colors.accent)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Retry download")
@@ -399,14 +400,15 @@ import AppKit
 /// the share picker appears next to the button rather than at the window center.
 private struct SharePickerButton: View {
     let fileURL: URL?
+    @Environment(ThemeProvider.self) private var theme
 
     var body: some View {
         Button {
             // Action handled by the overlay's NSView tap
         } label: {
             Image(systemName: "square.and.arrow.up")
-                .font(.subheadline)
-                .foregroundStyle(.tint)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.accent)
         }
         .buttonStyle(.plain)
         .help("Share")
@@ -466,6 +468,7 @@ private final class SharePickerNSView: NSView {
         )
     }
     .environment(NetworkMonitor())
+    .environment(ThemeProvider())
 }
 
 #Preview("Downloaded") {
@@ -486,6 +489,7 @@ private final class SharePickerNSView: NSView {
         )
     }
     .environment(NetworkMonitor())
+    .environment(ThemeProvider())
 }
 
 #Preview("Multiple Attachments") {
@@ -507,6 +511,7 @@ private final class SharePickerNSView: NSView {
         }
     }
     .environment(NetworkMonitor())
+    .environment(ThemeProvider())
 }
 #endif
 

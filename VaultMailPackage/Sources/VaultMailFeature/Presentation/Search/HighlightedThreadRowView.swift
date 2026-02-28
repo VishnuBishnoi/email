@@ -9,6 +9,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-SEARCH-03, AC-S-04 (highlight matching terms)
 struct HighlightedThreadRowView: View {
+    @Environment(ThemeProvider.self) private var theme
     let thread: VaultMailFeature.Thread
     let highlightedSubject: String
     let highlightedSnippet: String
@@ -61,7 +62,7 @@ struct HighlightedThreadRowView: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: theme.spacing.listRowSpacing) {
             if isMultiSelectMode {
                 selectCheckbox
             }
@@ -75,7 +76,7 @@ struct HighlightedThreadRowView: View {
 
             contentStack
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, theme.spacing.chipVertical)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
     }
@@ -84,8 +85,8 @@ struct HighlightedThreadRowView: View {
 
     private var selectCheckbox: some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.title3)
-            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+            .font(theme.typography.titleLarge)
+            .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
             .accessibilityLabel(isSelected ? "Selected" : "Not selected")
     }
 
@@ -93,9 +94,9 @@ struct HighlightedThreadRowView: View {
 
     private var unreadDot: some View {
         Circle()
-            .fill(isUnread ? Color.blue : Color.clear)
+            .fill(isUnread ? theme.colors.unreadDot : Color.clear)
             .frame(width: 6, height: 6)
-            .padding(.top, 8)
+            .padding(.top, theme.spacing.sm)
             .accessibilityHidden(true)
     }
 
@@ -113,15 +114,15 @@ struct HighlightedThreadRowView: View {
     private var senderRow: some View {
         HStack {
             Text(senderText)
-                .font(.subheadline)
+                .font(theme.typography.bodyMedium)
                 .fontWeight(isUnread ? .bold : .regular)
                 .lineLimit(1)
 
             Spacer()
 
             Text(timestampText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textSecondary)
         }
     }
 
@@ -129,7 +130,7 @@ struct HighlightedThreadRowView: View {
     private var subjectRow: some View {
         HStack {
             highlightedText(highlightedSubject, fallback: thread.subject)
-                .font(.subheadline)
+                .font(theme.typography.bodyMedium)
                 .fontWeight(isUnread ? .semibold : .regular)
                 .lineLimit(1)
 
@@ -137,8 +138,8 @@ struct HighlightedThreadRowView: View {
 
             if thread.isStarred {
                 Image(systemName: "star.fill")
-                    .font(.caption)
-                    .foregroundStyle(.yellow)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.starred)
                     .accessibilityHidden(true)
             }
         }
@@ -149,25 +150,25 @@ struct HighlightedThreadRowView: View {
         HStack {
             if isSpam {
                 Label("Spam", systemImage: "exclamationmark.shield.fill")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.red, in: RoundedRectangle(cornerRadius: 4))
+                    .font(theme.typography.labelSmall.bold())
+                    .foregroundStyle(theme.colors.textInverse)
+                    .padding(.horizontal, theme.spacing.chipVertical)
+                    .padding(.vertical, theme.spacing.xxs)
+                    .background(theme.colors.destructive, in: RoundedRectangle(cornerRadius: 4))
                     .accessibilityLabel("Flagged as spam")
             }
 
             highlightedText(highlightedSnippet, fallback: thread.snippet ?? "")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
                 .lineLimit(1)
 
             Spacer()
 
             if hasAttachments {
                 Image(systemName: "paperclip")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
                     .accessibilityHidden(true)
             }
 
@@ -205,8 +206,8 @@ struct HighlightedThreadRowView: View {
                 // Append highlighted text
                 let matchedText = String(remaining[remaining.startIndex..<closeRange.lowerBound])
                 var highlighted = AttributedString(matchedText)
-                highlighted.font = .subheadline.bold()
-                highlighted.foregroundColor = .accentColor
+                highlighted.font = theme.typography.bodyMedium.bold()
+                highlighted.foregroundColor = theme.colors.accent
                 result.append(highlighted)
                 remaining = remaining[closeRange.upperBound...]
             } else {
@@ -236,8 +237,8 @@ struct HighlightedThreadRowView: View {
         for word in queryWords {
             var searchRange = result.startIndex..<result.endIndex
             while let range = result[searchRange].range(of: String(word), options: .caseInsensitive) {
-                result[range].font = .subheadline.bold()
-                result[range].foregroundColor = .accentColor
+                result[range].font = theme.typography.bodyMedium.bold()
+                result[range].foregroundColor = theme.colors.accent
                 if range.upperBound < result.endIndex {
                     searchRange = range.upperBound..<result.endIndex
                 } else {

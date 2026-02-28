@@ -11,6 +11,7 @@ struct StorageSettingsView: View {
     let manageAccounts: ManageAccountsUseCaseProtocol
 
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -27,13 +28,13 @@ struct StorageSettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                         Text("Calculating storage…")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.colors.textSecondary)
                     }
                 }
             } else if let error = errorMessage {
                 Section {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.colors.destructive)
                     Button("Retry") {
                         Task { await loadStorage() }
                     }
@@ -47,8 +48,8 @@ struct StorageSettingsView: View {
                     }
                     if info.exceedsWarningThreshold {
                         Label("Total storage exceeds 5 GB", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.callout)
+                            .foregroundStyle(theme.colors.warning)
+                            .font(theme.typography.bodyMedium)
                     }
                 }
 
@@ -63,8 +64,8 @@ struct StorageSettingsView: View {
 
                         if accountInfo.exceedsWarningThreshold {
                             Label("Account storage exceeds 2 GB", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .font(.callout)
+                                .foregroundStyle(theme.colors.warning)
+                                .font(theme.typography.bodyMedium)
                         }
                     }
                 }
@@ -73,7 +74,7 @@ struct StorageSettingsView: View {
                 if info.accounts.isEmpty {
                     Section {
                         Text("No accounts configured.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.colors.textSecondary)
                     }
                 }
             }

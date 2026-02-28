@@ -8,27 +8,29 @@ import SwiftUI
 ///
 /// Spec ref: Email Composer FR-COMP-03
 struct SmartReplyChipView: View {
+    @Environment(ThemeProvider.self) private var theme
+
     let replies: [String]
     let onSelect: (String) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: theme.spacing.sm) {
                 ForEach(replies, id: \.self) { reply in
                     Button {
                         onSelect(reply)
                     } label: {
                         Text(reply)
-                            .font(.subheadline)
+                            .font(theme.typography.bodyMedium)
                             .lineLimit(1)
                     }
                     .buttonStyle(.bordered)
-                    .tint(.accentColor)
+                    .tint(theme.colors.accent)
                     .accessibilityLabel("Smart reply: \(reply)")
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, theme.spacing.lg)
+            .padding(.vertical, theme.spacing.sm)
         }
     }
 }
@@ -40,6 +42,7 @@ struct SmartReplyChipView: View {
         replies: ["Thanks!", "Sounds good!", "I'll take a look."],
         onSelect: { _ in }
     )
+    .environment(ThemeProvider())
 }
 
 #Preview("Single Suggestion") {
@@ -47,4 +50,5 @@ struct SmartReplyChipView: View {
         replies: ["Got it, thanks!"],
         onSelect: { _ in }
     )
+    .environment(ThemeProvider())
 }

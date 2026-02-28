@@ -189,6 +189,7 @@ public enum HTMLSanitizer {
         <head>\
         <meta charset="utf-8">\
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">\
+        <meta name="color-scheme" content="light">\
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src \(imgSourcePolicy);">\
         <style>\
         *{box-sizing:border-box;max-width:100vw!important;}\
@@ -199,12 +200,15 @@ public enum HTMLSanitizer {
         min-width:0!important;\
         -webkit-text-size-adjust:none;\
         overflow-x:hidden;\
+        background:#ffffff!important;\
+        color:#1a1a1a!important;\
         }\
         body{\
         font-size:\(sizeString)pt;\
         font-family:-apple-system,system-ui,sans-serif;\
         line-height:1.5;\
         color:#1a1a1a;\
+        background:#ffffff;\
         word-wrap:break-word;\
         overflow-wrap:break-word;\
         padding:0 2px;\

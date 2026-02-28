@@ -11,24 +11,26 @@ struct OnboardingSecurityStep: View {
     @Binding var appLockEnabled: Bool
     let onNext: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: theme.spacing.xl) {
             Spacer()
 
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 60))
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.colors.accent)
                 .accessibilityHidden(true)
 
             Text("Protect your data")
-                .font(.title2.bold())
+                .font(theme.typography.displaySmall)
 
             Text("We recommend these steps to keep your email secure.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
 
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: theme.spacing.lg) {
                 SecurityRecommendationRow(
                     icon: "faceid",
                     text: "Enable device passcode and biometric authentication"
@@ -61,7 +63,7 @@ struct OnboardingSecurityStep: View {
             // Optional app lock toggle (FR-OB-01 step 3)
             Toggle("Enable App Lock", isOn: $appLockEnabled)
                 .padding(.horizontal)
-                .tint(.accentColor)
+                .tint(theme.colors.accent)
 
             Spacer()
 
@@ -71,7 +73,7 @@ struct OnboardingSecurityStep: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, theme.spacing.xxxl)
         .padding(.bottom, 40)
     }
 }
@@ -81,15 +83,18 @@ struct SecurityRecommendationRow: View {
     let icon: String
     let text: String
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: theme.spacing.md) {
             Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(.tint)
+                .font(theme.typography.titleLarge)
+                .foregroundStyle(theme.colors.accent)
                 .frame(width: 28)
                 .accessibilityHidden(true)
             Text(text)
-                .font(.body)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textPrimary)
         }
         .accessibilityElement(children: .combine)
     }
@@ -100,4 +105,5 @@ struct SecurityRecommendationRow: View {
     OnboardingSecurityStep(appLockEnabled: $appLock) {
         // Next
     }
+    .environment(ThemeProvider())
 }

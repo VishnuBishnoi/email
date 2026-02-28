@@ -9,15 +9,10 @@ struct AvatarView: View {
     let participants: [Participant]
     var accountColor: Color? = nil
 
+    @Environment(ThemeProvider.self) private var theme
+
     // MARK: - Constants
 
-    private static let avatarColors: [Color] = [
-        .blue, .green, .orange, .purple, .pink,
-        .red, .teal, .indigo, .mint, .cyan
-    ]
-
-    private static let singleDiameter: CGFloat = 40
-    private static let stackedDiameter: CGFloat = 30
     private static let accountDotSize: CGFloat = 8
     private static let stackOffset: CGFloat = 12
 
@@ -46,11 +41,11 @@ struct AvatarView: View {
         let email = participant?.email ?? ""
         let brandInfo = BrandIconProvider.brand(for: email)
         let initials = brandInfo?.initial ?? Self.initials(for: participant)
-        let color = brandInfo?.color ?? Self.color(for: email)
+        let color = brandInfo?.color ?? Self.color(for: email, palette: theme.colors.avatarPalette)
 
         return CachedFaviconView(
             email: email,
-            diameter: Self.singleDiameter,
+            diameter: theme.spacing.avatarSize,
             fallbackColor: color,
             initials: initials,
             initialsFontSize: nil
@@ -68,24 +63,24 @@ struct AvatarView: View {
             smallAvatar(for: participants[0])
                 .offset(x: -Self.stackOffset / 2, y: -Self.stackOffset / 2)
         }
-        .frame(width: Self.singleDiameter, height: Self.singleDiameter)
+        .frame(width: theme.spacing.avatarSize, height: theme.spacing.avatarSize)
     }
 
     private func smallAvatar(for participant: Participant) -> some View {
         let brandInfo = BrandIconProvider.brand(for: participant.email)
         let initials = brandInfo?.initial ?? Self.initials(for: participant)
-        let color = brandInfo?.color ?? Self.color(for: participant.email)
+        let color = brandInfo?.color ?? Self.color(for: participant.email, palette: theme.colors.avatarPalette)
 
         return CachedFaviconView(
             email: participant.email,
-            diameter: Self.stackedDiameter,
+            diameter: theme.spacing.avatarSizeSmall,
             fallbackColor: color,
             initials: initials,
             initialsFontSize: 11
         )
         .overlay {
             Circle()
-                .stroke(.background, lineWidth: 1.5)
+                .stroke(theme.colors.background, lineWidth: 1.5)
         }
     }
 
@@ -99,7 +94,7 @@ struct AvatarView: View {
                 .frame(width: Self.accountDotSize, height: Self.accountDotSize)
                 .overlay {
                     Circle()
-                        .stroke(.background, lineWidth: 1)
+                        .stroke(theme.colors.background, lineWidth: 1)
                 }
         }
     }
@@ -107,12 +102,12 @@ struct AvatarView: View {
     // MARK: - Helpers
 
     /// Deterministic color derived from email address hash.
-    static func color(for email: String) -> Color {
-        guard !email.isEmpty else { return avatarColors[0] }
+    static func color(for email: String, palette: [Color] = ThemeColorFactory.avatarPalette) -> Color {
+        guard !email.isEmpty else { return palette[0] }
         // Use a stable hash instead of hashValue (which may vary across runs)
         let hash = email.utf8.reduce(0) { ($0 &+ Int($1)) &* 31 }
-        let index = abs(hash) % avatarColors.count
-        return avatarColors[index]
+        let index = abs(hash) % palette.count
+        return palette[index]
     }
 
     /// Extract initials from a participant.
@@ -147,6 +142,7 @@ struct AvatarView: View {
             Participant(name: "John Smith", email: "john@example.com")
         ]
     )
+    .environment(ThemeProvider())
     .padding()
 }
 
@@ -157,6 +153,7 @@ struct AvatarView: View {
             Participant(name: "Bob Jones", email: "bob@example.com")
         ]
     )
+    .environment(ThemeProvider())
     .padding()
 }
 
@@ -166,6 +163,7 @@ struct AvatarView: View {
             Participant(name: nil, email: "support@company.io")
         ]
     )
+    .environment(ThemeProvider())
     .padding()
 }
 
@@ -176,10 +174,12 @@ struct AvatarView: View {
         ],
         accountColor: .blue
     )
+    .environment(ThemeProvider())
     .padding()
 }
 
 #Preview("No Participants") {
     AvatarView(participants: [])
+        .environment(ThemeProvider())
         .padding()
 }

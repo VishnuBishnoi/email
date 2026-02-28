@@ -7,6 +7,7 @@ import SwiftUI
 ///
 /// Spec ref: NOTIF-23
 struct NotificationSettingsView: View {
+    @Environment(ThemeProvider.self) private var theme
     let accounts: [Account]
 
     var body: some View {

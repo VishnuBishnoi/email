@@ -1,6 +1,7 @@
 #if os(macOS)
 import SwiftUI
 import SwiftData
+import OSLog
 
 /// Root macOS view using NavigationSplitView for a native three-pane layout.
 ///
@@ -11,6 +12,8 @@ import SwiftData
 @MainActor
 public struct MacOSMainView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(NotificationSyncCoordinator.self) private var notificationCoordinator
 
@@ -109,17 +112,23 @@ public struct MacOSMainView: View {
 
     // Pagination
     @State private var paginationCursor: Date? = nil
+    @State private var paginationAnchorCursor: Date? = nil
     @State private var hasMorePages = false
     @State private var isLoadingMore = false
+    @State private var reachedServerHistoryBoundary = false
+    @State private var syncStatusText: String? = nil
+    @State private var paginationError = false
 
     // Sync
     @State private var isSyncing = false
     @State private var syncTask: Task<Void, Never>?
-    @State private var idleTask: Task<Void, Never>?
+    @State private var idleTasks: [String: Task<Void, Never>] = [:]
 
     // Search
     @State private var searchText = ""
     @State private var isSearchActive = false
+    @State private var searchThreads: [VaultMailFeature.Thread] = []
+    @State private var isSearchLoading = false
 
     // Compose sheet
     @State private var composerMode: ComposerMode? = nil
@@ -138,6 +147,7 @@ public struct MacOSMainView: View {
 
     // Menu bar command state (FR-MAC-07)
     @State private var commandState = MacCommandState()
+    private let paginationLog = Logger(subsystem: "com.vaultmail.mac", category: "Pagination")
 
     // MARK: - View State Enum
 
@@ -189,168 +199,269 @@ public struct MacOSMainView: View {
         return AvatarView.color(for: thread.accountId)
     }
 
+    private var displayThreads: [VaultMailFeature.Thread] {
+        if isSearchActive {
+            return searchThreads
+        }
+        return threads
+    }
+
+    private var isCatchUpEligibleContext: Bool {
+        guard let folder = selectedFolder else { return false }
+        guard selectedAccount != nil else { return false }
+        guard !isOutboxSelected && !isSearchActive else { return false }
+        return MacPaginationRuleEngine.isSyncableFolder(folderType: folder.folderType, imapPath: folder.imapPath)
+    }
+
+    private var shouldShowServerCatchUpSentinel: Bool {
+        isCatchUpEligibleContext && !reachedServerHistoryBoundary
+    }
+
     // MARK: - Body
 
     public var body: some View {
+        applyThemeModifiers(
+            to: applyInteractionModifiers(
+                to: applyBaseModifiers(to: splitView)
+            )
+        )
+    }
+
+    private func applyBaseModifiers<Content: View>(to view: Content) -> some View {
+        view
+            .navigationSplitViewStyle(.balanced)
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search emails")
+            .toolbar { macToolbarContent }
+            .focusedValue(\.macCommandState, commandState)
+            .environment(undoSendManager)
+            .sheet(item: $composerMode) { mode in
+                composerSheet(for: mode)
+            }
+            .sheet(isPresented: $showProviderSelection) {
+                addAccountSheetContent
+            }
+            .task {
+                await initialLoad()
+            }
+    }
+
+    private func applyInteractionModifiers<Content: View>(to view: Content) -> some View {
+        view
+            .onChange(of: selectedCategory) {
+                resetPaginationState()
+                Task { await reloadThreads() }
+            }
+            .onChange(of: selectedAccount?.id) { _, _ in
+                // Keep IDLE bound to the actively selected account.
+                guard !isSyncing else { return }
+                startIDLEMonitor()
+            }
+            .onChange(of: selectedFolder?.id) { _, _ in
+                // Keep IDLE bound to the actively selected folder.
+                guard !isSyncing else { return }
+                startIDLEMonitor()
+            }
+            .onChange(of: searchText) { _, value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                isSearchActive = !trimmed.isEmpty
+                if !trimmed.isEmpty {
+                    resetPaginationState()
+                }
+                if trimmed.isEmpty {
+                    searchThreads = []
+                    isSearchLoading = false
+                }
+            }
+            .onChange(of: selectedThreadID) {
+                updateCommandState()
+            }
+            .onChange(of: notificationCoordinator.pendingThreadNavigation) { _, threadId in
+                // Deep link: select thread when user taps a notification (NOTIF-17)
+                if let threadId {
+                    notificationCoordinator.pendingThreadNavigation = nil
+                    selectedThreadID = threadId
+                }
+            }
+            .onDisappear {
+                stopIDLEMonitor()
+                syncTask?.cancel()
+            }
+            .task(id: SearchDebounceTrigger(text: searchText, selectedFolderId: selectedFolder?.id, selectedAccountId: selectedAccount?.id)) {
+                let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                await performSearch()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AppConstants.accountsDidChangeNotification)) { _ in
+                Task { await refreshAfterAccountChange() }
+            }
+    }
+
+    private func applyThemeModifiers<Content: View>(to view: Content) -> some View {
+        view
+            .preferredColorScheme(settings.colorScheme)
+            .tint(theme.colors.accent)
+            .dynamicTypeSize(settings.fontSize.dynamicTypeSize)
+            .onAppear {
+                theme.colorScheme = colorScheme
+                theme.fontScale = settings.fontSize.scale
+            }
+            .onChange(of: colorScheme) { _, newValue in
+                theme.colorScheme = newValue
+            }
+            .onChange(of: settings.fontSize) { _, newValue in
+                theme.fontScale = newValue.scale
+            }
+    }
+
+    private var splitView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            // SIDEBAR
-            SidebarView(
-                accounts: accounts,
-                folders: allFolders,
-                selectedAccount: $selectedAccount,
-                selectedFolder: $selectedFolder,
-                unreadCounts: unreadCounts,
-                outboxCount: outboxEmails.count,
-                onSelectUnifiedInbox: {
-                    selectedAccount = nil
-                    selectedFolder = nil
-                    selectedCategory = nil
-                    selectedThreadID = nil
-                    selectedThreadIDs.removeAll()
-                    Task { await reloadThreads() }
-                },
-                onSelectAccount: { account in
-                    selectedAccount = account
-                    selectedCategory = nil
-                    selectedThreadID = nil
-                    selectedThreadIDs.removeAll()
-                    Task { await switchToAccount(account) }
-                },
-                onSelectFolder: { folder in
-                    selectFolder(folder)
-                },
-                onAddAccount: {
-                    Task { await addAccountFromSidebar() }
-                },
-                onRemoveAccount: { account in
-                    Task { await removeAccountFromSidebar(account) }
-                }
-            )
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+            sidebarColumn
         } content: {
-            // CONTENT — Thread List
-            MacThreadListContentView(
-                viewState: viewState,
-                threads: threads,
-                selectedThreadID: $selectedThreadID,
-                selectedThreadIDs: $selectedThreadIDs,
-                selectedCategory: $selectedCategory,
-                unreadCounts: unreadCounts,
-                showCategoryTabs: showCategoryTabs,
-                isOutboxSelected: isOutboxSelected,
-                outboxEmails: outboxEmails,
-                hasMorePages: hasMorePages,
-                isLoadingMore: isLoadingMore,
-                isSyncing: isSyncing,
-                errorMessage: errorMessage,
-                accountColorProvider: accountColor,
-                onLoadMore: { Task { await loadMoreThreads() } },
-                onArchive: { thread in Task { await archiveThread(thread) } },
-                onDelete: { thread in Task { await deleteThread(thread) } },
-                onToggleRead: { thread in Task { await toggleRead(thread) } },
-                onToggleStar: { thread in Task { await toggleStar(thread) } },
-                onMoveToFolder: { thread in /* show move sheet */ },
-                onReply: { threadId in
-                    let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
-                    composerMode = .reply(email: ComposerEmailContext(
-                        emailId: threadId, accountId: accountId, threadId: threadId,
-                        messageId: "", fromAddress: "", subject: ""
-                    ))
-                },
-                onReplyAll: { threadId in
-                    let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
-                    composerMode = .replyAll(email: ComposerEmailContext(
-                        emailId: threadId, accountId: accountId, threadId: threadId,
-                        messageId: "", fromAddress: "", subject: ""
-                    ))
-                },
-                onForward: { threadId in
-                    let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
-                    composerMode = .forward(email: ComposerEmailContext(
-                        emailId: threadId, accountId: accountId, threadId: threadId,
-                        messageId: "", fromAddress: "", subject: ""
-                    ))
-                }
-            )
-            .navigationTitle(navigationTitle)
-            .navigationSplitViewColumnWidth(min: 280, ideal: 340)
+            threadListColumn
         } detail: {
-            // DETAIL — Email Detail or Placeholder
-            if let threadId = selectedThreadID {
-                EmailDetailView(
-                    threadId: threadId,
-                    fetchEmailDetail: fetchEmailDetail,
-                    markRead: markRead,
-                    manageThreadActions: manageThreadActions,
-                    downloadAttachment: downloadAttachment,
-                    summarizeThread: summarizeThread,
-                    smartReply: smartReply,
-                    composeEmail: composeEmail,
-                    queryContacts: queryContacts,
-                    accounts: accounts
-                )
-            } else if selectedThreadIDs.count > 1 {
-                multiSelectPlaceholder
-            } else {
-                noSelectionPlaceholder
+            detailColumn
+        }
+    }
+
+    private var sidebarColumn: some View {
+        SidebarView(
+            accounts: accounts,
+            folders: allFolders,
+            selectedAccount: $selectedAccount,
+            selectedFolder: $selectedFolder,
+            unreadCounts: unreadCounts,
+            outboxCount: outboxEmails.count,
+            onSelectUnifiedInbox: {
+                selectedAccount = nil
+                selectedFolder = nil
+                selectedCategory = nil
+                selectedThreadID = nil
+                selectedThreadIDs.removeAll()
+                resetPaginationState()
+                Task { await reloadThreads() }
+            },
+            onSelectAccount: { account in
+                selectedAccount = account
+                selectedCategory = nil
+                selectedThreadID = nil
+                selectedThreadIDs.removeAll()
+                resetPaginationState()
+                Task { await switchToAccount(account) }
+            },
+            onSelectFolder: { folder in
+                selectFolder(folder)
+            },
+            onAddAccount: {
+                Task { await addAccountFromSidebar() }
+            },
+            onRemoveAccount: { account in
+                Task { await removeAccountFromSidebar(account) }
             }
+        )
+        .navigationSplitViewColumnWidth(min: 150, ideal: 200)
+    }
+
+    private var threadListColumn: some View {
+        MacThreadListContentView(
+            viewState: viewState,
+            threads: displayThreads,
+            selectedThreadID: $selectedThreadID,
+            selectedThreadIDs: $selectedThreadIDs,
+            selectedCategory: $selectedCategory,
+            unreadCounts: unreadCounts,
+            showCategoryTabs: showCategoryTabs,
+            isOutboxSelected: isOutboxSelected,
+            outboxEmails: outboxEmails,
+            hasMorePages: hasMorePages,
+            shouldShowServerCatchUpSentinel: shouldShowServerCatchUpSentinel,
+            isLoadingMore: isLoadingMore,
+            syncStatusText: syncStatusText,
+            paginationError: paginationError,
+            isSyncing: isSyncing,
+            errorMessage: errorMessage,
+            searchQuery: searchText,
+            isSearching: isSearchLoading,
+            accountColorProvider: accountColor,
+            onLoadMore: { Task { await loadMoreThreads() } },
+            onArchive: { thread in Task { await archiveThread(thread) } },
+            onDelete: { thread in Task { await deleteThread(thread) } },
+            onToggleRead: { thread in Task { await toggleRead(thread) } },
+            onToggleStar: { thread in Task { await toggleStar(thread) } },
+            onMoveToFolder: { _ in /* show move sheet */ },
+            onReply: { threadId in
+                let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
+                composerMode = .reply(email: ComposerEmailContext(
+                    emailId: threadId, accountId: accountId, threadId: threadId,
+                    messageId: "", fromAddress: "", subject: ""
+                ))
+            },
+            onReplyAll: { threadId in
+                let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
+                composerMode = .replyAll(email: ComposerEmailContext(
+                    emailId: threadId, accountId: accountId, threadId: threadId,
+                    messageId: "", fromAddress: "", subject: ""
+                ))
+            },
+            onForward: { threadId in
+                let accountId = selectedAccount?.id ?? accounts.first?.id ?? ""
+                composerMode = .forward(email: ComposerEmailContext(
+                    emailId: threadId, accountId: accountId, threadId: threadId,
+                    messageId: "", fromAddress: "", subject: ""
+                ))
+            }
+        )
+        .navigationTitle(navigationTitle)
+        .navigationSplitViewColumnWidth(min: 280, ideal: 340)
+    }
+
+    @ViewBuilder
+    private var detailColumn: some View {
+        if let threadId = selectedThreadID {
+            EmailDetailView(
+                threadId: threadId,
+                fetchEmailDetail: fetchEmailDetail,
+                markRead: markRead,
+                manageThreadActions: manageThreadActions,
+                downloadAttachment: downloadAttachment,
+                summarizeThread: summarizeThread,
+                smartReply: smartReply,
+                composeEmail: composeEmail,
+                queryContacts: queryContacts,
+                accounts: accounts
+            )
+        } else if selectedThreadIDs.count > 1 {
+            multiSelectPlaceholder
+        } else {
+            noSelectionPlaceholder
         }
-        .navigationSplitViewStyle(.balanced)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search emails")
-        .toolbar { macToolbarContent }
-        .focusedValue(\.macCommandState, commandState)
-        .environment(undoSendManager)
-        .sheet(item: $composerMode) { mode in
-            composerSheet(for: mode)
-        }
-        .sheet(isPresented: $showProviderSelection) {
-            if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
-                MacAddAccountView(
-                    manageAccounts: manageAccounts,
-                    connectionTestUseCase: connTest,
-                    providerDiscovery: discovery,
-                    onAccountAdded: { newAccount in
-                        showProviderSelection = false
-                        Task {
-                            accounts = (try? await manageAccounts.getAccounts()) ?? accounts
-                            // Sync new account
-                            isSyncing = true
-                            syncTask?.cancel()
-                            syncTask = Task {
-                                defer { isSyncing = false; syncTask = nil }
-                                await syncSingleAccount(newAccount.id, isSelected: selectedAccount?.id == newAccount.id)
-                            }
-                            NotificationCenter.default.post(name: AppConstants.accountsDidChangeNotification, object: nil)
+    }
+
+    @ViewBuilder
+    private var addAccountSheetContent: some View {
+        if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
+            MacAddAccountView(
+                manageAccounts: manageAccounts,
+                connectionTestUseCase: connTest,
+                providerDiscovery: discovery,
+                onAccountAdded: { newAccount in
+                    showProviderSelection = false
+                    Task {
+                        accounts = (try? await manageAccounts.getAccounts()) ?? accounts
+                        // Sync new account
+                        isSyncing = true
+                        syncTask?.cancel()
+                        syncTask = Task {
+                            defer { isSyncing = false; syncTask = nil }
+                            await syncSingleAccount(newAccount.id, isSelected: selectedAccount?.id == newAccount.id)
                         }
-                    },
-                    onCancel: { showProviderSelection = false }
-                )
-            }
+                        NotificationCenter.default.post(name: AppConstants.accountsDidChangeNotification, object: nil)
+                    }
+                },
+                onCancel: { showProviderSelection = false }
+            )
         }
-        .task {
-            await initialLoad()
-        }
-        .onChange(of: selectedCategory) {
-            Task { await reloadThreads() }
-        }
-        .onChange(of: selectedThreadID) {
-            updateCommandState()
-        }
-        .onChange(of: notificationCoordinator.pendingThreadNavigation) { _, threadId in
-            // Deep link: select thread when user taps a notification (NOTIF-17)
-            if let threadId {
-                notificationCoordinator.pendingThreadNavigation = nil
-                selectedThreadID = threadId
-            }
-        }
-        .onDisappear {
-            idleTask?.cancel()
-            syncTask?.cancel()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AppConstants.accountsDidChangeNotification)) { _ in
-            Task { await refreshAfterAccountChange() }
-        }
-        .preferredColorScheme(settings.colorScheme)
     }
 
     // MARK: - Placeholders
@@ -424,20 +535,7 @@ public struct MacOSMainView: View {
 
             Button {
                 syncTask?.cancel()
-                syncTask = Task {
-                    isSyncing = true
-                    defer { isSyncing = false; syncTask = nil }
-                    guard let accountId = selectedAccount?.id else { return }
-                    let syncedEmails = (try? await syncEmails.syncAccountInboxFirst(accountId: accountId, onInboxSynced: { _ in
-                        await loadThreadsAndCounts()
-                    })) ?? []
-                    await loadThreadsAndCounts()
-                    // Notify notification coordinator about manual sync emails (NOTIF-03)
-                    await notificationCoordinator.didSyncNewEmails(
-                        syncedEmails,
-                        fromBackground: false
-                    )
-                }
+                syncTask = Task { await performManualSync() }
             } label: {
                 Label("Sync", systemImage: "arrow.clockwise")
             }
@@ -530,15 +628,45 @@ public struct MacOSMainView: View {
 
         commandState.onSync = {
             syncTask?.cancel()
-            syncTask = Task {
-                isSyncing = true
-                defer { isSyncing = false; syncTask = nil }
-                guard let accountId = selectedAccount?.id else { return }
-                _ = try? await syncEmails.syncAccountInboxFirst(accountId: accountId, onInboxSynced: { _ in
-                    await loadThreadsAndCounts()
-                })
-                await loadThreadsAndCounts()
+            syncTask = Task { await performManualSync() }
+        }
+    }
+
+    private func performManualSync() async {
+        isSyncing = true
+        defer { isSyncing = false; syncTask = nil }
+
+        do {
+            var allSyncedEmails: [Email] = []
+            if let accountId = selectedAccount?.id {
+                let syncedEmails = try await syncEmails.syncAccountInboxFirst(
+                    accountId: accountId,
+                    onInboxSynced: { _ in
+                        await loadThreadsAndCounts()
+                    }
+                )
+                allSyncedEmails.append(contentsOf: syncedEmails)
+            } else {
+                for account in accounts where account.isActive {
+                    let result = try await syncEmails.syncAccount(
+                        accountId: account.id,
+                        options: .full
+                    )
+                    allSyncedEmails.append(contentsOf: result.newEmails)
+                }
             }
+
+            runAIClassification(for: allSyncedEmails)
+            await loadThreadsAndCounts()
+            await notificationCoordinator.didSyncNewEmails(
+                allSyncedEmails,
+                fromBackground: false
+            )
+        } catch is CancellationError {
+            // cancelled
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = "Sync failed: \(error.localizedDescription)"
         }
     }
 
@@ -573,6 +701,8 @@ public struct MacOSMainView: View {
                 hasLoaded = true
                 return
             }
+
+            _ = await notificationCoordinator.requestAuthorization()
 
             // Load folders for ALL accounts so the sidebar shows every folder tree
             var combined: [Folder] = []
@@ -645,6 +775,7 @@ public struct MacOSMainView: View {
                 }
                 await loadThreadsAndCounts()
             }
+            runAIClassification(for: syncedEmails)
             // Mark first launch complete so subsequent syncs can deliver notifications.
             // The initial sync emails are suppressed to avoid flooding on first open.
             notificationCoordinator.markFirstLaunchComplete()
@@ -738,6 +869,7 @@ public struct MacOSMainView: View {
         threads = []
         paginationCursor = nil
         hasMorePages = false
+        resetPaginationState()
         selectedThreadID = nil
         selectedThreadIDs.removeAll()
         await loadThreadsAndCounts()
@@ -763,8 +895,12 @@ public struct MacOSMainView: View {
                 counts = try await fetchThreads.fetchUnreadCountsUnified()
             }
 
-            threads = page.threads
+            threads = uniqueByThreadId(page.threads)
+            if !isSearchActive {
+                searchThreads = []
+            }
             paginationCursor = page.nextCursor
+            paginationAnchorCursor = page.nextCursor ?? page.threads.compactMap(\.latestDate).min()
             hasMorePages = page.hasMore
             unreadCounts = counts
             viewState = threads.isEmpty ? (selectedCategory != nil ? .emptyFiltered : .empty) : .loaded
@@ -779,33 +915,132 @@ public struct MacOSMainView: View {
     }
 
     private func loadMoreThreads() async {
-        guard hasMorePages, !isLoadingMore else { return }
+        guard !isLoadingMore else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
+        if !hasMorePages {
+            await loadOlderFromServer()
+            return
+        }
+        await appendNextLocalPage()
+        // If local DB pagination just ended, continue with server catch-up
+        // without waiting for a second sentinel appearance.
+        if !hasMorePages {
+            await loadOlderFromServer()
+        }
+    }
+
+    private func loadOlderFromServer() async {
+        guard MacPaginationRuleEngine.shouldAttemptCatchUp(
+            hasMorePages: hasMorePages,
+            isUnifiedMode: selectedAccount == nil,
+            isSearchActive: isSearchActive,
+            hasSelectedFolder: selectedFolder != nil,
+            isOutboxSelected: isOutboxSelected,
+            folderType: selectedFolder?.folderType,
+            folderImapPath: selectedFolder?.imapPath
+        ) else { return }
+        guard let account = selectedAccount, let folder = selectedFolder else { return }
+
+        syncStatusText = "Syncing older mail..."
+
+        do {
+            let result = try await syncEmails.syncFolder(
+                accountId: account.id,
+                folderId: folder.id,
+                options: .catchUp
+            )
+            let anyNewEmails = !result.newEmails.isEmpty
+            let anyPaused = folder.catchUpStatus == SyncCatchUpStatus.paused.rawValue
+
+            guard anyNewEmails else {
+                syncStatusText = anyPaused ? "Catch-up paused" : nil
+                reachedServerHistoryBoundary = true
+                return
+            }
+
+            reachedServerHistoryBoundary = false
+            paginationError = false
+            await appendNextLocalPage()
+            syncStatusText = nil
+        } catch {
+            paginationError = true
+            syncStatusText = nil
+            paginationLog.error("catchUp failed error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func appendNextLocalPage() async {
         do {
             let page: ThreadPage
+            let previousCursor = paginationCursor
+            let oldestLoadedDate = threads.compactMap(\.latestDate).min()
+            let effectiveCursor = paginationCursor ?? oldestLoadedDate ?? paginationAnchorCursor
+            if paginationCursor == nil, !threads.isEmpty, oldestLoadedDate == nil, paginationAnchorCursor == nil {
+                paginationError = true
+                paginationLog.error("appendNextLocalPage aborted: no valid date cursor for non-empty thread list")
+                return
+            }
             if let account = selectedAccount, let folder = selectedFolder {
                 page = try await fetchThreads.fetchThreads(
-                    accountId: account.id, folderId: folder.id,
-                    category: selectedCategory, cursor: paginationCursor,
+                    accountId: account.id,
+                    folderId: folder.id,
+                    category: selectedCategory,
+                    cursor: effectiveCursor,
                     pageSize: AppConstants.threadListPageSize
                 )
             } else {
                 page = try await fetchThreads.fetchUnifiedThreads(
-                    category: selectedCategory, folderType: selectedFolder?.folderType,
-                    cursor: paginationCursor, pageSize: AppConstants.threadListPageSize
+                    category: selectedCategory,
+                    folderType: selectedFolder?.folderType,
+                    cursor: effectiveCursor,
+                    pageSize: AppConstants.threadListPageSize
                 )
             }
-            threads.append(contentsOf: page.threads)
+
+            if !page.threads.isEmpty {
+                var seen = Set(threads.map(\.id))
+                let uniqueNewThreads = page.threads.filter { seen.insert($0.id).inserted }
+                threads.append(contentsOf: uniqueNewThreads)
+                // Safety: if backend returns duplicate-only rows with unchanged cursor,
+                // don't stay in local-pagination spinner forever.
+                if uniqueNewThreads.isEmpty && page.hasMore && page.nextCursor == previousCursor {
+                    hasMorePages = false
+                    paginationLog.warning(
+                        "appendNextLocalPage duplicate-only page; forcing hasMorePages=false nextCursor=\(String(describing: page.nextCursor), privacy: .public)"
+                    )
+                }
+            }
+            if !isSearchActive {
+                searchThreads = []
+            }
+            if let pageMinDate = page.threads.compactMap(\.latestDate).min() {
+                if let anchor = paginationAnchorCursor {
+                    paginationAnchorCursor = min(anchor, pageMinDate)
+                } else {
+                    paginationAnchorCursor = pageMinDate
+                }
+            }
+            if let nextCursor = page.nextCursor {
+                if let anchor = paginationAnchorCursor {
+                    paginationAnchorCursor = min(anchor, nextCursor)
+                } else {
+                    paginationAnchorCursor = nextCursor
+                }
+            }
             paginationCursor = page.nextCursor
             hasMorePages = page.hasMore
+            reachedServerHistoryBoundary = !page.hasMore && page.threads.isEmpty
+            paginationError = false
         } catch {
-            // Silently fail pagination on macOS — user can scroll again to retry
+            paginationError = true
+            paginationLog.error("appendNextLocalPage failed error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
     private func switchToAccount(_ account: Account) async {
         do {
+            resetPaginationState()
             let freshFolders = try await fetchThreads.fetchFolders(accountId: account.id)
             folders = freshFolders
             allFolders = allFolders.filter { $0.account?.id != account.id } + freshFolders
@@ -821,6 +1056,10 @@ public struct MacOSMainView: View {
         if let currentFolder = selectedFolder {
             categoryPerFolder[currentFolder.id] = selectedCategory
         }
+        if folder.name != "Outbox", let folderAccount = folder.account {
+            selectedAccount = folderAccount
+        }
+        resetPaginationState()
         selectedFolder = folder
         selectedThreadID = nil
         selectedThreadIDs.removeAll()
@@ -845,6 +1084,23 @@ public struct MacOSMainView: View {
         } catch {
             viewState = .error(error.localizedDescription)
         }
+    }
+
+    private func resetPaginationState() {
+        reachedServerHistoryBoundary = false
+        syncStatusText = nil
+        paginationError = false
+        paginationAnchorCursor = nil
+    }
+
+    private func uniqueByThreadId(_ input: [VaultMailFeature.Thread]) -> [VaultMailFeature.Thread] {
+        var seen = Set<String>()
+        var output: [VaultMailFeature.Thread] = []
+        output.reserveCapacity(input.count)
+        for thread in input where seen.insert(thread.id).inserted {
+            output.append(thread)
+        }
+        return output
     }
 
     // MARK: - Thread Actions
@@ -876,6 +1132,9 @@ public struct MacOSMainView: View {
     private func toggleRead(_ thread: VaultMailFeature.Thread) async {
         do {
             try await manageThreadActions.toggleReadStatus(threadId: thread.id)
+            if thread.unreadCount > 0 {
+                await notificationCoordinator.didMarkThreadRead(threadId: thread.id)
+            }
             await loadThreadsAndCounts()
         } catch {
             errorMessage = "Couldn't update read status."
@@ -909,35 +1168,53 @@ public struct MacOSMainView: View {
     // MARK: - IDLE Monitor
 
     private func startIDLEMonitor() {
-        idleTask?.cancel()
-        guard let monitor = idleMonitor,
-              let accountId = selectedAccount?.id,
-              let folderPath = selectedFolder?.imapPath else { return }
+        stopIDLEMonitor()
+        guard let monitor = idleMonitor else { return }
 
-        idleTask = Task {
-            var retryDelay: Duration = .seconds(2)
-            while !Task.isCancelled {
-                let stream = monitor.monitor(accountId: accountId, folderImapPath: folderPath)
-                for await event in stream {
-                    guard !Task.isCancelled else { break }
-                    if case .newMail = event {
-                        if let folderId = selectedFolder?.id {
-                            let syncedEmails = (try? await syncEmails.syncFolder(accountId: accountId, folderId: folderId)) ?? []
-                            await loadThreadsAndCounts()
-                            // Notify notification coordinator about IDLE-delivered emails (NOTIF-03)
+        let monitoredAccounts = accounts.filter { $0.isActive }
+        for account in monitoredAccounts {
+            idleTasks[account.id] = Task {
+                var retryDelay: Duration = .seconds(2)
+                while !Task.isCancelled {
+                    let inbox = allFolders.first {
+                        $0.account?.id == account.id && $0.folderType == FolderType.inbox.rawValue
+                    }
+                    guard let inbox else { return }
+
+                    let stream = monitor.monitor(accountId: account.id, folderImapPath: inbox.imapPath)
+                    for await event in stream {
+                        guard !Task.isCancelled else { break }
+                        if case .newMail = event {
+                            let result = try? await syncEmails.syncFolder(
+                                accountId: account.id,
+                                folderId: inbox.id,
+                                options: .incremental
+                            )
+                            let syncedEmails = result?.newEmails ?? []
+                            runAIClassification(for: syncedEmails)
+                            if selectedAccount?.id == account.id {
+                                await loadThreadsAndCounts()
+                            }
                             await notificationCoordinator.didSyncNewEmails(
                                 syncedEmails,
                                 fromBackground: false
                             )
+                            retryDelay = .seconds(2)
                         }
-                        retryDelay = .seconds(2)
                     }
+                    guard !Task.isCancelled else { break }
+                    try? await Task.sleep(for: retryDelay)
+                    retryDelay = min(retryDelay * 2, .seconds(30))
                 }
-                guard !Task.isCancelled else { break }
-                try? await Task.sleep(for: retryDelay)
-                retryDelay = min(retryDelay * 2, .seconds(30))
             }
         }
+    }
+
+    private func stopIDLEMonitor() {
+        for task in idleTasks.values {
+            task.cancel()
+        }
+        idleTasks.removeAll()
     }
 
     // MARK: - Sidebar Account Actions
@@ -1029,5 +1306,148 @@ public struct MacOSMainView: View {
             break
         }
     }
+
+    // MARK: - Search
+
+    private func performSearch() async {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            isSearchActive = false
+            isSearchLoading = false
+            searchThreads = []
+            return
+        }
+
+        guard let searchUseCase else {
+            isSearchActive = true
+            isSearchLoading = false
+            searchThreads = []
+            return
+        }
+
+        isSearchActive = true
+        isSearchLoading = true
+
+        let query = SearchQueryParser.parse(trimmed, scope: .allMail)
+        let engine = await aiEngineResolver?.resolveGenerativeEngine()
+        let results = await searchUseCase.execute(query: query, engine: engine)
+
+        guard !Task.isCancelled else { return }
+
+        var seenThreadIds = Set<String>()
+        var orderedThreadIds: [String] = []
+        for result in results {
+            if seenThreadIds.insert(result.threadId).inserted {
+                orderedThreadIds.append(result.threadId)
+            }
+        }
+
+        let fetchedThreads = fetchThreadsForSearch(ids: orderedThreadIds)
+        let threadMap = Dictionary(uniqueKeysWithValues: fetchedThreads.map { ($0.id, $0) })
+        searchThreads = orderedThreadIds.compactMap { threadMap[$0] }
+
+        // Fallback for stale/empty FTS index: local SwiftData text scan.
+        if searchThreads.isEmpty {
+            let fallbackThreadIds = fetchFallbackThreadIds(query: trimmed)
+            let fallbackThreads = fetchThreadsForSearch(ids: fallbackThreadIds)
+            let fallbackMap = Dictionary(uniqueKeysWithValues: fallbackThreads.map { ($0.id, $0) })
+            searchThreads = fallbackThreadIds.compactMap { fallbackMap[$0] }
+        }
+
+        isSearchLoading = false
+    }
+
+    private func fetchThreadsForSearch(ids: [String]) -> [VaultMailFeature.Thread] {
+        guard !ids.isEmpty else { return [] }
+        let idSet = Set(ids)
+        let descriptor = FetchDescriptor<VaultMailFeature.Thread>(
+            predicate: #Predicate<VaultMailFeature.Thread> { thread in
+                idSet.contains(thread.id)
+            }
+        )
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    private func fetchFallbackThreadIds(query: String) -> [String] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
+
+        let descriptor = FetchDescriptor<Email>()
+        guard let emails = try? modelContext.fetch(descriptor) else { return [] }
+
+        var seen = Set<String>()
+        var ids: [String] = []
+        for email in emails {
+            let haystacks = [
+                email.subject,
+                email.fromAddress,
+                email.fromName ?? "",
+                email.snippet ?? "",
+                email.bodyPlain ?? "",
+            ]
+
+            let matches = haystacks.contains { field in
+                field.lowercased().contains(q)
+            }
+            guard matches else { continue }
+
+            let threadId = email.threadId
+            if seen.insert(threadId).inserted {
+                ids.append(threadId)
+            }
+        }
+        return ids
+    }
+
+    /// Keeps macOS in parity with iOS: synced emails are enqueued for AI
+    /// processing, which also updates search indexes for new content.
+    private func runAIClassification(for syncedEmails: [Email]) {
+        guard let queue = aiProcessingQueue else { return }
+        let sorted = syncedEmails
+            .sorted { ($0.dateReceived ?? .distantPast) < ($1.dateReceived ?? .distantPast) }
+        guard !sorted.isEmpty else { return }
+        queue.enqueue(emails: sorted)
+    }
+}
+
+enum MacPaginationRuleEngine {
+    static func shouldAttemptCatchUp(
+        hasMorePages: Bool,
+        isUnifiedMode: Bool,
+        isSearchActive: Bool,
+        hasSelectedFolder: Bool,
+        isOutboxSelected: Bool,
+        folderType: String?,
+        folderImapPath: String?
+    ) -> Bool {
+        guard !hasMorePages else { return false }
+        guard !isUnifiedMode else { return false }
+        guard !isSearchActive else { return false }
+        guard hasSelectedFolder else { return false }
+        guard !isOutboxSelected else { return false }
+        guard let folderType, let folderImapPath else { return false }
+        return isSyncableFolder(folderType: folderType, imapPath: folderImapPath)
+    }
+
+    static func shouldShowSentinel(
+        hasMorePages: Bool,
+        isCatchUpEligibleContext: Bool,
+        reachedServerHistoryBoundary: Bool
+    ) -> Bool {
+        hasMorePages || (isCatchUpEligibleContext && !reachedServerHistoryBoundary)
+    }
+
+    static func isSyncableFolder(folderType: String, imapPath: String) -> Bool {
+        guard !imapPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return FolderType(rawValue: folderType) != nil
+    }
+}
+
+private struct SearchDebounceTrigger: Equatable {
+    let text: String
+    let selectedFolderId: String?
+    let selectedAccountId: String?
 }
 #endif

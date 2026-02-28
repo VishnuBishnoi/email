@@ -11,6 +11,8 @@ import SwiftUI
 /// Spec ref: FR-AI-CHAT
 struct AIChatView: View {
 
+    @Environment(ThemeProvider.self) private var theme
+
     let engineResolver: AIEngineResolver
 
     // MARK: - State
@@ -47,31 +49,31 @@ struct AIChatView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: theme.spacing.lg) {
             Spacer()
 
             Image(systemName: "sparkles")
                 .font(.system(size: 48))
-                .foregroundStyle(.purple.opacity(0.6))
+                .foregroundStyle(theme.colors.aiAccent.opacity(0.6))
                 .accessibilityHidden(true)
 
             Text("AI Assistant")
-                .font(.title2.bold())
+                .font(theme.typography.displaySmall)
 
             Text("Ask me anything about your emails.\nI run entirely on your device.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, theme.spacing.xxxl)
 
             if !chatModel.engineAvailable {
                 Label(
                     "Download an AI model in Settings to get started.",
                     systemImage: "exclamationmark.triangle"
                 )
-                .font(.callout)
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 24)
+                .font(theme.typography.labelLarge)
+                .foregroundStyle(theme.colors.warning)
+                .padding(.horizontal, theme.spacing.xxl)
             }
 
             Spacer()
@@ -86,14 +88,14 @@ struct AIChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: theme.spacing.md) {
                     ForEach(chatModel.messages) { message in
                         ChatBubble(message: message)
                             .id(message.id)
                     }
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 16)
+                .padding(.vertical, theme.spacing.md)
+                .padding(.horizontal, theme.spacing.lg)
             }
             .onChange(of: chatModel.messages.count) {
                 scrollToBottom(proxy: proxy)
@@ -115,13 +117,13 @@ struct AIChatView: View {
     // MARK: - Input Bar
 
     private var inputBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: theme.spacing.md) {
             TextField("Ask about your emails...", text: $inputText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 20))
+                .padding(.horizontal, theme.spacing.md)
+                .padding(.vertical, theme.spacing.sm)
+                .background(theme.colors.surfaceElevated, in: RoundedRectangle(cornerRadius: 20))
                 .disabled(chatModel.isGenerating)
 
             if chatModel.isGenerating {
@@ -130,7 +132,7 @@ struct AIChatView: View {
                 } label: {
                     Image(systemName: "stop.circle.fill")
                         .font(.system(size: 28))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.colors.destructive)
                 }
                 .accessibilityLabel("Stop generating")
             } else {
@@ -139,14 +141,14 @@ struct AIChatView: View {
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 28))
-                        .foregroundStyle(canSend ? .blue : .gray.opacity(0.5))
+                        .foregroundStyle(canSend ? theme.colors.accent : theme.colors.disabled)
                 }
                 .disabled(!canSend)
                 .accessibilityLabel("Send message")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.listRowSpacing)
     }
 
     // MARK: - Computed
@@ -292,6 +294,7 @@ struct ChatMessage: Identifiable, Equatable {
 // MARK: - Chat Bubble
 
 private struct ChatBubble: View {
+    @Environment(ThemeProvider.self) private var theme
     let message: ChatMessage
 
     private var isEmptyAssistant: Bool {
@@ -302,22 +305,22 @@ private struct ChatBubble: View {
         HStack {
             if message.role == .user { Spacer(minLength: 60) }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: theme.spacing.xs) {
                 if isEmptyAssistant {
                     // Typing indicator while waiting for tokens
-                    HStack(spacing: 4) {
+                    HStack(spacing: theme.spacing.xs) {
                         ForEach(0..<3, id: \.self) { _ in
                             Circle()
-                                .fill(Color.secondary.opacity(0.5))
+                                .fill(theme.colors.textSecondary.opacity(0.5))
                                 .frame(width: 6, height: 6)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, theme.spacing.xs)
                     .accessibilityLabel("AI is thinking")
                 } else {
                     Text(message.text)
-                        .font(.body)
-                        .foregroundStyle(message.role == .user ? .white : .primary)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundStyle(message.role == .user ? theme.colors.textInverse : theme.colors.textPrimary)
                         .textSelection(.enabled)
                 }
             }
@@ -325,9 +328,9 @@ private struct ChatBubble: View {
             .padding(.vertical, 10)
             .background(
                 message.role == .user
-                    ? Color.blue
-                    : Color.secondary.opacity(0.15),
-                in: RoundedRectangle(cornerRadius: 16)
+                    ? theme.colors.accent
+                    : theme.colors.surfaceElevated,
+                in: theme.shapes.largeRect
             )
 
             if message.role == .assistant { Spacer(minLength: 60) }

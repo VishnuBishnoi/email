@@ -123,7 +123,12 @@ public final class FetchThreadsUseCase: FetchThreadsUseCaseProtocol {
 
         if results.count > pageSize {
             let pageThreads = Array(results.prefix(pageSize))
-            let nextCursor = pageThreads.last?.latestDate
+            // Cursor pagination requires a concrete date boundary. If every item
+            // in the page is missing latestDate, reporting hasMore=true would
+            // cause callers to loop on the same page forever.
+            guard let nextCursor = pageThreads.compactMap(\.latestDate).min() else {
+                return ThreadPage(threads: pageThreads, nextCursor: nil, hasMore: false)
+            }
             return ThreadPage(threads: pageThreads, nextCursor: nextCursor, hasMore: true)
         } else {
             return ThreadPage(threads: results, nextCursor: nil, hasMore: false)

@@ -25,6 +25,18 @@ public final class SettingsStore {
         didSet { defaults.set(theme.rawValue, forKey: Keys.theme) }
     }
 
+    /// Selected accent theme ID (e.g., "default", "midnight", "forest").
+    /// Orthogonal to `theme` — `theme` controls color scheme, this controls accent palette.
+    /// Spec ref: UI Theming spec FR-TH-05
+    public var selectedThemeId: String {
+        didSet { defaults.set(selectedThemeId, forKey: Keys.selectedThemeId) }
+    }
+
+    /// Global app font size preference.
+    public var fontSize: AppFontSize {
+        didSet { defaults.set(fontSize.rawValue, forKey: Keys.fontSize) }
+    }
+
     /// Computed color scheme for SwiftUI's preferredColorScheme modifier.
     public var colorScheme: ColorScheme? {
         switch theme {
@@ -178,6 +190,8 @@ public final class SettingsStore {
         self.attachmentCacheLimits = defaults.json(forKey: Keys.attachmentCacheLimits) ?? [:]
         self.isOnboardingComplete = defaults.bool(forKey: Keys.isOnboardingComplete)
         self.defaultSendingAccountId = defaults.string(forKey: Keys.defaultSendingAccountId)
+        self.selectedThemeId = defaults.string(forKey: Keys.selectedThemeId) ?? "default"
+        self.fontSize = AppFontSize(rawValue: defaults.string(forKey: Keys.fontSize) ?? "") ?? .medium
     }
 
     // MARK: - Helpers
@@ -245,6 +259,8 @@ public final class SettingsStore {
         blockTrackingPixels = false
         isOnboardingComplete = false
         defaultSendingAccountId = nil
+        selectedThemeId = "default"
+        fontSize = .medium
     }
 
     // MARK: - Constants
@@ -277,6 +293,8 @@ public final class SettingsStore {
         static let blockTrackingPixels = "blockTrackingPixels"
         static let isOnboardingComplete = "isOnboardingComplete"
         static let defaultSendingAccountId = "defaultSendingAccountId"
+        static let selectedThemeId = "selectedThemeId"
+        static let fontSize = "fontSize"
     }
 }
 

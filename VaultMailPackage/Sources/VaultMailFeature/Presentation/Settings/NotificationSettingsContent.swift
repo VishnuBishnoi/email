@@ -8,6 +8,7 @@ import SwiftUI
 /// Spec ref: NOTIF-09, NOTIF-10, NOTIF-11, NOTIF-14, NOTIF-23
 public struct NotificationSettingsContent: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(NotificationSyncCoordinator.self) private var coordinator: NotificationSyncCoordinator?
 
     let accounts: [Account]
@@ -63,7 +64,7 @@ public struct NotificationSettingsContent: View {
                             UIApplication.shared.open(url)
                         }
                     }
-                    .font(.callout)
+                    .font(theme.typography.bodyMedium)
                 }
                 #endif
             }
@@ -90,9 +91,9 @@ public struct NotificationSettingsContent: View {
 
     private var authStatusColor: Color {
         switch authStatus {
-        case .authorized, .provisional: .green
-        case .denied: .orange
-        case .notDetermined: .secondary
+        case .authorized, .provisional: theme.colors.success
+        case .denied: theme.colors.warning
+        case .notDetermined: theme.colors.textSecondary
         }
     }
 
@@ -103,13 +104,20 @@ public struct NotificationSettingsContent: View {
         Section("Accounts") {
             if accounts.isEmpty {
                 Text("No accounts configured.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             } else {
                 ForEach(accounts, id: \.id) { account in
-                    Toggle(account.email, isOn: Binding(
+                    let accountToggleBinding = Binding(
                         get: { settings.notificationsEnabled(for: account.id) },
                         set: { settings.notificationPreferences[account.id] = $0 }
-                    ))
+                    )
+                    Toggle(isOn: accountToggleBinding) {
+                        Text(account.email)
+                            .foregroundStyle(
+                                accountToggleBinding.wrappedValue ? theme.colors.textPrimary : theme.colors.textSecondary
+                            )
+                    }
+                    .tint(theme.colors.accent)
                     .accessibilityLabel("Notifications for \(account.email)")
                 }
             }
@@ -122,10 +130,17 @@ public struct NotificationSettingsContent: View {
     private var categoriesSection: some View {
         Section {
             ForEach(toggleableCategories, id: \.0) { key, label in
-                Toggle(label, isOn: Binding(
+                let categoryToggleBinding = Binding(
                     get: { settings.notificationCategoryEnabled(for: key) },
                     set: { settings.notificationCategoryPreferences[key] = $0 }
-                ))
+                )
+                Toggle(isOn: categoryToggleBinding) {
+                    Text(label)
+                        .foregroundStyle(
+                            categoryToggleBinding.wrappedValue ? theme.colors.textPrimary : theme.colors.textSecondary
+                        )
+                }
+                .tint(theme.colors.accent)
                 .accessibilityLabel("Notifications for \(label) category")
             }
         } header: {
@@ -152,7 +167,7 @@ public struct NotificationSettingsContent: View {
             ForEach(Array(settings.vipContacts).sorted(), id: \.self) { email in
                 HStack {
                     Image(systemName: "star.fill")
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(theme.colors.starred)
                         .accessibilityHidden(true)
                     Text(email)
                 }
@@ -195,16 +210,16 @@ public struct NotificationSettingsContent: View {
         Section {
             if settings.mutedThreadIds.isEmpty {
                 Text("No muted threads.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             } else {
                 ForEach(Array(settings.mutedThreadIds).sorted(), id: \.self) { threadId in
                     HStack {
                         Image(systemName: "bell.slash")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.colors.textSecondary)
                             .accessibilityHidden(true)
                         Text(threadId)
                             .lineLimit(1)
-                            .font(.caption.monospaced())
+                            .font(theme.typography.captionMono)
                     }
                     .swipeActions(edge: .trailing) {
                         Button("Unmute") {
@@ -228,6 +243,7 @@ public struct NotificationSettingsContent: View {
         @Bindable var settings = settings
         Section {
             Toggle("Enable Quiet Hours", isOn: $settings.quietHoursEnabled)
+                .tint(theme.colors.accent)
                 .accessibilityLabel("Quiet hours")
 
             if settings.quietHoursEnabled {
@@ -296,8 +312,8 @@ public struct NotificationSettingsContent: View {
 
             if let debugStatus {
                 Text(debugStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
         } header: {
             Text("Debug")

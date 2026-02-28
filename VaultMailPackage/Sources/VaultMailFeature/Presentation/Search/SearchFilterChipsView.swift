@@ -7,11 +7,12 @@ import SwiftUI
 ///
 /// Spec ref: FR-SEARCH-02, AC-S-03
 struct SearchFilterChipsView: View {
+    @Environment(ThemeProvider.self) private var theme
     @Binding var filters: SearchFilters
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: theme.spacing.sm) {
                 if let sender = filters.sender {
                     filterChip(
                         label: "From: \(sender)",
@@ -80,18 +81,18 @@ struct SearchFilterChipsView: View {
         onRemove: @escaping () -> Void
     ) -> some View {
         Button(action: onRemove) {
-            HStack(spacing: 4) {
+            HStack(spacing: theme.spacing.xs) {
                 Image(systemName: icon)
-                    .font(.caption2)
+                    .font(theme.typography.labelSmall)
                 Text(label)
-                    .font(.caption)
+                    .font(theme.typography.caption)
                 Image(systemName: "xmark.circle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.labelSmall)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.fill.tertiary, in: Capsule())
+            .padding(.horizontal, theme.spacing.listRowSpacing)
+            .padding(.vertical, theme.spacing.chipVertical)
+            .background(theme.colors.surfaceElevated, in: theme.shapes.capsuleShape)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Filter: \(label)")

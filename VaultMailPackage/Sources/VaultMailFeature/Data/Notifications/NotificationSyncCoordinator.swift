@@ -19,6 +19,12 @@ public final class NotificationSyncCoordinator {
         self.notificationService = notificationService
     }
 
+    /// Requests system notification authorization.
+    @discardableResult
+    public func requestAuthorization() async -> Bool {
+        await notificationService.requestAuthorization()
+    }
+
     /// Called after a sync completes with newly fetched emails.
     public func didSyncNewEmails(_ emails: [Email] = [], fromBackground: Bool) async {
         await notificationService.processNewEmails(emails, fromBackground: fromBackground)

@@ -11,6 +11,8 @@ struct OutboxRowView: View {
     let onRetry: () -> Void
     let onCancel: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     // MARK: - Derived State
 
     private var sendState: SendState {
@@ -35,13 +37,13 @@ struct OutboxRowView: View {
     // MARK: - Body
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: theme.spacing.listRowSpacing) {
             sendStateIndicator
             contentStack
             Spacer()
             actionButton
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, theme.spacing.listRowVertical)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
     }
@@ -53,8 +55,8 @@ struct OutboxRowView: View {
         switch sendState {
         case .queued:
             Image(systemName: "clock")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
         case .sending:
@@ -64,14 +66,14 @@ struct OutboxRowView: View {
                 .accessibilityHidden(true)
         case .failed:
             Image(systemName: "exclamationmark.circle.fill")
-                .font(.body)
-                .foregroundStyle(.red)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.destructive)
                 .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
         case .none, .sent:
             Image(systemName: "paperplane")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textSecondary)
                 .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
         }
@@ -80,7 +82,7 @@ struct OutboxRowView: View {
     // MARK: - Content Stack
 
     private var contentStack: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: theme.spacing.xxs + 1) {
             recipientRow
             subjectRow
             snippetRow
@@ -92,31 +94,31 @@ struct OutboxRowView: View {
     private var recipientRow: some View {
         HStack {
             Text(recipientDisplay)
-                .font(.subheadline)
-                .fontWeight(subjectIsBold ? .bold : .regular)
+                .font(subjectIsBold ? theme.typography.titleSmall : theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textPrimary)
                 .lineLimit(1)
 
             Spacer()
 
             Text(timestampText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.caption)
+                .foregroundStyle(theme.colors.textTertiary)
         }
     }
 
     /// Row 2: subject
     private var subjectRow: some View {
         Text(email.subject)
-            .font(.subheadline)
-            .fontWeight(subjectIsBold ? .semibold : .regular)
+            .font(subjectIsBold ? theme.typography.bodyMediumEmphasized : theme.typography.bodyMedium)
+            .foregroundStyle(theme.colors.textPrimary)
             .lineLimit(1)
     }
 
     /// Row 3: snippet
     private var snippetRow: some View {
         Text(email.snippet ?? "")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .font(theme.typography.bodySmall)
+            .foregroundStyle(theme.colors.textTertiary)
             .lineLimit(1)
     }
 
@@ -126,18 +128,18 @@ struct OutboxRowView: View {
             switch sendState {
             case .queued:
                 Text("Queued")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             case .sending:
                 Text("Sending...")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             case .failed:
                 Text("Failed to send")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.colors.destructive)
             case .none, .sent:
                 EmptyView()
             }
         }
-        .font(.caption)
+        .font(theme.typography.caption)
     }
 
     // MARK: - Action Button
@@ -150,8 +152,8 @@ struct OutboxRowView: View {
                 onRetry()
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.body)
-                    .foregroundStyle(Color.accentColor)
+                    .font(theme.typography.bodyLarge)
+                    .foregroundStyle(theme.colors.accent)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Retry sending")
@@ -160,8 +162,8 @@ struct OutboxRowView: View {
                 onCancel()
             } label: {
                 Image(systemName: "xmark.circle")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyLarge)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Cancel sending")
@@ -242,6 +244,7 @@ struct OutboxRowView: View {
         )
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }
 
 #Preview("Sending Email") {
@@ -264,6 +267,7 @@ struct OutboxRowView: View {
         )
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }
 
 #Preview("Failed Email") {
@@ -287,6 +291,7 @@ struct OutboxRowView: View {
         )
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }
 
 #Preview("Multiple Outbox States") {
@@ -330,4 +335,5 @@ struct OutboxRowView: View {
         OutboxRowView(email: failed, onRetry: { }, onCancel: { })
     }
     .listStyle(.plain)
+    .environment(ThemeProvider())
 }

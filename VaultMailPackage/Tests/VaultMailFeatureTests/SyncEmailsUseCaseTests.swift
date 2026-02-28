@@ -290,6 +290,61 @@ struct SyncEmailsUseCaseTests {
         #expect(emailRepo.saveThreadCallCount >= 1)
     }
 
+    @Test("syncAccount uses searchAllUIDs on first folder sync")
+    func syncAccountFirstSyncUsesSearchAllUIDs() async throws {
+        let account = createAccount()
+        try await addAccountToRepo(account)
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 0
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 0))
+        mockIMAPClient.searchAllUIDsResult = .success([])
+
+        let useCase = sut
+        try await useCase.syncAccount(accountId: account.id)
+
+        #expect(mockIMAPClient.searchAllUIDsCallCount == 1)
+        #expect(mockIMAPClient.searchUIDsCallCount == 0)
+    }
+
+    @Test("syncAccount uses incremental searchUIDs after first sync")
+    func syncAccountIncrementalUsesSearchUIDs() async throws {
+        let account = createAccount()
+        try await addAccountToRepo(account)
+
+        // Pre-create inbox folder with prior sync state
+        let existingFolder = createInboxFolder(accountId: account.id)
+        existingFolder.account = account
+        existingFolder.lastSyncDate = Date().addingTimeInterval(-3600)
+        emailRepo.folders.append(existingFolder)
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 0
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 0))
+        mockIMAPClient.searchUIDsResult = .success([])
+        mockIMAPClient.searchAllUIDsResult = .success([])
+
+        let useCase = sut
+        try await useCase.syncAccount(accountId: account.id)
+
+        #expect(mockIMAPClient.searchUIDsCallCount == 1)
+        #expect(mockIMAPClient.searchAllUIDsCallCount == 0)
+    }
+
     @Test("syncAccount filters out already-synced UIDs")
     func syncAccountFiltersSyncedUIDs() async throws {
         let account = createAccount()
@@ -734,6 +789,55 @@ struct SyncEmailsUseCaseTests {
         #expect(callbackInvoked, "onInboxSynced callback should be invoked")
         #expect(callbackEmailCount >= 1, "Callback should receive inbox emails")
         #expect(!allEmails.isEmpty, "Should return synced emails")
+    }
+
+    @Test("syncAccountInboxFirst performs headers-only inbox-first pass and processes inbox first")
+    func syncAccountInboxFirstUsesHeadersOnlyForRemainingFolders() async throws {
+        let account = createAccount()
+        try await addAccountToRepo(account)
+
+        mockIMAPClient.listFoldersResult = .success([
+            IMAPFolderInfo(
+                name: "Inbox",
+                imapPath: "INBOX",
+                attributes: ["\\Inbox"],
+                uidValidity: 1,
+                messageCount: 1
+            ),
+            IMAPFolderInfo(
+                name: "Sent Mail",
+                imapPath: "[Gmail]/Sent Mail",
+                attributes: ["\\Sent"],
+                uidValidity: 2,
+                messageCount: 1
+            )
+        ])
+        mockIMAPClient.selectFolderResult = .success((uidValidity: 1, messageCount: 1))
+        mockIMAPClient.searchAllUIDsResult = .success([1001])
+        mockIMAPClient.fetchHeadersResult = .success([
+            IMAPEmailHeader(
+                uid: 1001,
+                messageId: "<headers-only-test@gmail.com>",
+                inReplyTo: nil,
+                references: nil,
+                from: "sender@example.com",
+                to: ["test@gmail.com"],
+                subject: "Headers only",
+                date: Date(),
+                flags: []
+            )
+        ])
+        mockIMAPClient.fetchBodiesResult = .success([
+            IMAPEmailBody(uid: 1001, plainText: "Body", htmlText: nil)
+        ])
+
+        let useCase = sut
+        _ = try await useCase.syncAccountInboxFirst(accountId: account.id) { _ in }
+
+        #expect(mockIMAPClient.selectedPaths.count >= 2)
+        #expect(mockIMAPClient.selectedPaths.first == "INBOX")
+        #expect(mockIMAPClient.fetchHeadersCallCount == 2)
+        #expect(mockIMAPClient.fetchBodiesCallCount == 0)
     }
 
     @Test("syncAccountInboxFirst callback receives inbox emails")

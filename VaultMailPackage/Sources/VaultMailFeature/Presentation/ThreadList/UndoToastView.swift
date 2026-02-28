@@ -12,25 +12,26 @@ struct UndoToastView: View {
     let onUndo: () -> Void
     let onDismiss: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
         HStack {
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textPrimary)
 
             Spacer()
 
             Button(action: onUndo) {
                 Text("Undo")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(theme.typography.titleSmall)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.md)
+        .background(.thinMaterial, in: theme.shapes.mediumRect)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.bottom, theme.spacing.lg)
         .frame(maxWidth: .infinity)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .task {
@@ -55,6 +56,7 @@ struct UndoToastView: View {
             onDismiss: {}
         )
     }
+    .environment(ThemeProvider())
 }
 
 #Preview("Undo Toast — Delete") {
@@ -68,6 +70,7 @@ struct UndoToastView: View {
             onDismiss: {}
         )
     }
+    .environment(ThemeProvider())
 }
 
 #Preview("Undo Toast — Move") {
@@ -81,4 +84,5 @@ struct UndoToastView: View {
             onDismiss: {}
         )
     }
+    .environment(ThemeProvider())
 }

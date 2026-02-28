@@ -7,6 +7,8 @@ import SwiftUI
 ///
 /// Spec ref: FR-SEARCH-09, AC-S-10
 struct RecentSearchesView: View {
+    @Environment(ThemeProvider.self) private var theme
+
     let recentSearches: [String]
     let onSelectSearch: (String) -> Void
     let onClearAll: () -> Void
@@ -25,14 +27,14 @@ struct RecentSearchesView: View {
                         Button {
                             onSelectSearch(search)
                         } label: {
-                            HStack(spacing: 8) {
+                            HStack(spacing: theme.spacing.sm) {
                                 Image(systemName: "clock.arrow.circlepath")
-                                    .foregroundStyle(.secondary)
-                                    .font(.subheadline)
+                                    .foregroundStyle(theme.colors.textSecondary)
+                                    .font(theme.typography.bodyMedium)
 
                                 Text(search)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.primary)
+                                    .font(theme.typography.bodyMedium)
+                                    .foregroundStyle(theme.colors.textPrimary)
 
                                 Spacer()
                             }
@@ -49,8 +51,8 @@ struct RecentSearchesView: View {
                         Button("Clear") {
                             onClearAll()
                         }
-                        .font(.caption)
-                        .foregroundStyle(.blue)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.accent)
                         .accessibilityLabel("Clear all recent searches")
                     }
                 }

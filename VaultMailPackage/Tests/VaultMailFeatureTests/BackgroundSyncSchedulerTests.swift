@@ -16,6 +16,28 @@ struct BackgroundSyncSchedulerTests {
         var shouldThrow = false
 
         @discardableResult
+        func syncAccount(accountId: String, options: SyncAccountOptions) async throws -> SyncResult {
+            let emails = try await syncAccount(accountId: accountId)
+            return SyncResult(
+                newEmails: emails,
+                accountOptions: options
+            )
+        }
+
+        @discardableResult
+        func syncFolder(
+            accountId: String,
+            folderId: String,
+            options: SyncFolderOptions
+        ) async throws -> SyncResult {
+            let emails = try await syncFolder(accountId: accountId, folderId: folderId)
+            return SyncResult(
+                newEmails: emails,
+                folderOptions: options
+            )
+        }
+
+        @discardableResult
         func syncAccount(accountId: String) async throws -> [Email] {
             syncAccountCallCount += 1
             lastSyncedAccountId = accountId

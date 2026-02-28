@@ -13,6 +13,8 @@ struct AISummaryView: View {
     let isAvailable: Bool
     let onRequestSummary: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     // MARK: - Body
 
     var body: some View {
@@ -31,11 +33,10 @@ struct AISummaryView: View {
     private var requestButton: some View {
         Button(action: onRequestSummary) {
             Label("Summarize with AI", systemImage: "sparkles")
-                .font(.subheadline)
-                .fontWeight(.medium)
+                .font(theme.typography.bodyMediumEmphasized)
         }
         .buttonStyle(.bordered)
-        .tint(.accentColor)
+        .tint(theme.colors.accent)
         .accessibilityLabel("Summarize this conversation with AI")
         .accessibilityHint("Double tap to generate an AI summary")
     }
@@ -43,35 +44,34 @@ struct AISummaryView: View {
     // MARK: - Loading Card
 
     private var loadingCard: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: theme.spacing.md) {
             ProgressView()
             Text("Summarizing…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .background(.thinMaterial, in: theme.shapes.mediumRect)
         .accessibilityLabel("Generating AI summary")
     }
 
     // MARK: - Summary Card
 
     private func summaryCard(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: theme.spacing.sm) {
             Label("AI Summary", systemImage: "sparkles")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.titleSmall)
+                .foregroundStyle(theme.colors.textSecondary)
 
             Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .background(.thinMaterial, in: theme.shapes.mediumRect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("AI-generated thread summary")
         .accessibilityValue(text)
@@ -83,11 +83,13 @@ struct AISummaryView: View {
 #Preview("Request Button") {
     AISummaryView(summary: nil, isLoading: false, isAvailable: true, onRequestSummary: {})
         .padding()
+        .environment(ThemeProvider())
 }
 
 #Preview("Loading") {
     AISummaryView(summary: nil, isLoading: true, isAvailable: true, onRequestSummary: {})
         .padding()
+        .environment(ThemeProvider())
 }
 
 #Preview("Summary Available") {
@@ -98,11 +100,13 @@ struct AISummaryView: View {
         onRequestSummary: {}
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Hidden - No AI") {
     AISummaryView(summary: nil, isLoading: false, isAvailable: false, onRequestSummary: {})
         .padding()
+        .environment(ThemeProvider())
 }
 
 #Preview("Interactive") {
@@ -132,4 +136,5 @@ struct AISummaryView: View {
     }
 
     return InteractivePreview()
+        .environment(ThemeProvider())
 }

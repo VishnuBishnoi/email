@@ -1,9 +1,9 @@
 ---
 title: "Email Sync — Specification"
-version: "1.2.0"
+version: "1.3.0"
 status: locked
 created: 2025-02-07
-updated: 2026-02-07
+updated: 2026-02-27
 authors:
   - Core Team
 reviewers:
@@ -44,11 +44,11 @@ This specification defines email synchronization via IMAP, email sending via SMT
 
 ## 3. Functional Requirements
 
-### FR-SYNC-01: Full Sync
+### FR-SYNC-01: Initial Bootstrap Sync and Full Catch-Up
 
 **Description**
 
-On first account setup, the client **MUST** perform a full sync:
+On first account setup, the client **MUST** run a staged bootstrap sync optimized for fast first paint, then continue full catch-up in background:
 
 1. **Folder discovery**: List all IMAP folders via `LIST "" "*"` and map Gmail special-use attributes to `FolderType` (see Foundation Section 5.3):
    - `\Inbox` → `inbox`
@@ -63,18 +63,49 @@ On first account setup, the client **MUST** perform a full sync:
 
    > **Note — Archive is virtual:** Gmail has no dedicated `[Gmail]/Archive` IMAP folder. "Archiving" in Gmail removes the `\Inbox` label, leaving the email only in `[Gmail]/All Mail`. Since All Mail is not synced (see above), the local "Archive" view is a virtual query: emails that were explicitly archived by the user are tracked via removal of their source-folder `EmailFolder` association. See FR-SYNC-10 Archive Behavior for details.
 
-2. **Email sync**: For each folder, fetch all email headers and bodies whose `INTERNALDATE` falls within the configured sync window (see Account Management FR-ACCT-02; default 30 days). Use IMAP `SEARCH SINCE <date>` to identify matching UIDs.
+2. **Stage B (Inbox bootstrap, blocking for first render)**: Fetch the newest Inbox headers first and render the thread list as soon as the first page is available.
+   - First-render target: **30 Inbox headers**.
+   - This stage **MUST** be headers-only (no body prefetch).
+   - The UI **MUST NOT** wait for other folders before becoming interactive.
 
-   **Cross-folder deduplication**: Before creating a new `Email` entity, the client **MUST** check for an existing `Email` with the same `messageId` (RFC 2822 Message-ID) in the local store. If a match is found, the client **MUST** create only a new `EmailFolder` association linking the existing email to the current folder (and update flags if they differ). If no match is found, the client **MUST** create a new `Email` entity and its `EmailFolder` association. This ensures that emails appearing in multiple Gmail labels (e.g., Inbox + Starred) are stored as a single `Email` with multiple `EmailFolder` join entries.
+3. **Stage C (priority folders, non-blocking)**: Fetch recent headers for remaining folders in background using a capped budget allocator.
+   - Default account bootstrap cap: **500 headers** (background budget, not render gate).
+   - Default split: Inbox 60%, Sent 20%, Others 20%.
+   - Minimum floor: **20 headers** per enabled priority folder to avoid starvation when cap allows.
 
-3. **Body format handling**: For each email, use `FETCH BODYSTRUCTURE` to determine MIME structure:
-   - **MUST** fetch `text/plain` part → store in `Email.bodyPlain`
-   - **MUST** fetch `text/html` part → store in `Email.bodyHTML`
+4. **Stage D (historical catch-up, non-blocking)**: Continue fetching older messages in background until the configured sync window is covered.
+   - Catch-up **MUST** be pausable and resumable.
+   - Catch-up cancellation **MUST** keep persisted progress (no rollback of completed batches).
+
+5. **On-scroll older-mail paging**: If the user scrolls beyond locally available messages, the client **MUST** fetch older headers on demand from the server and append them immediately (without waiting for background catch-up completion).
+   - Local pagination **MUST** be attempted first from persisted storage.
+   - When local pagination is exhausted (`hasMorePages == false`) in a single-account folder view, the client **MUST** trigger backward catch-up paging (`syncFolder(..., options: .catchUp)`).
+   - The client **MUST** continue paging until a server-history boundary or sync-window boundary is reached.
+   - **Context guards**: Catch-up paging **MUST NOT** run and **MUST** return no-op in:
+     - Unified inbox mode (`selectedAccount == nil`)
+     - Outbox or other non-syncable/virtual folders
+     - Active search mode
+   - **UI state reset contract**: When account, folder, or category scope changes, pagination UI state **MUST** reset:
+     - `reachedServerHistoryBoundary = false`
+     - `syncStatusText = nil`
+     - `paginationError = false`
+   - **Pagination sentinel visibility**: The load-more sentinel **MUST** be shown when either:
+     - `hasMorePages == true`, or
+     - Single-account folder context with `reachedServerHistoryBoundary == false`
+
+6. **Cross-folder deduplication**: Before creating a new `Email` entity, the client **MUST** check for an existing email identity in this order:
+   - Primary key: `messageId` (RFC 2822 Message-ID) within the same account.
+   - Fallback canonical key for missing/duplicate Message-ID edge cases (normalized header hash).
+   If a match is found, the client **MUST** create only a new `EmailFolder` association linking the existing email to the current folder (and update flags if they differ). If no match is found, the client **MUST** create a new `Email` entity and its `EmailFolder` association.
+
+7. **Body format handling**: For each email selected for body hydration (detail open, explicit prefetch, or background hydration policy), use `FETCH BODYSTRUCTURE` to determine MIME structure:
+   - **MUST** fetch and persist `text/plain` when available → store in `Email.bodyPlain`
+   - **MUST** fetch and persist `text/html` when available → store in `Email.bodyHTML`
    - If only one format is available, the other field **MUST** be `nil`
    - Inline images within HTML bodies are **not** downloaded during sync (deferred to V2)
    - Maximum email body size: 10 MB. Bodies exceeding this limit **MUST** be truncated with a "message too large" indicator
 
-4. **Attachment metadata**: During header sync, extract attachment metadata (filename, mimeType, sizeBytes) from `BODYSTRUCTURE` and persist as `Attachment` entities with `isDownloaded = false`. Content is not downloaded during sync (see FR-SYNC-08).
+8. **Attachment metadata**: During header sync, extract attachment metadata (filename, mimeType, sizeBytes) from `BODYSTRUCTURE` and persist as `Attachment` entities with `isDownloaded = false`. Content is not downloaded during sync (see FR-SYNC-08).
 
 **Sync Sequence**
 
@@ -89,7 +120,12 @@ sequenceDiagram
     C->>S: LIST "" "*"
     S-->>C: Folder list with attributes
 
-    loop For each folder
+    C->>S: SELECT INBOX
+    C->>S: UID SEARCH SINCE <date-window>
+    C->>S: UID FETCH <newest-capped> (headers only)
+    Note over C: Render first 30 Inbox rows
+
+    loop Background folders
         C->>S: SELECT folder
         S-->>C: OK [UIDVALIDITY xxx]
 
@@ -98,9 +134,6 @@ sequenceDiagram
 
         C->>S: FETCH <UIDs> (ENVELOPE FLAGS BODYSTRUCTURE)
         S-->>C: Headers + flags + structure
-
-        C->>S: FETCH <UIDs> (BODY[1] BODY[2])
-        S-->>C: Body parts (plain + HTML)
     end
 
     C->>S: IDLE
@@ -113,28 +146,39 @@ sequenceDiagram
 - If the sync is interrupted (app killed, crash, network loss), partial progress **MUST** be preserved. See FR-SYNC-02 for checkpoint behavior.
 - Network timeout during fetch **MUST** trigger a retry per FR-SYNC-09 connection management policy.
 
-### FR-SYNC-02: Incremental Sync
+### FR-SYNC-02: Dual-Direction Incremental and Catch-Up Sync
 
 **Description**
 
-The client **MUST** perform incremental sync on app foreground, fetching only changes since the last sync.
+The client **MUST** support two explicit sync directions: forward incremental sync for new arrivals and backward catch-up sync for historical mail.
 
 **Change Detection**
 
-1. **New messages**: `UID FETCH <lastUID+1>:*` to find messages with UIDs greater than the last synced UID.
+1. **Forward incremental (new messages)**: `UID FETCH <forwardCursorUID+1>:*` to find messages with UIDs greater than the highest persisted forward cursor.
 2. **Flag updates**: Compare server flags for known UIDs with local state. Use `FETCH <known-UIDs> (FLAGS)` to detect read/starred changes made on other clients.
 3. **Deletions**: Use `SEARCH ALL` or `UID SEARCH ALL` and compare with local UID set. UIDs present locally but absent on server are deleted locally.
-4. **UIDVALIDITY changes**: If `UIDVALIDITY` returned by `SELECT` differs from stored `Folder.uidValidity`, the client **MUST** discard all local UIDs for that folder and perform a full re-sync of the folder.
+4. **Backward catch-up (historical)**: Fetch messages older than the persisted backfill boundary (`backfillCursorUID`) in deterministic pages to continue history loading.
+5. **UIDVALIDITY changes**: If `UIDVALIDITY` returned by `SELECT` differs from stored `Folder.uidValidity`, the client **MUST** reset both cursors for that folder and restart folder bootstrap.
 
 **Sync State Tracking**
 
-- The client **MUST** track per folder: `lastSyncedUID` (highest UID successfully synced) and `UIDVALIDITY` (stored in `Folder.uidValidity`).
-- `lastSyncedUID` **MUST** be updated progressively — after each batch of emails is persisted, not only at sync completion. This ensures interrupted syncs resume from the last checkpoint.
+- The client **MUST** track per folder:
+  - `forwardCursorUID`: highest UID successfully persisted for forward incremental sync.
+  - `backfillCursorUID`: oldest UID boundary successfully persisted for backward catch-up.
+  - `UIDVALIDITY` (stored in `Folder.uidValidity`).
+- Both cursors **MUST** be updated progressively after each committed batch, not only at sync completion.
 - The IMAP UID for each email within each folder is stored in `EmailFolder.imapUID` (see Foundation Section 5.4).
+
+**Catch-Up Paging State**
+
+- Backward catch-up paging **MUST** keep `backfillCursorUID` monotonic toward older ranges as batches commit.
+- Exhausted catch-up (no new emails returned) **MUST** set a local "history boundary reached" state so repeated scroll events do not trigger redundant network fetches until scope changes.
+- On account/folder/category scope changes, the client **MUST** reset catch-up paging UI state (`reachedServerHistoryBoundary`, `syncStatusText`, `paginationError`) before evaluating further paging/cursor transitions.
 
 **Error Handling**
 
-- If incremental sync fails mid-way, the client **MUST** resume from the last persisted checkpoint (last updated `lastSyncedUID`) on the next sync attempt.
+- If forward incremental fails mid-way, the client **MUST** resume from `forwardCursorUID`.
+- If catch-up fails mid-way, the client **MUST** resume from `backfillCursorUID`.
 - If a single email fails to fetch, the client **MUST** skip it and continue; failed emails **MUST** be retried on the next sync cycle.
 
 ### FR-SYNC-03: Real-Time Updates
@@ -150,6 +194,7 @@ The client **MUST** use IMAP IDLE (RFC 2177) to receive real-time email notifica
 - When the server sends an `EXISTS` response (new message), the client **MUST** break IDLE and trigger an incremental sync of the INBOX.
 - Gmail drops IDLE connections after approximately 29 minutes. The client **MUST** re-issue the IDLE command every 25 minutes to maintain the connection.
 - If the IDLE connection drops unexpectedly, the client **MUST** re-establish it automatically with backoff per FR-SYNC-09.
+- IDLE-triggered incremental sync and catch-up sync **MUST NOT** mutate the same folder concurrently. A per-folder single-writer lock (or equivalent serialized queue) **MUST** enforce this.
 
 **Background Sync (iOS)**
 
@@ -183,15 +228,17 @@ stateDiagram-v2
     TokenRefresh --> Authenticating : New token
     TokenRefresh --> Error : Refresh failed
 
-    SyncingFolders --> SyncingHeaders : Folder list synced
-    SyncingHeaders --> SyncingBodies : Headers synced
-    SyncingBodies --> Indexing : Bodies synced
+    SyncingFolders --> InitialFast : Folder list synced
+    InitialFast --> CatchingUp : Inbox bootstrap complete
+    CatchingUp --> Indexing : Catch-up batch complete
     Indexing --> Idle : Complete
+    CatchingUp --> Paused : User cancels catch-up
+    Paused --> CatchingUp : User resumes
 
     Error --> Idle : Retry scheduled
 
     Idle --> Listening : IMAP IDLE started
-    Listening --> SyncingHeaders : New mail notification
+    Listening --> InitialFast : New mail notification
     Listening --> Idle : Connection lost
 ```
 
@@ -229,6 +276,13 @@ For each synced email, extract:
 - `Message-ID` — unique identifier for this email
 - `In-Reply-To` — the `Message-ID` of the direct parent message
 - `References` — ordered list of `Message-ID`s representing the full ancestry chain
+
+**Dedup Identity Requirement**
+
+Before threading, email identity **MUST** be resolved using the FR-SYNC-01 dedup hierarchy:
+1. `messageId` when valid.
+2. Canonical fallback key when `messageId` is missing or unreliable.
+This prevents false merges/splits in providers or messages with malformed headers.
 
 **Step 2: Reference Graph Construction**
 
@@ -378,9 +432,16 @@ Bidirectional synchronization of email flags between local state and the IMAP se
 
 ### NFR-SYNC-02: Initial Sync Speed
 
-- **Metric**: Time from account setup to thread list displaying (1000 emails, Wi-Fi)
+- **Metric**: Time from account setup completion to initial-window catch-up completion (1000 emails persisted, Wi-Fi)
 - **Target**: < 60 seconds
 - **Hard Limit**: 120 seconds
+- **Interpretation**: This is a **background completion metric** (data completeness), not a first-render metric.
+
+### NFR-SYNC-06: Time to First Inbox
+
+- **Metric**: Time from account setup completion to first Inbox rows visible
+- **Target**: < 3 seconds (P50), < 8 seconds (P95)
+- **Hard Limit**: 10 seconds
 
 ### NFR-SYNC-03: Send Email Time
 
@@ -410,6 +471,10 @@ Bidirectional synchronization of email flags between local state and the IMAP se
 Refer to Foundation spec Section 5 for Email, Folder, EmailFolder, Thread, and Attachment entities. This feature reads/writes all of them plus manages sync state metadata:
 
 - `Folder.uidValidity` — per-folder UIDVALIDITY (Foundation Section 5.4)
+- `Folder.forwardCursorUID` — highest persisted UID for forward incremental sync
+- `Folder.backfillCursorUID` — oldest persisted UID boundary for catch-up sync
+- `Folder.initialFastCompleted` — whether first-render bootstrap is complete
+- `Folder.catchUpStatus` — `idle|running|paused|completed|error`
 - `Folder.lastSyncDate` — timestamp of last successful sync
 - `EmailFolder.imapUID` — per-folder IMAP UID for each email (Foundation Section 5.4)
 - `Email.messageId`, `Email.inReplyTo`, `Email.references` — threading headers (Foundation Section 5.1)
@@ -422,11 +487,11 @@ Refer to Foundation spec Section 5 for Email, Folder, EmailFolder, Thread, and A
 ## 6. Architecture Overview
 
 Refer to Foundation spec Section 6. This feature uses:
-- `SyncEmailsUseCase`, `FetchThreadsUseCase`, `SendEmailUseCase` → `EmailRepositoryProtocol` → `EmailRepositoryImpl`
+- `SyncEmailsUseCase`, `FetchThreadsUseCase`, `ComposeEmailUseCase` → `EmailRepositoryProtocol` → `EmailRepositoryImpl`
 - `EmailRepositoryImpl` → `IMAPClient` + `SMTPClient` + `SwiftDataStore`
 - `IMAPClient` manages connection pooling, IDLE, and all IMAP protocol operations
 - `SMTPClient` manages SMTP connections and MIME message construction
-- `SyncEngine` orchestrates the state machine (FR-SYNC-04) and coordinates IMAP operations
+- `SyncEmailsUseCase` orchestrates the state machine (FR-SYNC-04) and coordinates IMAP operations
 
 ---
 
@@ -468,3 +533,4 @@ Refer to Foundation spec Section 6. This feature uses:
 | 1.0.0 | 2025-02-07 | Core Team | Extracted from monolithic spec v1.2.0 sections 5.2 and 5.5.2 (send behavior). Threading algorithm from v1.2.0 section 5.2.4. |
 | 1.1.0 | 2026-02-07 | Core Team | Review round 1: Added G-XX/NG-XX IDs. Added FR-SYNC-08 (Attachments), FR-SYNC-09 (Connection Management), FR-SYNC-10 (Flag Sync). Expanded FR-SYNC-01 with folder discovery, body format handling, sync sequence diagram, sync window cross-ref. Expanded FR-SYNC-02 with progressive checkpointing, change detection details. Expanded FR-SYNC-03 with IDLE behavior, background refresh details. Expanded FR-SYNC-04 with token refresh cross-ref and Indexing definition. Inlined send queue lifecycle into FR-SYNC-07 (removed Proposal reference). Defined virtual Outbox. Added error handling to all FRs. Added NFR-SYNC-03 (Send Time), NFR-SYNC-04 (Memory), NFR-SYNC-05 (Security). Set NFR-SYNC-01 hard limit to 10s. Resolved all ambiguities. Status → locked. |
 | 1.2.0 | 2026-02-07 | Core Team | Post-lock compliance fixes: PL-01 — aligned Foundation spec to 24h queue age (Foundation v1.4.0). PL-02 — fixed `\Jstrash` typo → `\Junk` (RFC 6154). PL-03 — removed non-existent `[Gmail]/Archive` folder mapping; added virtual archive explanation and local state handling for archive operations. PL-04 — added explicit cross-folder deduplication strategy using `messageId`. |
+| 1.3.0 | 2026-02-27 | Core Team | First-login UX and checkpoint redesign: staged bootstrap sync (first 30 Inbox headers as render gate), non-blocking background catch-up budget, on-scroll older-mail paging, dual cursors (`forwardCursorUID` + `backfillCursorUID`), catch-up pause/resume semantics, IDLE-vs-catch-up single-writer coordination, and dedup fallback canonical key for missing/duplicate Message-ID edge cases. |

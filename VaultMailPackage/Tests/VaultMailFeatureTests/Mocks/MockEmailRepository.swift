@@ -141,6 +141,7 @@ final class MockEmailRepository: EmailRepositoryProtocol {
     var getEmailsByAccountCallCount = 0
     var saveEmailFolderCallCount = 0
     var saveAttachmentCallCount = 0
+    var removeEmailFolderAssociationsCallCount = 0
 
     func getEmailByMessageId(_ messageId: String, accountId: String) async throws -> Email? {
         getEmailByMessageIdCallCount += 1
@@ -164,6 +165,15 @@ final class MockEmailRepository: EmailRepositoryProtocol {
         saveEmailFolderCallCount += 1
         if let error = errorToThrow { throw error }
         emailFolders.append(emailFolder)
+    }
+
+    func removeEmailFolderAssociations(folderId: String) async throws {
+        removeEmailFolderAssociationsCallCount += 1
+        if let error = errorToThrow { throw error }
+        emailFolders.removeAll { $0.folder?.id == folderId }
+        for email in emails {
+            email.emailFolders.removeAll { $0.folder?.id == folderId }
+        }
     }
 
     func saveAttachment(_ attachment: Attachment) async throws {

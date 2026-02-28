@@ -74,6 +74,7 @@ struct HTMLEmailView: UIViewRepresentable {
         let webView = buildWebView(coordinator: context.coordinator)
         context.coordinator.webView = webView
         context.coordinator.lastLoadedHTML = htmlContent
+        context.coordinator.beginLoadingCycle()
         webView.loadHTMLString(htmlContent, baseURL: nil)
         return webView
     }
@@ -85,6 +86,7 @@ struct HTMLEmailView: UIViewRepresentable {
         // unnecessary WKWebView reloads on every SwiftUI re-render).
         if htmlContent != context.coordinator.lastLoadedHTML {
             context.coordinator.lastLoadedHTML = htmlContent
+            context.coordinator.beginLoadingCycle()
             webView.loadHTMLString(htmlContent, baseURL: nil)
         }
     }
@@ -130,6 +132,8 @@ struct HTMLEmailView: UIViewRepresentable {
         var lastLoadedHTML: String?
         weak var webView: WKWebView?
         private var contentHeight: Binding<CGFloat>
+        private var hasReportedLoaded = false
+        private var fallbackRevealTask: Task<Void, Never>?
 
         init(
             onLinkTapped: ((URL) -> Void)?,
@@ -139,6 +143,20 @@ struct HTMLEmailView: UIViewRepresentable {
             self.onLinkTapped = onLinkTapped
             self.contentHeight = contentHeight
             self.onLoaded = onLoaded
+        }
+
+        func beginLoadingCycle() {
+            hasReportedLoaded = false
+            fallbackRevealTask?.cancel()
+            fallbackRevealTask = nil
+        }
+
+        private func markLoadedIfNeeded() {
+            guard !hasReportedLoaded else { return }
+            hasReportedLoaded = true
+            fallbackRevealTask?.cancel()
+            fallbackRevealTask = nil
+            onLoaded?()
         }
 
         // MARK: WKScriptMessageHandler
@@ -157,6 +175,7 @@ struct HTMLEmailView: UIViewRepresentable {
                 if abs(self.contentHeight.wrappedValue - finalHeight) > 1 {
                     self.contentHeight.wrappedValue = finalHeight
                 }
+                self.markLoadedIfNeeded()
             }
         }
 
@@ -192,7 +211,11 @@ struct HTMLEmailView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             installResizeObserver(webView)
-            onLoaded?()
+            fallbackRevealTask?.cancel()
+            fallbackRevealTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                self.markLoadedIfNeeded()
+            }
         }
 
         /// JavaScript that installs a ResizeObserver on the body to notify

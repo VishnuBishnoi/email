@@ -26,6 +26,7 @@ enum SearchViewState: Equatable {
 ///
 /// Spec ref: FR-SEARCH-01, FR-SEARCH-02, FR-SEARCH-09
 struct SearchContentView: View {
+    @Environment(ThemeProvider.self) private var theme
     @Binding var searchText: String
     let viewState: SearchViewState
     @Binding var filters: SearchFilters
@@ -45,21 +46,21 @@ struct SearchContentView: View {
             // Search bar
             searchBar
                 .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .padding(.top, theme.spacing.sm)
+                .padding(.bottom, theme.spacing.xs)
 
             // Scope picker (All Mail / Current Folder)
             if currentFolderName != nil {
                 scopePicker
                     .padding(.horizontal)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, theme.spacing.xs)
             }
 
             // Filter chips (visible when filters or query active)
             if filters.hasActiveFilters || !searchText.isEmpty {
                 SearchFilterChipsView(filters: $filters)
                     .padding(.horizontal)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, theme.spacing.xs)
             }
 
             Divider()
@@ -85,9 +86,7 @@ struct SearchContentView: View {
                 ContentUnavailableView.search(text: searchText)
             }
         }
-        #if os(iOS)
-        .background(Color(.systemBackground))
-        #endif
+        .background(theme.colors.background)
         .onAppear {
             isTextFieldFocused = true
         }
@@ -96,11 +95,11 @@ struct SearchContentView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: theme.spacing.sm) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .font(.body)
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .font(theme.typography.bodyLarge)
 
                 TextField("Search emails", text: $searchText)
                     .focused($isTextFieldFocused)
@@ -117,25 +116,21 @@ struct SearchContentView: View {
                         searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                            .font(.body)
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .font(theme.typography.bodyLarge)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear search text")
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-            #if os(iOS)
-            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-            #else
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-            #endif
+            .padding(.horizontal, theme.spacing.sm)
+            .padding(.vertical, theme.spacing.sm)
+            .background(theme.colors.surfaceElevated, in: theme.shapes.smallRect)
 
             Button("Cancel") {
                 onDismiss()
             }
-            .font(.body)
+            .font(theme.typography.bodyLarge)
             .accessibilityLabel("Cancel search")
         }
     }

@@ -9,6 +9,7 @@ struct AccountSettingsView: View {
     let onAccountRemoved: (Bool) -> Void
 
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     @Environment(\.dismiss) private var dismiss
 
     @State private var displayName: String
@@ -49,7 +50,7 @@ struct AccountSettingsView: View {
                 if !account.isActive {
                     HStack {
                         Label("Account Inactive", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(theme.colors.warning)
                         Spacer()
                         Button("Re-authenticate") {
                             reAuthenticate()
@@ -62,8 +63,8 @@ struct AccountSettingsView: View {
 
                 if let error = reAuthError {
                     Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.destructive)
                 }
             }
 

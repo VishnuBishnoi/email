@@ -11,15 +11,17 @@ struct ErrorToastView: View {
     let message: String
     let onDismiss: () -> Void
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: theme.spacing.listRowSpacing) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(theme.colors.destructive)
                 .accessibilityHidden(true)
 
             Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
+                .font(theme.typography.bodyMedium)
+                .foregroundStyle(theme.colors.textPrimary)
 
             Spacer()
 
@@ -27,20 +29,21 @@ struct ErrorToastView: View {
                 onDismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .bold()
+                    .foregroundStyle(theme.colors.textSecondary)
             }
             .accessibilityLabel("Dismiss error")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.md)
+        .background(.thinMaterial, in: theme.shapes.mediumRect)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(.red.opacity(0.3), lineWidth: 1)
+            theme.shapes.mediumRect
+                .strokeBorder(theme.colors.destructive.opacity(0.3), lineWidth: 1)
         )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.bottom, theme.spacing.lg)
         .frame(maxWidth: .infinity)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .task {
@@ -64,6 +67,7 @@ struct ErrorToastView: View {
             onDismiss: {}
         )
     }
+    .environment(ThemeProvider())
 }
 
 #Preview("Error Toast — Delete Failed") {
@@ -76,4 +80,5 @@ struct ErrorToastView: View {
             onDismiss: {}
         )
     }
+    .environment(ThemeProvider())
 }

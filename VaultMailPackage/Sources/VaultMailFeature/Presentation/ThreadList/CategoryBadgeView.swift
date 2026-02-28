@@ -7,15 +7,39 @@ import SwiftUI
 struct CategoryBadgeView: View {
     let category: AICategory?
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
         if let category, category != .uncategorized {
             Text(category.displayLabel)
-                .font(.caption2)
-                .foregroundStyle(category.badgeForeground)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(category.badgeBackground, in: Capsule())
+                .font(theme.typography.labelSmall)
+                .foregroundStyle(categoryForeground(category))
+                .padding(.horizontal, theme.spacing.chipHorizontal)
+                .padding(.vertical, theme.spacing.xs)
+                .background(categoryBackground(category), in: Capsule())
                 .accessibilityLabel(Text("\(category.displayLabel) category"))
+        }
+    }
+
+    private func categoryForeground(_ category: AICategory) -> Color {
+        switch category {
+        case .primary: theme.colors.categoryPrimary
+        case .social: theme.colors.categorySocial
+        case .promotions: theme.colors.categoryPromotions
+        case .updates: theme.colors.categoryUpdates
+        case .forums: theme.colors.categoryForums
+        case .uncategorized: theme.colors.categoryUncategorized
+        }
+    }
+
+    private func categoryBackground(_ category: AICategory) -> Color {
+        switch category {
+        case .primary: theme.colors.categoryPrimaryMuted
+        case .social: theme.colors.categorySocialMuted
+        case .promotions: theme.colors.categoryPromotionsMuted
+        case .updates: theme.colors.categoryUpdatesMuted
+        case .forums: theme.colors.categoryForumsMuted
+        case .uncategorized: theme.colors.categoryUncategorizedMuted
         }
     }
 }
@@ -34,30 +58,6 @@ extension AICategory {
         case .uncategorized: "Uncategorized"
         }
     }
-
-    /// Background color for the category badge.
-    var badgeBackground: Color {
-        switch self {
-        case .primary: .blue.opacity(0.15)
-        case .social: .green.opacity(0.15)
-        case .promotions: .orange.opacity(0.15)
-        case .updates: .purple.opacity(0.15)
-        case .forums: .teal.opacity(0.15)
-        case .uncategorized: .gray.opacity(0.15)
-        }
-    }
-
-    /// Foreground (text) color for the category badge.
-    var badgeForeground: Color {
-        switch self {
-        case .primary: .blue
-        case .social: .green
-        case .promotions: .orange
-        case .updates: .purple
-        case .forums: .teal
-        case .uncategorized: .gray
-        }
-    }
 }
 
 // MARK: - Previews
@@ -68,15 +68,18 @@ extension AICategory {
             CategoryBadgeView(category: category)
         }
     }
+    .environment(ThemeProvider())
     .padding()
 }
 
 #Preview("Nil Category") {
     CategoryBadgeView(category: nil)
+        .environment(ThemeProvider())
         .padding()
 }
 
 #Preview("Single - Promotions") {
     CategoryBadgeView(category: .promotions)
+        .environment(ThemeProvider())
         .padding()
 }

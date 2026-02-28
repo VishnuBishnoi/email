@@ -17,6 +17,7 @@ import SwiftUI
 ///
 /// Spec ref: FR-OB-01 step 2, FR-ACCT-01, FR-ACCT-03, FR-MPROV-10
 struct OnboardingAccountStep: View {
+    @Environment(ThemeProvider.self) private var theme
     let manageAccounts: ManageAccountsUseCaseProtocol
     @Binding var addedAccounts: [Account]
     var providerDiscovery: ProviderDiscovery?
@@ -33,38 +34,38 @@ struct OnboardingAccountStep: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: theme.spacing.xl) {
             Spacer()
 
             Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(size: 60))
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.colors.accent)
                 .accessibilityHidden(true)
 
             Text(hasMultiProvider ? "Add Email Account" : "Add your Gmail account")
-                .font(.title2.bold())
+                .font(theme.typography.displaySmall)
 
             Text(hasMultiProvider
                 ? "Add one or more email accounts to get started."
                 : "Sign in with Google to access your email securely on this device.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+                .font(theme.typography.bodyLarge)
+                .foregroundStyle(theme.colors.textSecondary)
                 .multilineTextAlignment(.center)
 
             // Added accounts list
             if !addedAccounts.isEmpty {
-                VStack(spacing: 12) {
+                VStack(spacing: theme.spacing.md) {
                     ForEach(addedAccounts, id: \.id) { account in
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(theme.colors.success)
                             Text(account.email)
-                                .font(.body)
+                                .font(theme.typography.bodyLarge)
                             Spacer()
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, theme.spacing.lg)
+                        .padding(.vertical, theme.spacing.listRowSpacing)
+                        .background(theme.colors.surfaceElevated, in: theme.shapes.smallRect)
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel("\(account.email), added successfully")
                     }
@@ -76,11 +77,11 @@ struct OnboardingAccountStep: View {
             if let errorMessage {
                 Label {
                     Text(errorMessage)
-                        .font(.callout)
+                        .font(theme.typography.bodyMedium)
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                 }
-                .foregroundStyle(.red)
+                .foregroundStyle(theme.colors.destructive)
                 .padding(.horizontal)
                 .accessibilityLabel("Error: \(errorMessage)")
             }
@@ -113,7 +114,7 @@ struct OnboardingAccountStep: View {
             .controlSize(.large)
             .disabled(addedAccounts.isEmpty)
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, theme.spacing.xxxl)
         .padding(.bottom, 40)
         .task {
             await loadExistingAccounts()

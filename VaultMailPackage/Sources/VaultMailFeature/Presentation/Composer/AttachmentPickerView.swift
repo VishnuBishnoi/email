@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 ///
 /// Spec ref: Email Composer FR-COMP-01
 struct AttachmentPickerView: View {
+    @Environment(ThemeProvider.self) private var theme
     @Binding var attachments: [AttachmentItem]
     @State private var showDocumentPicker = false
     @State private var showPhotoPicker = false
@@ -32,7 +33,7 @@ struct AttachmentPickerView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: theme.spacing.sm) {
             // Attachment list
             if !attachments.isEmpty {
                 ForEach(attachments) { item in
@@ -45,9 +46,9 @@ struct AttachmentPickerView: View {
                         "Attachments exceed \(AppConstants.maxAttachmentSizeMB) MB limit",
                         systemImage: "exclamationmark.triangle.fill"
                     )
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 16)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.destructive)
+                    .padding(.horizontal, theme.spacing.lg)
                 }
             }
 
@@ -66,11 +67,11 @@ struct AttachmentPickerView: View {
                 }
             } label: {
                 Label("Add Attachment", systemImage: "paperclip")
-                    .font(.subheadline)
+                    .font(theme.typography.bodyMedium)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, theme.spacing.lg)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, theme.spacing.sm)
         #if os(iOS)
         .sheet(isPresented: $showDocumentPicker) {
             DocumentPickerRepresentable { urls in
@@ -110,15 +111,15 @@ struct AttachmentPickerView: View {
     private func attachmentRow(for item: AttachmentItem) -> some View {
         HStack {
             Image(systemName: iconForMimeType(item.mimeType))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.colors.textSecondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.filename)
-                    .font(.subheadline)
+                    .font(theme.typography.bodyMedium)
                     .lineLimit(1)
                 Text(item.formattedSize)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
 
             Spacer()
@@ -132,13 +133,13 @@ struct AttachmentPickerView: View {
                 removeAttachment(item)
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.colors.textSecondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(item.filename)")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .padding(.horizontal, theme.spacing.lg)
+        .padding(.vertical, theme.spacing.xs)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(item.filename), \(item.formattedSize)")
         .accessibilityAction(named: "Remove") {
@@ -287,6 +288,7 @@ struct DocumentPickerRepresentable: UIViewControllerRepresentable {
 
 #Preview("No Attachments") {
     AttachmentPickerView(attachments: .constant([]))
+        .environment(ThemeProvider())
 }
 
 #Preview("With Attachments") {
@@ -295,6 +297,7 @@ struct DocumentPickerRepresentable: UIViewControllerRepresentable {
         AttachmentItem(filename: "photo.jpg", sizeBytes: 1_200_000, mimeType: "image/jpeg"),
         AttachmentItem(filename: "archive.zip", sizeBytes: 15_000_000, mimeType: "application/zip")
     ]))
+    .environment(ThemeProvider())
 }
 
 #Preview("Over Limit") {
@@ -302,4 +305,5 @@ struct DocumentPickerRepresentable: UIViewControllerRepresentable {
         AttachmentItem(filename: "large_video.mp4", sizeBytes: 20_000_000, mimeType: "video/mp4"),
         AttachmentItem(filename: "backup.zip", sizeBytes: 10_000_000, mimeType: "application/zip")
     ]))
+    .environment(ThemeProvider())
 }

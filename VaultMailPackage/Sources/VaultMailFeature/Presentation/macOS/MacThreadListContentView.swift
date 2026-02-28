@@ -10,6 +10,7 @@ import SwiftUI
 /// Spec ref: FR-MAC-04 (Thread List), FR-MAC-05 (Thread Interactions)
 struct MacThreadListContentView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
 
     let viewState: MacOSMainView.ViewState
     let threads: [VaultMailFeature.Thread]
@@ -21,9 +22,14 @@ struct MacThreadListContentView: View {
     let isOutboxSelected: Bool
     let outboxEmails: [Email]
     let hasMorePages: Bool
+    let shouldShowServerCatchUpSentinel: Bool
     let isLoadingMore: Bool
+    let syncStatusText: String?
+    let paginationError: Bool
     let isSyncing: Bool
     let errorMessage: String?
+    let searchQuery: String
+    let isSearching: Bool
     let accountColorProvider: (VaultMailFeature.Thread) -> Color?
 
     // Actions
@@ -63,105 +69,186 @@ struct MacThreadListContentView: View {
 
     @ViewBuilder
     private var contentBody: some View {
-        switch viewState {
-        case .loading:
-            VStack {
-                Spacer()
-                ProgressView("Loading emails...")
-                Spacer()
+        let trimmedSearch = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isSearchMode = !trimmedSearch.isEmpty
+
+        if isSearchMode {
+            if isSearching {
+                VStack {
+                    Spacer()
+                    ProgressView("Searching emails...")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if threads.isEmpty {
+                ContentUnavailableView.search(text: trimmedSearch)
+            } else {
+                threadList
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch viewState {
+            case .loading:
+                VStack {
+                    Spacer()
+                    ProgressView("Loading emails...")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        case .loaded:
-            threadList
+            case .loaded:
+                threadList
 
-        case .empty:
-            ContentUnavailableView(
-                "No Emails",
-                systemImage: "tray",
-                description: Text("Emails you receive will appear here.")
-            )
+            case .empty:
+                ContentUnavailableView(
+                    "No Emails",
+                    systemImage: "tray",
+                    description: Text("Emails you receive will appear here.")
+                )
 
-        case .emptyFiltered:
-            ContentUnavailableView {
-                Label("No Emails in This Category", systemImage: "line.3.horizontal.decrease.circle")
-            } description: {
-                Text("Try selecting a different category.")
-            } actions: {
-                Button("Show All") { selectedCategory = nil }
+            case .emptyFiltered:
+                ContentUnavailableView {
+                    Label("No Emails in This Category", systemImage: "line.3.horizontal.decrease.circle")
+                } description: {
+                    Text("Try selecting a different category.")
+                } actions: {
+                    Button("Show All") { selectedCategory = nil }
+                }
+
+            case .error(let msg):
+                ContentUnavailableView {
+                    Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(msg)
+                } actions: {
+                    Button("Retry") { onLoadMore() }
+                }
+
+            case .offline:
+                ContentUnavailableView(
+                    "You're Offline",
+                    systemImage: "wifi.slash",
+                    description: Text("Check your internet connection.")
+                )
             }
-
-        case .error(let msg):
-            ContentUnavailableView {
-                Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(msg)
-            } actions: {
-                Button("Retry") { onLoadMore() }
-            }
-
-        case .offline:
-            ContentUnavailableView(
-                "You're Offline",
-                systemImage: "wifi.slash",
-                description: Text("Check your internet connection.")
-            )
         }
     }
 
     // MARK: - Thread List
 
+    private var uniqueThreads: [VaultMailFeature.Thread] {
+        var seen = Set<String>()
+        var output: [VaultMailFeature.Thread] = []
+        output.reserveCapacity(threads.count)
+        for thread in threads where seen.insert(thread.id).inserted {
+            output.append(thread)
+        }
+        return output
+    }
+
     private var threadList: some View {
-        List(selection: $selectedThreadID) {
-            // Sync progress
-            if isSyncing {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Syncing…").font(.subheadline).foregroundStyle(.secondary)
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                // Sync progress
+                if isSyncing {
+                    HStack(spacing: theme.spacing.sm) {
+                        ProgressView().controlSize(.small)
+                        Text("Syncing…").font(theme.typography.bodyMedium).foregroundStyle(theme.colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, theme.spacing.lg)
+                    .padding(.vertical, theme.spacing.sm)
+                    .background(theme.colors.accent.opacity(0.05))
                 }
-                .listRowBackground(Color.accentColor.opacity(0.05))
-            }
 
-            // Error banner
-            if let errorMessage {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(errorMessage).font(.subheadline).lineLimit(2)
-                    Spacer()
+                // Error banner
+                if let errorMessage {
+                    HStack(spacing: theme.spacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(theme.colors.warning)
+                        Text(errorMessage).font(theme.typography.bodyMedium).lineLimit(2)
+                        Spacer()
+                    }
+                    .padding(.horizontal, theme.spacing.lg)
+                    .padding(.vertical, theme.spacing.xs)
+                    .background(theme.colors.warning.opacity(0.1))
                 }
-                .padding(.vertical, 4)
-                .listRowBackground(Color.orange.opacity(0.1))
-            }
 
-            // Outbox or regular threads
-            if isOutboxSelected {
-                ForEach(outboxEmails, id: \.id) { email in
-                    OutboxRowView(email: email, onRetry: {}, onCancel: {})
-                }
-            } else {
-                ForEach(threads, id: \.id) { thread in
-                    ThreadRowView(
-                        thread: thread,
-                        accountColor: accountColorProvider(thread),
-                        isMuted: settings.mutedThreadIds.contains(thread.id)
-                    )
-                    .tag(thread.id)
-                    .contextMenu { threadContextMenu(for: thread) }
-                }
-            }
+                // Outbox or regular threads
+                if isOutboxSelected {
+                    ForEach(outboxEmails, id: \.id) { email in
+                        OutboxRowView(email: email, onRetry: {}, onCancel: {})
+                            .padding(.horizontal, theme.spacing.lg)
+                        Divider().padding(.leading, theme.spacing.xxxl)
+                    }
+                } else {
+                    ForEach(Array(uniqueThreads.enumerated()), id: \.offset) { index, thread in
+                        MacThreadRow(
+                            thread: thread,
+                            isSelected: selectedThreadID == thread.id,
+                            accountColor: accountColorProvider(thread),
+                            isMuted: settings.mutedThreadIds.contains(thread.id),
+                            onTap: { selectedThreadID = thread.id }
+                        )
+                        .contextMenu { threadContextMenu(for: thread) }
+                        .onAppear {
+                            if !paginationError,
+                               !isLoadingMore,
+                               (hasMorePages || shouldShowServerCatchUpSentinel),
+                               index == uniqueThreads.count - 1 {
+                                onLoadMore()
+                            }
+                        }
 
-            // Pagination sentinel
-            if hasMorePages {
-                HStack {
-                    Spacer()
-                    ProgressView().padding(.vertical, 8)
-                    Spacer()
+                        Divider().padding(.leading, theme.spacing.xxxl)
+                    }
                 }
-                .listRowSeparator(.hidden)
-                .onAppear { onLoadMore() }
+
+                // Pagination sentinel
+                if let syncStatusText {
+                    HStack {
+                        Spacer()
+                        Text(syncStatusText)
+                            .font(theme.typography.bodyMedium)
+                            .foregroundStyle(theme.colors.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, theme.spacing.xs)
+                }
+
+                switch MacThreadListPaginationFooterMode.resolve(
+                    hasMorePages: hasMorePages,
+                    shouldShowServerCatchUpSentinel: shouldShowServerCatchUpSentinel,
+                    paginationError: paginationError
+                ) {
+                case .retry:
+                    Button("Retry") {
+                        onLoadMore()
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, theme.spacing.sm)
+                case .localSentinel:
+                    HStack {
+                        Spacer()
+                        ProgressView().padding(.vertical, theme.spacing.sm)
+                        Spacer()
+                    }
+                    .onAppear { onLoadMore() }
+                case .catchUpSentinel:
+                    HStack(spacing: theme.spacing.sm) {
+                        Spacer()
+                        ProgressView()
+                        Text("Loading older messages…")
+                            .font(theme.typography.bodyMedium)
+                            .foregroundStyle(theme.colors.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.vertical, theme.spacing.sm)
+                    .onAppear { onLoadMore() }
+                case .none:
+                    EmptyView()
+                }
             }
         }
-        .listStyle(.plain)
+        .background(theme.colors.background)
         .accessibilityLabel("Email threads")
     }
 
@@ -204,6 +291,71 @@ struct MacThreadListContentView: View {
                 thread.isStarred ? "Unstar" : "Star",
                 systemImage: thread.isStarred ? "star.slash" : "star"
             )
+        }
+    }
+}
+
+enum MacThreadListPaginationFooterMode {
+    case none
+    case retry
+    case localSentinel
+    case catchUpSentinel
+
+    static func resolve(
+        hasMorePages: Bool,
+        shouldShowServerCatchUpSentinel: Bool,
+        paginationError: Bool
+    ) -> MacThreadListPaginationFooterMode {
+        if paginationError {
+            return .retry
+        }
+        if hasMorePages {
+            return .localSentinel
+        }
+        if shouldShowServerCatchUpSentinel {
+            return .catchUpSentinel
+        }
+        return .none
+    }
+}
+
+// MARK: - Mac Thread Row (hover + selection)
+
+/// Wrapper that adds hover highlight and themed selection background to thread rows on macOS.
+private struct MacThreadRow: View {
+    let thread: VaultMailFeature.Thread
+    let isSelected: Bool
+    var accountColor: Color? = nil
+    var isMuted: Bool = false
+    let onTap: () -> Void
+
+    @Environment(ThemeProvider.self) private var theme
+    @State private var isHovered = false
+
+    var body: some View {
+        ThreadRowView(
+            thread: thread,
+            accountColor: accountColor,
+            isMuted: isMuted
+        )
+        .padding(.horizontal, theme.spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rowBackground)
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if isSelected {
+            theme.colors.surfaceSelected
+        } else if isHovered {
+            theme.colors.surfaceHovered
+        } else {
+            Color.clear
         }
     }
 }

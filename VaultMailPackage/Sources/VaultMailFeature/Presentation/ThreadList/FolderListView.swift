@@ -13,6 +13,7 @@ struct FolderListView: View {
     let onSelectOutbox: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeProvider.self) private var theme
 
     // MARK: - Folder Classification
 
@@ -112,7 +113,7 @@ struct FolderListView: View {
         } label: {
             HStack {
                 Label(folder.name, systemImage: isCustom ? "tag" : iconName(for: folder.folderType))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(theme.colors.textPrimary)
 
                 Spacer()
 
@@ -133,7 +134,7 @@ struct FolderListView: View {
         } label: {
             HStack {
                 Label("Outbox", systemImage: "tray.and.arrow.up")
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(theme.colors.textPrimary)
 
                 Spacer()
 
@@ -149,10 +150,10 @@ struct FolderListView: View {
 
     private func unreadBadge(count: Int) -> some View {
         Text("\(count)")
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(.secondary.opacity(0.2), in: Capsule())
+            .font(theme.typography.labelSmall)
+            .padding(.horizontal, theme.spacing.chipHorizontal / 2)
+            .padding(.vertical, theme.spacing.xxs)
+            .background(theme.colors.accentMuted, in: Capsule())
     }
 
     // MARK: - Accessibility

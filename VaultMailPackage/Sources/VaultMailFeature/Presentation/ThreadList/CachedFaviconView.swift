@@ -22,6 +22,7 @@ struct CachedFaviconView: View {
     let initials: String
     let initialsFontSize: CGFloat?
 
+    @Environment(ThemeProvider.self) private var theme
     @State private var faviconImage: PlatformImage?
     @State private var didFail = false
 
@@ -55,7 +56,7 @@ struct CachedFaviconView: View {
                         initialsFontSize.map { .system(size: $0) } ?? .caption
                     )
                     .fontWeight(.semibold)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textInverse)
             }
     }
 
@@ -97,6 +98,7 @@ struct CachedFaviconView: View {
         initialsFontSize: nil
     )
     .padding()
+    .environment(ThemeProvider())
 }
 
 #Preview("Unknown Domain") {
@@ -108,4 +110,5 @@ struct CachedFaviconView: View {
         initialsFontSize: nil
     )
     .padding()
+    .environment(ThemeProvider())
 }

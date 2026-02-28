@@ -1,77 +1,47 @@
 import SwiftUI
 
-/// Plain text body editor with formatting toolbar.
-///
-/// Provides bold, italic, and link buttons that insert Markdown-style
-/// syntax. Users don't type raw Markdown — the toolbar handles it.
-///
-/// Spec ref: Email Composer FR-COMP-01
+/// Plain text body editor (rich text removed).
 struct BodyEditorView: View {
+    @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var text: String
 
-    var body: some View {
-        VStack(spacing: 0) {
-            formattingToolbar
+    private var editorSurface: Color {
+        colorScheme == .dark ? Color(red: 0.14, green: 0.14, blue: 0.15) : .white
+    }
 
-            Divider()
+    private var editorPrimaryText: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var editorSecondaryText: Color {
+        colorScheme == .dark ? Color.white.opacity(0.64) : Color.black.opacity(0.56)
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Write your message...")
+                    .font(.body)
+                    .foregroundStyle(editorSecondaryText)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+            }
 
             TextEditor(text: $text)
                 .font(.body)
-                .frame(minHeight: 200)
+                .foregroundStyle(editorPrimaryText)
+                .frame(minHeight: 240)
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .accessibilityLabel("Email body")
         }
-    }
-
-    // MARK: - Formatting Toolbar
-
-    private var formattingToolbar: some View {
-        HStack(spacing: 16) {
-            Button {
-                insertMarkdown(prefix: "**", suffix: "**", placeholder: "bold text")
-            } label: {
-                Image(systemName: "bold")
-                    .font(.body)
-            }
-            .accessibilityLabel("Bold")
-
-            Button {
-                insertMarkdown(prefix: "*", suffix: "*", placeholder: "italic text")
-            } label: {
-                Image(systemName: "italic")
-                    .font(.body)
-            }
-            .accessibilityLabel("Italic")
-
-            Button {
-                insertMarkdown(prefix: "[", suffix: "](url)", placeholder: "link text")
-            } label: {
-                Image(systemName: "link")
-                    .font(.body)
-            }
-            .accessibilityLabel("Insert link")
-
-            Spacer()
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
-    }
-
-    // MARK: - Markdown Insertion
-
-    private func insertMarkdown(prefix: String, suffix: String, placeholder: String) {
-        // Insert at the end of current text (cursor position tracking
-        // requires UITextView interaction which adds complexity;
-        // append-based approach works well for V1)
-        if text.isEmpty {
-            text = "\(prefix)\(placeholder)\(suffix)"
-        } else {
-            text += "\(prefix)\(placeholder)\(suffix)"
-        }
+        .background(editorSurface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(theme.colors.border.opacity(0.35), lineWidth: 0.5)
+        )
     }
 }
 

@@ -12,6 +12,8 @@ import SwiftData
 /// Spec ref: FR-SET-01, FR-SET-02, FR-SET-03, FR-SET-04, FR-SET-05
 public struct SettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -29,6 +31,11 @@ public struct SettingsView: View {
     @State private var estimatedCacheSize: String = "…"
     @State private var errorMessage: String?
     @State private var notificationPermissionDenied = false
+
+    /// Forces UIKit-backed picker rows to re-instantiate when visual tokens change.
+    private var pickerRenderKey: String {
+        "\(settings.selectedThemeId)-\(settings.fontSize.rawValue)-\(settings.theme.rawValue)"
+    }
 
     /// Whether multi-provider support is available.
     private var hasMultiProvider: Bool {
@@ -77,6 +84,17 @@ public struct SettingsView: View {
         #endif
         .navigationTitle("Settings")
         .task { await loadAccounts() }
+        .tint(theme.colors.accent)
+        .onAppear {
+            theme.colorScheme = colorScheme
+            theme.fontScale = settings.fontSize.scale
+        }
+        .onChange(of: colorScheme) { _, newValue in
+            theme.colorScheme = newValue
+        }
+        .onChange(of: settings.fontSize) { _, newValue in
+            theme.fontScale = newValue.scale
+        }
         .sheet(isPresented: $showProviderSelection) {
             if let discovery = providerDiscovery, let connTest = connectionTestUseCase {
                 ProviderSelectionView(
@@ -145,9 +163,16 @@ public struct SettingsView: View {
             // Undo send delay picker (FR-SET-01, FR-COMP-02)
             Picker("Undo Send Delay", selection: $settings.undoSendDelay) {
                 ForEach(UndoSendDelay.allCases, id: \.self) { delay in
-                    Text(delay.displayLabel).tag(delay)
+                    Text(delay.displayLabel)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .tag(delay)
                 }
             }
+            .font(theme.typography.bodyLarge)
+            .tint(theme.colors.accent)
+            .foregroundStyle(theme.colors.textPrimary)
+            .id("undo-picker-\(pickerRenderKey)")
             .accessibilityLabel("Undo send delay")
             .accessibilityValue(settings.undoSendDelay.displayLabel)
         }
@@ -157,14 +182,60 @@ public struct SettingsView: View {
     private var appearanceSection: some View {
         @Bindable var settings = settings
         Section("Appearance") {
-            // Theme picker (FR-SET-01)
+            // Color scheme picker (FR-SET-01)
             Picker("Theme", selection: $settings.theme) {
-                ForEach(AppTheme.allCases, id: \.self) { theme in
-                    Text(theme.displayLabel).tag(theme)
+                ForEach(AppTheme.allCases, id: \.self) { appTheme in
+                    Text(appTheme.displayLabel)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .tag(appTheme)
                 }
             }
+            .font(theme.typography.bodyLarge)
+            .tint(theme.colors.accent)
+            .foregroundStyle(theme.colors.textPrimary)
+            .id("appearance-theme-picker-\(pickerRenderKey)")
             .accessibilityLabel("App theme")
             .accessibilityValue(settings.theme.displayLabel)
+
+            Picker("Font Size", selection: $settings.fontSize) {
+                ForEach(AppFontSize.allCases, id: \.self) { size in
+                    Text(size.displayLabel)
+                        .font(theme.typography.bodyLarge)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .tag(size)
+                }
+            }
+            .font(theme.typography.bodyLarge)
+            .tint(theme.colors.accent)
+            .foregroundStyle(theme.colors.textPrimary)
+            .id("appearance-fontsize-picker-\(pickerRenderKey)")
+            .accessibilityLabel("App font size")
+            .accessibilityValue(settings.fontSize.displayLabel)
+            .onChange(of: settings.fontSize) { _, newValue in
+                theme.fontScale = newValue.scale
+            }
+
+            // Color theme picker grid (FR-SET-02)
+            VStack(alignment: .leading, spacing: theme.spacing.md) {
+                Text("Color Theme")
+                    .font(theme.typography.labelMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 70), spacing: theme.spacing.lg)], spacing: theme.spacing.lg) {
+                    ForEach(ThemeRegistry.allThemes, id: \.id) { availableTheme in
+                        ThemePickerCell(
+                            theme: availableTheme,
+                            isSelected: settings.selectedThemeId == availableTheme.id,
+                            onSelect: {
+                                settings.selectedThemeId = availableTheme.id
+                                theme.apply(availableTheme.id)
+                            }
+                        )
+                    }
+                }
+            }
+            .padding(.vertical, theme.spacing.xs)
 
             // Category tab toggles (FR-SET-01, Thread List FR-TL-02)
             NavigationLink("Category Tabs") {
@@ -357,21 +428,24 @@ public struct SettingsView: View {
 struct AccountRowView: View {
     let account: Account
 
+    @Environment(ThemeProvider.self) private var theme
+
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: theme.spacing.xxs) {
                 Text(account.email)
-                    .font(.body)
+                    .font(theme.typography.bodyLarge)
+                    .foregroundStyle(theme.colors.textPrimary)
                 if !account.isActive {
                     Label("Re-authenticate", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                        .font(theme.typography.caption)
+                        .foregroundStyle(theme.colors.warning)
                 }
             }
             Spacer()
             if !account.isActive {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.colors.warning)
                     .accessibilityHidden(true) // Announced via label above
             }
         }
@@ -411,6 +485,7 @@ struct NotificationToggleRow: View {
 /// Spec ref: FR-SET-01 Appearance section
 struct CategoryTabsSettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(ThemeProvider.self) private var theme
     let modelManager: ModelManager
 
     @State private var isAIAvailable = false
@@ -431,8 +506,8 @@ struct CategoryTabsSettingsView: View {
                         "Download the AI model to enable smart categories.",
                         systemImage: "arrow.down.circle"
                     )
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(theme.typography.bodyMedium)
+                    .foregroundStyle(theme.colors.textSecondary)
                 }
             }
 
