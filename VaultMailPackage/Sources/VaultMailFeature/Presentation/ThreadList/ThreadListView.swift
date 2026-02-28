@@ -124,8 +124,8 @@ struct ThreadListView: View {
     // Move-to-folder sheet for multi-select (Comment 7)
     @State private var showMoveSheet = false
 
-    // IMAP IDLE monitoring task (FR-SYNC-03 real-time updates)
-    @State private var idleTask: Task<Void, Never>?
+    // IMAP IDLE monitoring tasks keyed by account ID (FR-SYNC-03 real-time updates)
+    @State private var idleTasks: [String: Task<Void, Never>] = [:]
 
     // Background sync task — stored so it can be cancelled on timeout or disappear
     @State private var syncTask: Task<Void, Never>?
@@ -919,6 +919,8 @@ struct ThreadListView: View {
                 return
             }
 
+            _ = await notificationCoordinator.requestAuthorization()
+
             selectedAccount = firstAccount
 
             // Load folders for the selected account
@@ -1074,66 +1076,76 @@ struct ThreadListView: View {
 
     // MARK: - IMAP IDLE Monitoring (FR-SYNC-03)
 
-    /// Starts monitoring the current folder for new mail via IMAP IDLE.
+    /// Starts monitoring inbox folders for active accounts via IMAP IDLE.
     ///
     /// On `.newMail` events, triggers an incremental folder sync and reloads threads.
     /// Automatically cancels when the folder/account changes or view disappears.
     private func startIDLEMonitor() {
-        // Cancel any existing monitor
+        // Cancel any existing monitor(s)
         stopIDLEMonitor()
 
-        guard let monitor = idleMonitor,
-              let accountId = selectedAccount?.id,
-              let selectedFolder,
-              FolderType(rawValue: selectedFolder.folderType) != nil else {
+        guard let monitor = idleMonitor else {
             return
         }
-        let folderPath = selectedFolder.imapPath
-        let folderId = selectedFolder.id
 
-        NSLog("[IDLE] Starting monitor for \(folderPath)")
-        idleTask = Task {
-            var retryDelay: Duration = .seconds(2)
-            let maxDelay: Duration = .seconds(30)
+        let monitoredAccounts = accounts.filter { $0.isActive }
+        for account in monitoredAccounts {
+            idleTasks[account.id] = Task {
+                var retryDelay: Duration = .seconds(2)
+                let maxDelay: Duration = .seconds(30)
 
-            while !Task.isCancelled {
-                let stream = monitor.monitor(accountId: accountId, folderImapPath: folderPath)
-                for await event in stream {
-                    guard !Task.isCancelled else { break }
-                    switch event {
-                    case .newMail:
-                        NSLog("[IDLE] New mail notification, syncing folder...")
-                        let result = try? await syncEmails.syncFolder(
-                            accountId: accountId,
-                            folderId: folderId,
-                            options: .incremental
-                        )
-                        let syncedEmails = result?.newEmails ?? []
-                        await loadThreadsAndCounts()
-                        runAIClassification(for: syncedEmails)
-                        // Notify notification coordinator about IDLE-delivered emails (NOTIF-03)
-                        await notificationCoordinator.didSyncNewEmails(
-                            syncedEmails,
-                            fromBackground: false
-                        )
-                        retryDelay = .seconds(2) // reset on success
-                    case .disconnected:
-                        NSLog("[IDLE] Monitor disconnected, will retry in \(retryDelay)")
+                while !Task.isCancelled {
+                    let inboxFolder: Folder?
+                    if selectedAccount?.id == account.id {
+                        inboxFolder = folders.first(where: { $0.folderType == FolderType.inbox.rawValue })
+                    } else {
+                        inboxFolder = try? await fetchThreads.fetchFolders(accountId: account.id)
+                            .first(where: { $0.folderType == FolderType.inbox.rawValue })
                     }
-                }
+                    guard let inboxFolder else { return }
 
-                // Stream ended — retry with exponential backoff
-                guard !Task.isCancelled else { break }
-                try? await Task.sleep(for: retryDelay)
-                retryDelay = min(retryDelay * 2, maxDelay)
+                    let stream = monitor.monitor(accountId: account.id, folderImapPath: inboxFolder.imapPath)
+                    for await event in stream {
+                        guard !Task.isCancelled else { break }
+                        switch event {
+                        case .newMail:
+                            NSLog("[IDLE] New mail on \(account.email), syncing inbox...")
+                            let result = try? await syncEmails.syncFolder(
+                                accountId: account.id,
+                                folderId: inboxFolder.id,
+                                options: .incremental
+                            )
+                            let syncedEmails = result?.newEmails ?? []
+
+                            if selectedAccount?.id == account.id {
+                                await loadThreadsAndCounts()
+                            }
+
+                            runAIClassification(for: syncedEmails)
+                            await notificationCoordinator.didSyncNewEmails(
+                                syncedEmails,
+                                fromBackground: false
+                            )
+                            retryDelay = .seconds(2)
+                        case .disconnected:
+                            NSLog("[IDLE] Monitor disconnected for \(account.email), retry in \(retryDelay)")
+                        }
+                    }
+
+                    guard !Task.isCancelled else { break }
+                    try? await Task.sleep(for: retryDelay)
+                    retryDelay = min(retryDelay * 2, maxDelay)
+                }
             }
         }
     }
 
     /// Stops the IMAP IDLE monitor.
     private func stopIDLEMonitor() {
-        idleTask?.cancel()
-        idleTask = nil
+        for task in idleTasks.values {
+            task.cancel()
+        }
+        idleTasks.removeAll()
     }
 
     /// Reload threads for current account/folder/category selection.
@@ -1361,6 +1373,9 @@ struct ThreadListView: View {
     private func toggleReadStatus(_ thread: Thread) async {
         do {
             try await manageThreadActions.toggleReadStatus(threadId: thread.id)
+            if thread.unreadCount > 0 {
+                await notificationCoordinator.didMarkThreadRead(threadId: thread.id)
+            }
             await reloadThreads()
         } catch {
             withAnimation { errorToastMessage = "Failed to update read status" }

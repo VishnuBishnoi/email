@@ -122,7 +122,7 @@ public struct MacOSMainView: View {
     // Sync
     @State private var isSyncing = false
     @State private var syncTask: Task<Void, Never>?
-    @State private var idleTask: Task<Void, Never>?
+    @State private var idleTasks: [String: Task<Void, Never>] = [:]
 
     // Search
     @State private var searchText = ""
@@ -283,7 +283,7 @@ public struct MacOSMainView: View {
                 }
             }
             .onDisappear {
-                idleTask?.cancel()
+                stopIDLEMonitor()
                 syncTask?.cancel()
             }
             .task(id: SearchDebounceTrigger(text: searchText, selectedFolderId: selectedFolder?.id, selectedAccountId: selectedAccount?.id)) {
@@ -701,6 +701,8 @@ public struct MacOSMainView: View {
                 hasLoaded = true
                 return
             }
+
+            _ = await notificationCoordinator.requestAuthorization()
 
             // Load folders for ALL accounts so the sidebar shows every folder tree
             var combined: [Folder] = []
@@ -1130,6 +1132,9 @@ public struct MacOSMainView: View {
     private func toggleRead(_ thread: VaultMailFeature.Thread) async {
         do {
             try await manageThreadActions.toggleReadStatus(threadId: thread.id)
+            if thread.unreadCount > 0 {
+                await notificationCoordinator.didMarkThreadRead(threadId: thread.id)
+            }
             await loadThreadsAndCounts()
         } catch {
             errorMessage = "Couldn't update read status."
@@ -1163,36 +1168,53 @@ public struct MacOSMainView: View {
     // MARK: - IDLE Monitor
 
     private func startIDLEMonitor() {
-        idleTask?.cancel()
-        guard let monitor = idleMonitor,
-              let accountId = selectedAccount?.id,
-              let folder = selectedFolder else { return }
-        let folderId = folder.id
-        let folderPath = folder.imapPath
+        stopIDLEMonitor()
+        guard let monitor = idleMonitor else { return }
 
-        idleTask = Task {
-            var retryDelay: Duration = .seconds(2)
-            while !Task.isCancelled {
-                let stream = monitor.monitor(accountId: accountId, folderImapPath: folderPath)
-                for await event in stream {
-                    guard !Task.isCancelled else { break }
-                    if case .newMail = event {
-                        let syncedEmails = (try? await syncEmails.syncFolder(accountId: accountId, folderId: folderId)) ?? []
-                        runAIClassification(for: syncedEmails)
-                        await loadThreadsAndCounts()
-                        // Notify notification coordinator about IDLE-delivered emails (NOTIF-03)
-                        await notificationCoordinator.didSyncNewEmails(
-                            syncedEmails,
-                            fromBackground: false
-                        )
-                        retryDelay = .seconds(2)
+        let monitoredAccounts = accounts.filter { $0.isActive }
+        for account in monitoredAccounts {
+            idleTasks[account.id] = Task {
+                var retryDelay: Duration = .seconds(2)
+                while !Task.isCancelled {
+                    let inbox = allFolders.first {
+                        $0.account?.id == account.id && $0.folderType == FolderType.inbox.rawValue
                     }
+                    guard let inbox else { return }
+
+                    let stream = monitor.monitor(accountId: account.id, folderImapPath: inbox.imapPath)
+                    for await event in stream {
+                        guard !Task.isCancelled else { break }
+                        if case .newMail = event {
+                            let result = try? await syncEmails.syncFolder(
+                                accountId: account.id,
+                                folderId: inbox.id,
+                                options: .incremental
+                            )
+                            let syncedEmails = result?.newEmails ?? []
+                            runAIClassification(for: syncedEmails)
+                            if selectedAccount?.id == account.id {
+                                await loadThreadsAndCounts()
+                            }
+                            await notificationCoordinator.didSyncNewEmails(
+                                syncedEmails,
+                                fromBackground: false
+                            )
+                            retryDelay = .seconds(2)
+                        }
+                    }
+                    guard !Task.isCancelled else { break }
+                    try? await Task.sleep(for: retryDelay)
+                    retryDelay = min(retryDelay * 2, .seconds(30))
                 }
-                guard !Task.isCancelled else { break }
-                try? await Task.sleep(for: retryDelay)
-                retryDelay = min(retryDelay * 2, .seconds(30))
             }
         }
+    }
+
+    private func stopIDLEMonitor() {
+        for task in idleTasks.values {
+            task.cancel()
+        }
+        idleTasks.removeAll()
     }
 
     // MARK: - Sidebar Account Actions
